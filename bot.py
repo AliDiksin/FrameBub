@@ -6083,6 +6083,7 @@ QUIZ_CHARACTER_TERMS_CACHE = None
 QUIZ_MOVE_NAME_TERMS_CACHE = None
 QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = None
 QUIZ_VALID_MODES = {"easy", "medium", "hard"}
+QUIZ_START_LOCK = asyncio.Lock()
 
 
 # ==================== QUIZ FEATURE ====================
@@ -7122,111 +7123,125 @@ async def start_quiz(
     """Initialize and send one quiz question in the channel."""
     mode_key = _quiz_normalize_mode(mode)
     channel_id = message.channel.id
-    if channel_id in ACTIVE_QUIZZES:
+    if QUIZ_START_LOCK.locked():
         try:
-            await message.reply(
-                "A quiz is already running. Mention me and say `stop quiz` to end it."
-            )
+            await message.reply("A quiz is already being prepared. Please wait a moment.")
         except Exception as e:
-            print(f"[quiz] already-running reply error: {e}", flush=True)
+            if is_deleted_message_reference_error(e):
+                try:
+                    await message.channel.send("A quiz is already being prepared. Please wait a moment.")
+                except Exception as send_error:
+                    print(f"[quiz] locked-start send error: {send_error}", flush=True)
+            else:
+                print(f"[quiz] locked-start reply error: {e}", flush=True)
         return
 
-    char_key, row = pick_quiz_move(mode=mode_key)
-    if not char_key:
+    async with QUIZ_START_LOCK:
+        if channel_id in ACTIVE_QUIZZES:
+            try:
+                await message.reply(
+                    "A quiz is already running. Mention me and say `stop quiz` to end it."
+                )
+            except Exception as e:
+                print(f"[quiz] already-running reply error: {e}", flush=True)
+            return
+
+        char_key, row = pick_quiz_move(mode=mode_key)
+        if not char_key:
+            try:
+                await message.reply(f"No frame data is available for {mode_key} mode.")
+            except Exception as e:
+                print(f"[quiz] no-data reply error: {e}", flush=True)
+            return
+
+        normalized_scores = {}
+        if isinstance(session_scores, dict):
+            for raw_uid, raw_points in session_scores.items():
+                try:
+                    uid = int(raw_uid)
+                    pts = int(raw_points)
+                except Exception:
+                    continue
+                if pts < 0:
+                    continue
+                normalized_scores[uid] = pts
+
+        normalized_score_names = {}
+        if isinstance(session_score_names, dict):
+            for raw_uid, raw_name in session_score_names.items():
+                try:
+                    uid = int(raw_uid)
+                except Exception:
+                    continue
+                normalized_score_names[uid] = _quiz_clean_display_name(raw_name)
+
+        for uid in normalized_scores.keys():
+            if uid not in normalized_score_names:
+                normalized_score_names[uid] = _quiz_clean_display_name(f"User {uid}")
+
         try:
-            await message.reply(f"No frame data is available for {mode_key} mode.")
-        except Exception as e:
-            print(f"[quiz] no-data reply error: {e}", flush=True)
-        return
+            round_num = max(1, int(session_round))
+        except Exception:
+            round_num = 1
 
-    normalized_scores = {}
-    if isinstance(session_scores, dict):
-        for raw_uid, raw_points in session_scores.items():
-            try:
-                uid = int(raw_uid)
-                pts = int(raw_points)
-            except Exception:
-                continue
-            if pts < 0:
-                continue
-            normalized_scores[uid] = pts
+        try:
+            owner_user_id = int(session_owner_user_id)
+        except Exception:
+            owner_user_id = int(message.author.id)
 
-    normalized_score_names = {}
-    if isinstance(session_score_names, dict):
-        for raw_uid, raw_name in session_score_names.items():
-            try:
-                uid = int(raw_uid)
-            except Exception:
-                continue
-            normalized_score_names[uid] = _quiz_clean_display_name(raw_name)
+        normalized_message_ids = _quiz_normalize_message_ids(session_message_ids)
 
-    for uid in normalized_scores.keys():
-        if uid not in normalized_score_names:
-            normalized_score_names[uid] = _quiz_clean_display_name(f"User {uid}")
+        numcmd = str(row.get("numCmd", "")).strip().lower()
+        quiz_state = {
+            "channel_id": channel_id,
+            "owner_user_id": owner_user_id,
+            "total_rounds": 1,
+            "round": round_num,
+            "scores": normalized_scores,
+            "score_names": normalized_score_names,
+            "char_key": char_key,
+            "numcmd": numcmd,
+            "row": row,
+            "mode": mode_key,
+            "answered": False,
+            "awaiting_choice": False,
+            "asked": {(char_key, numcmd)},
+            "message_ids": normalized_message_ids,
+        }
 
-    try:
-        round_num = max(1, int(session_round))
-    except Exception:
-        round_num = 1
+        answer_char = str(row.get("char_name", char_key.capitalize())).strip()
+        answer_move = str(row.get("moveName", "?")).strip()
+        answer_numcmd = str(row.get("numCmd", "?")).strip()
+        print(
+            f"[quiz] answer-key channel_id={channel_id} round={round_num} mode={mode_key} "
+            f"char={answer_char} move={answer_move} numcmd={answer_numcmd}",
+            flush=True,
+        )
 
-    try:
-        owner_user_id = int(session_owner_user_id)
-    except Exception:
-        owner_user_id = int(message.author.id)
+        ACTIVE_QUIZZES[channel_id] = quiz_state
+        QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+        QUIZ_PENDING_MODE.pop(channel_id, None)
 
-    normalized_message_ids = _quiz_normalize_message_ids(session_message_ids)
+        thinking_message = await _quiz_send_thinking_message(message)
 
-    numcmd = str(row.get("numCmd", "")).strip().lower()
-    quiz_state = {
-        "channel_id": channel_id,
-        "owner_user_id": owner_user_id,
-        "total_rounds": 1,
-        "round": round_num,
-        "scores": normalized_scores,
-        "score_names": normalized_score_names,
-        "char_key": char_key,
-        "numcmd": numcmd,
-        "row": row,
-        "mode": mode_key,
-        "answered": False,
-        "awaiting_choice": False,
-        "asked": {(char_key, numcmd)},
-        "message_ids": normalized_message_ids,
-    }
+        question_text, question_embed = await build_quiz_question_message(
+            message.channel,
+            round_num,
+            1,
+            row,
+            mode=mode_key,
+        )
+        sent = await _quiz_publish_from_placeholder(
+            message.channel,
+            thinking_message,
+            question_text,
+            embed=question_embed,
+        )
+        if sent is None:
+            ACTIVE_QUIZZES.pop(channel_id, None)
+            return
 
-    answer_char = str(row.get("char_name", char_key.capitalize())).strip()
-    answer_move = str(row.get("moveName", "?")).strip()
-    answer_numcmd = str(row.get("numCmd", "?")).strip()
-    print(
-        f"[quiz] answer-key channel_id={channel_id} round={round_num} mode={mode_key} "
-        f"char={answer_char} move={answer_move} numcmd={answer_numcmd}",
-        flush=True,
-    )
-
-    ACTIVE_QUIZZES[channel_id] = quiz_state
-    QUIZ_PENDING_ANOTHER.pop(channel_id, None)
-    QUIZ_PENDING_MODE.pop(channel_id, None)
-
-    thinking_message = await _quiz_send_thinking_message(message)
-
-    question_text, question_embed = await build_quiz_question_message(
-        message.channel,
-        round_num,
-        1,
-        row,
-        mode=mode_key,
-    )
-    sent = await _quiz_publish_from_placeholder(
-        message.channel,
-        thinking_message,
-        question_text,
-        embed=question_embed,
-    )
-    if sent is None:
-        ACTIVE_QUIZZES.pop(channel_id, None)
-        return
-
-    _quiz_track_message_id(quiz_state, getattr(sent, "id", None))
+        _quiz_track_message_id(quiz_state, getattr(sent, "id", None))
 
 
 async def prompt_quiz_mode_selection(
