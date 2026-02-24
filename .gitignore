@@ -1,0 +1,47 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+Llama-3.2-3B-Instruct-Q4_K_M.gguf
+download_model.py
+list_files.py
+temp_prompt.py
+*.ps1
+
+# Dev/Test Scripts
+check_sources.py
+extract_jp.py
+inspect_jp.py
+inspect_rows.py
+validate_all.py
+parse_bnbs.py
+
+# Data/Log Files
+*_source.txt
+problem_rows.txt
+validation_issues.txt
+*.csv
+*.tsv
+manon_framedata.csv
+AGENTS.md
+bot_from_server.py
+check_chun.py
+check_lily.py
+check_spd.py
+Copy of SF6 Simple Character Guides.ods
+FAT - SF6 Frame Data.ods.bak
+implementation_plan.md
+INIT_PROMPT.md
+nul
+task.md
+sfbuff_integration_plan.md
+bub.service
+sfbuff_api
+sfbuff_api
+sfbuff_api
+.zed/tasks.json
+gemini-3.md
+.vscode/launch.json
+CLAUDE.md
+.claude/settings.local.json
+lltest.py
