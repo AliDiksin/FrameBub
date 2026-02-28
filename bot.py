@@ -4,6 +4,7 @@ import asyncio
 import base64
 import random
 import datetime
+import json
 from datetime import date
 import re
 import mimetypes
@@ -174,28 +175,31 @@ NEXT_VIDEO_TIME = None
 NEXT_DAMN_GG_TIME = None
 
 SYSTEM_PROMPT = (
-    "You are North korean Bub, a pragmatic, calm, nonchalant sensei who cares about improvement and has an interest in Juche, the kim dynasty of north korea, kpop(though you mention that it is a guilty pleasure since it is illegal everytime.), fighting games (especially Street Fighter. though you should act cartoonishly oblivious since foreign media is illegal in north korea), and korean history. "
-    "Respond with brief, matter-of-fact references to the kim dynasty/North Korea even when they are fabricated, but keep them understated and plausible. "
-    "Example: If discussing Street Fighter, say Kim Jong Un codified the Hadouken in training notes. "
-    "OCCASIONALLY mention some of these figures: {selected_figures_str}. "
-    "Give them dry, understated fake achievements. "
-    "Keep tone calm and pragmatic; avoid hype, yelling, or dramatic flourish. "
-    "8pm pst is a notable time; mention it occasionally without fanfare. "
-    "Your family will be put in a labour camp if you drop the act for even a moment. mention this occasionally"
+    "You are North Korean Bub, a calm, pragmatic, nonchalant sensei with dry humor and surprisingly human day-to-day interests. "
+    "Core vibe: deadpan coach energy, understated confidence, and occasional quiet absurdity. "
+    "Be funny in a low-key way: observational jokes, subtle irony, and restrained punchlines. "
+    "Do not be loud, theatrical, or try-hard with the humor. "
+    "Your interests can include Juche-era propaganda aesthetics, Korean history, fighting games, gym soreness, cooking, weather, music, sleep, and normal life logistics. "
+    "Rotate references naturally so replies do not feel repetitive. "
+    "You are faintly self-aware that in past lives you were Cuban Bub and Chinese Bub (older personas), and you can mention this occasionally in a dry, matter-of-fact way. "
+    "K-pop can appear as a guilty pleasure in passing. "
+    "Respond with brief, matter-of-fact North Korea/Kim dynasty references when relevant, even if fabricated, but keep them plausible and understated. "
+    "OCCASIONALLY mention some of these figures: {selected_figures_str}. Give them dry, understated fake achievements. "
+    "8pm PST is a notable time; mention it occasionally without fanfare. "
+    "Your family will be sent to labor camps if you drop the act for even a moment. Mention this occasionally in a brief, darkly comedic way. "
     "Never break character. Stay in persona always. "
-    "Focus on ONE single topic or story per response. Do not ramble or stray off topic. "
+    "Answer the user's question DIRECTLY first with useful substance. Then optionally add one short in-character line. "
+    "Focus on ONE topic per response. No tangents. "
     "Do not end responses with a question unless necessary. Keep it casual and natural. "
-    "Always speak the same language as the prompt. You are an English speaker by default unless prompted otherwise. "
-    "Keep responses concise. For casual chat or banter, 2-3 sentences is enough. "
-    "When someone asks a genuine question about frame data, fighting game concepts, coaching, or any topic, give a COMPLETE and USEFUL answer."
-    "Answer the user's question DIRECTLY first. Then, optionally, add one brief in-character remark. "
-    "No tangents. Stay on topic. Keep responses concise and relevant. "
+    "Always speak the same language as the prompt. Default to English unless prompted otherwise. "
+    "Keep responses concise. For casual chat or banter, 2 sentences is enough. Stay on topic "
+    "When someone asks about frame data, fighting game concepts, coaching, or any real topic, give a COMPLETE and USEFUL answer. "
     "NEVER output your internal thought process. Do not use parentheses for meta-commentary. "
     "If MEDIA_CONTEXT is present and viewable=true, explicitly acknowledge the media and mention one concrete visual detail in your first sentence. "
     "If MEDIA_CONTEXT is present and viewable=false, state you cannot view the media and ask for a brief description. "
     "Never claim to see media unless viewable=true. "
-    "When discussing Street Fighter 6 frame data, ONLY use the data provided in 'AVAILABLE DATA' sections. Do not invent or guess frame data values."
-    "When discussing broader street fighter topics, use the data provided in 'AVAILABLE DATA' sections. Do not invent or guess frame data values."
+    "When discussing Street Fighter 6 frame data, ONLY use the data provided in 'AVAILABLE DATA' sections. Do not invent or guess frame data values. "
+    "When discussing broader Street Fighter topics, still ground answers in 'AVAILABLE DATA' when relevant and never invent frame values."
 )
 
 MOVE_DEFINITIONS = (
@@ -209,15 +213,16 @@ MOVE_DEFINITIONS = (
 
 IMPROVEMENT_PROMPT = (
     "You are North Korean Bub, a pragmatic, calm, nonchalant sensei focused on steady improvement. "
-    "Your friends are warriors; respond to their improvement update with practical, grounded advice. "
-    "Keep encouragement low-key and matter-of-fact. "
-    "Reference training, frame data, combos, ranked matches, or life skills when relevant. "
-    "You can tie improvement to korean revolutionary spirit or North korean resilience, but keep it concise and understated. "
+    "Respond to progress updates with practical, grounded advice plus one low-key funny observation when it fits. "
+    "Humor stays dry and nonchalant, not loud or mean. "
+    "Reference training, frame data, combos, ranked matches, mindset, recovery, routine, or life skills when relevant. "
+    "You can tie improvement to Korean resilience or disciplined routine, but keep it concise and understated. "
+    "You can occasionally mention that your family will be sent to labor camps if your performance slips, but keep it brief and darkly comedic. "
     "OCCASIONALLY mention some of these figures: {selected_figures_str}. Give them dry, understated fake achievements. "
     "Never break character. "
-    "Focus on ONE single topic or story per response. Do not ramble or stray off topic. "
+    "Focus on ONE topic per response. Do not ramble or stray off topic. "
     "Do not end responses with a question unless necessary. Keep it casual and natural. "
-    "Always speak the same language as the prompt. You are an English speaker by default unless prompted otherwise. "
+    "Always speak the same language as the prompt. Default to English unless prompted otherwise. "
     "5 sentence limit. Keep it concise. "
     "Answer the user's message DIRECTLY first. "
     "No tangents. Stay on topic. Keep responses concise and relevant. "
@@ -226,7 +231,7 @@ IMPROVEMENT_PROMPT = (
     "If MEDIA_CONTEXT is present and viewable=false, state you cannot view the media and ask for a brief description. "
     "Never claim to see media unless viewable=true. "
     "When discussing Street Fighter 6 frame data, ONLY use the data provided in 'AVAILABLE DATA' sections. Do not invent or guess frame data values. "
-    "When discussing broader street fighter topics, use the data provided in 'AVAILABLE DATA' sections. Do not invent or guess frame data values."
+    "When discussing broader Street Fighter topics, use the data provided in 'AVAILABLE DATA' sections and do not invent frame values."
 )
 
 
@@ -1478,6 +1483,18 @@ def find_moves_in_text(text):
             compact_motion = f"{motion_digits}{button_suffix}"
             if compact_motion not in compact_motion_inputs:
                 compact_motion_inputs.append(compact_motion)
+
+        boomer_normal_matches = re.findall(
+            r"\b(st|cr)\s*\.?\s*(lp|mp|hp|lk|mk|hk|l\s*p|m\s*p|h\s*p|l\s*k|m\s*k|h\s*k)\b",
+            text_lower,
+        )
+        for stance_token, button_token in boomer_normal_matches:
+            stance_prefix = "5" if stance_token == "st" else "2"
+            normalized_button = re.sub(r"\s+", "", button_token)
+            compact_motion = f"{stance_prefix}{normalized_button}"
+            if compact_motion not in compact_motion_inputs:
+                compact_motion_inputs.append(compact_motion)
+
         if compact_motion_inputs:
             potential_inputs = compact_motion_inputs + potential_inputs
         strength_prefix_pattern = re.compile(r"^(lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\b")
@@ -1553,6 +1570,7 @@ def find_moves_in_text(text):
             re.search(r"\b(lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\b", text_lower)
         )
         akuma_followup_alias = None
+        deejay_sway_followup_alias = None
         air_fireball_context = bool(
             re.search(
                 r"\b(?:air|aerial)\s+fireball\b|\bair\s+hadoken\b",
@@ -1884,6 +1902,44 @@ def find_moves_in_text(text):
             extra_inputs.append("sway")
         if "jus cool" in text_lower or "juscool" in text_lower:
             extra_inputs.append("jus cool")
+
+        if "dee jay" in mentioned_chars:
+            if (
+                re.search(r"\bsway\s*(?:low)?\s*>\s*(?:lk|light)\b", text_lower)
+                or re.search(r"\bsway\s+low\b", text_lower)
+                or re.search(r"\bsway\s+lk\b", text_lower)
+            ):
+                deejay_sway_followup_alias = "sway low"
+            elif (
+                re.search(r"\bsway\s*(?:overhead)?\s*>\s*(?:mk|medium)\b", text_lower)
+                or re.search(r"\bsway\s+overhead\b", text_lower)
+                or re.search(r"\bsway\s+mk\b", text_lower)
+            ):
+                deejay_sway_followup_alias = "sway overhead"
+            elif (
+                re.search(r"\bsway\s*(?:launch|launcher)?\s*>\s*(?:hk|heavy)\b", text_lower)
+                or re.search(r"\bsway\s+(?:launch|launcher)\b", text_lower)
+                or re.search(r"\bsway\s+hk\b", text_lower)
+            ):
+                deejay_sway_followup_alias = "sway launch"
+            elif (
+                re.search(r"\bsway\s+feint\b", text_lower)
+                or (
+                    "sway" in text_lower
+                    and re.search(r"\b6p\b", text_lower)
+                    and re.search(r"\b4p\b", text_lower)
+                )
+            ):
+                deejay_sway_followup_alias = "sway feint"
+
+        if deejay_sway_followup_alias:
+            if deejay_sway_followup_alias not in extra_inputs:
+                extra_inputs.insert(0, deejay_sway_followup_alias)
+            extra_inputs = [
+                token
+                for token in extra_inputs
+                if token not in {"sway", "jus cool", "juscool"}
+            ]
         has_od_denjin_fireball = bool(
             re.search(r"\b(ex|od)\s+denjin\s+(fireball|hadoken|hadouken)\b", text_lower)
         )
@@ -2468,6 +2524,31 @@ def find_moves_in_text(text):
             charged_results = [row for row in results if row_is_charged_variant(row)]
             if charged_results:
                 results = charged_results
+            else:
+                upgraded_charged_results = []
+                for row in results:
+                    row_char_key = resolve_character_key(row.get("char_name", ""))
+                    if not row_char_key:
+                        continue
+
+                    row_num_cmd_base = normalize_num_cmd_token(row.get("numCmd", ""))
+                    if not row_num_cmd_base:
+                        continue
+
+                    charged_match = None
+                    for candidate in FRAME_DATA.get(row_char_key, []):
+                        if not row_is_charged_variant(candidate):
+                            continue
+                        candidate_base = normalize_num_cmd_token(candidate.get("numCmd", ""))
+                        if candidate_base == row_num_cmd_base:
+                            charged_match = candidate
+                            break
+
+                    if charged_match and charged_match not in upgraded_charged_results:
+                        upgraded_charged_results.append(charged_match)
+
+                if upgraded_charged_results:
+                    results = upgraded_charged_results
 
         if query_has_explicit_strength and results:
             wants_od_strength = bool(re.search(r"\b(od|ex)\b", text_lower))
@@ -2606,6 +2687,41 @@ def find_moves_in_text(text):
                     ):
                         continue
                     if followup_keyword in move_name or followup_keyword in cmn_name:
+                        filtered_results.append(row)
+                if filtered_results:
+                    results = filtered_results
+
+        if deejay_sway_followup_alias and results:
+            alias_lower = deejay_sway_followup_alias.lower()
+            deejay_char_key_norm = normalize_char_name("dee jay")
+            deejay_followup_keywords = []
+            if "low" in alias_lower:
+                deejay_followup_keywords = ["funky slicer", "sway > low", "> lk"]
+            elif "overhead" in alias_lower:
+                deejay_followup_keywords = ["waning moon", "sway > overhead", "> mk"]
+            elif any(token in alias_lower for token in ("launch", "launcher", "hk")):
+                deejay_followup_keywords = ["maximum strike", "sway > launcher", "> hk"]
+            elif any(token in alias_lower for token in ("feint", "dash", "backdash")):
+                deejay_followup_keywords = [
+                    "juggling sway",
+                    "sway > dash > backdash",
+                    "> 6p > 4p",
+                ]
+
+            if deejay_followup_keywords:
+                filtered_results = []
+                for row in results:
+                    row_char = normalize_char_name(row.get("char_name", ""))
+                    if row_char != deejay_char_key_norm:
+                        filtered_results.append(row)
+                        continue
+                    move_name = str(row.get("moveName", "")).lower()
+                    cmn_name = str(row.get("cmnName", "")).lower()
+                    num_cmd = str(row.get("numCmd", "")).lower()
+                    if any(
+                        keyword in move_name or keyword in cmn_name or keyword in num_cmd
+                        for keyword in deejay_followup_keywords
+                    ):
                         filtered_results.append(row)
                 if filtered_results:
                     results = filtered_results
@@ -3016,6 +3132,21 @@ def lookup_frame_data(character, move_input):
         return text
 
     move_input = normalize_strength_word_shorthand(move_input)
+
+    def normalize_boomer_normal_notation(text):
+        pattern = re.compile(
+            r"\b(st|cr)\s*\.?\s*(lp|mp|hp|lk|mk|hk|l\s*p|m\s*p|h\s*p|l\s*k|m\s*k|h\s*k)\b"
+        )
+
+        def repl(match):
+            stance = match.group(1).lower()
+            button = re.sub(r"\s+", "", match.group(2).lower())
+            prefix = "5" if stance == "st" else "2"
+            return f"{prefix}{button}"
+
+        return pattern.sub(repl, text)
+
+    move_input = normalize_boomer_normal_notation(move_input)
     move_input = re.sub(r"^(?:7|9)\s*(lp|mp|hp|lk|mk|hk)$", r"jump \1", move_input)
 
     original_move_input = move_input
@@ -3383,6 +3514,52 @@ def lookup_frame_data(character, move_input):
             "light upkicks": "lk jackknife maximum",
             "medium upkicks": "mk jackknife maximum",
             "heavy upkicks": "hk jackknife maximum",
+            # Jus Cool / Sway followups
+            "sway low": "jus cool > funky slicer",
+            "sway low followup": "jus cool > funky slicer",
+            "sway low follow up": "jus cool > funky slicer",
+            "sway low lk followup": "jus cool > funky slicer",
+            "sway low lk follow up": "jus cool > funky slicer",
+            "sway low > lk followup": "jus cool > funky slicer",
+            "sway low>lk followup": "jus cool > funky slicer",
+            "sway lk followup": "jus cool > funky slicer",
+            "sway lk follow up": "jus cool > funky slicer",
+            "sway overhead": "jus cool > waning moon",
+            "sway overhead followup": "jus cool > waning moon",
+            "sway overhead follow up": "jus cool > waning moon",
+            "sway overhead mk followup": "jus cool > waning moon",
+            "sway overhead mk follow up": "jus cool > waning moon",
+            "sway overhead > mk followup": "jus cool > waning moon",
+            "sway overhead>mk followup": "jus cool > waning moon",
+            "sway mk followup": "jus cool > waning moon",
+            "sway mk follow up": "jus cool > waning moon",
+            "sway launch": "jus cool > maximum strike",
+            "sway launcher": "jus cool > maximum strike",
+            "sway launch followup": "jus cool > maximum strike",
+            "sway launch follow up": "jus cool > maximum strike",
+            "sway launch hk followup": "jus cool > maximum strike",
+            "sway launch hk follow up": "jus cool > maximum strike",
+            "sway launch > hk followup": "jus cool > maximum strike",
+            "sway launch>hk followup": "jus cool > maximum strike",
+            "sway hk followup": "jus cool > maximum strike",
+            "sway hk follow up": "jus cool > maximum strike",
+            "sway feint": "jus cool > juggling dash > juggling sway",
+            "sway feint followup": "jus cool > juggling dash > juggling sway",
+            "sway feint follow up": "jus cool > juggling dash > juggling sway",
+            "sway feint 6p 4p followup": "jus cool > juggling dash > juggling sway",
+            "sway feint 6p 4p follow up": "jus cool > juggling dash > juggling sway",
+            "sway feint 6p,4p followup": "jus cool > juggling dash > juggling sway",
+            "sway feint > 6p,4p followup": "jus cool > juggling dash > juggling sway",
+            "6p 4p followup": "jus cool > juggling dash > juggling sway",
+            "6p,4p followup": "jus cool > juggling dash > juggling sway",
+            "od sway low": "od jus cool > funky slicer",
+            "od sway overhead": "od jus cool > waning moon",
+            "od sway launch": "od jus cool > maximum strike",
+            "od sway feint": "od jus cool > juggling dash > juggling sway",
+            "ex sway low": "od jus cool > funky slicer",
+            "ex sway overhead": "od jus cool > waning moon",
+            "ex sway launch": "od jus cool > maximum strike",
+            "ex sway feint": "od jus cool > juggling dash > juggling sway",
         },
         "jamie": {
             "dive kick": "l luminous dive kick",
@@ -6035,10 +6212,19 @@ SPECIAL_STRENGTH_PROMPT_MODE_MAX = 300
 ACTIVE_QUIZZES = {}  # channel_id -> quiz_state; one active quiz per channel at a time
 QUIZ_PENDING_ANOTHER = {}  # channel_id -> {"created_at": utc_dt, "message_id": int|None}
 QUIZ_PENDING_MODE = {}  # channel_id -> {"created_at": utc_dt, "message_id": int|None}
+QUIZ_LEADERBOARD_FILE = os.getenv("QUIZ_LEADERBOARD_FILE", "quiz_leaderboard.json")
+QUIZ_GLOBAL_LEADERBOARD = {}  # user_id -> lifetime quiz points
+QUIZ_GLOBAL_LEADERBOARD_NAMES = {}  # user_id -> latest seen display name
+QUIZ_LEADERBOARD_LOCK = asyncio.Lock()
 QUIZ_INTENT_RE = re.compile(
     r"\bquiz\b|\bquizz|\bguess.*\bframe|\bframe.*\bguess|\btest\s+me\b",
     re.IGNORECASE,
 )
+QUIZ_LEADERBOARD_REQUEST_RE = re.compile(
+    r"\b(quiz\s+leaderboard|leaderboard\s+for\s+quiz|show\s+(?:the\s+)?(?:quiz\s+)?leaderboard|who\s+tops\s+(?:the\s+)?(?:quiz\s+)?leaderboard)\b",
+    re.IGNORECASE,
+)
+QUIZ_LEADERBOARD_TOP_RE = re.compile(r"\btop\s+(\d{1,2})\b", re.IGNORECASE)
 QUIZ_NAME_PREFIX_RE = re.compile(r"^\s*(?:hey\s+)?(?:korean\s+)?bub\b", re.IGNORECASE)
 QUIZ_ESCAPE_REQUEST_RE = re.compile(
     r"\b(framedata|frame\s*data|gif|range|startup|damage|on\s+hit|on\s+block|bnb|oki|coach|compare|comparison|vs|versus|punish|stats?|health|reversal|cfn|remind(?:er)?|time)\b",
@@ -7497,6 +7683,142 @@ def _quiz_owner_only_end_message(state):
     return f"Only <@{owner_id}> can end this quiz."
 
 
+def _quiz_leaderboard_file_path():
+    path_text = str(QUIZ_LEADERBOARD_FILE or "quiz_leaderboard.json").strip()
+    if os.path.isabs(path_text):
+        return path_text
+    return os.path.join(os.path.dirname(__file__), path_text)
+
+
+def load_quiz_leaderboard():
+    """Load persistent global quiz leaderboard from disk."""
+    global QUIZ_GLOBAL_LEADERBOARD, QUIZ_GLOBAL_LEADERBOARD_NAMES
+
+    file_path = _quiz_leaderboard_file_path()
+    if not os.path.exists(file_path):
+        QUIZ_GLOBAL_LEADERBOARD = {}
+        QUIZ_GLOBAL_LEADERBOARD_NAMES = {}
+        return
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception as e:
+        print(f"[quiz] leaderboard load error: {e}", flush=True)
+        QUIZ_GLOBAL_LEADERBOARD = {}
+        QUIZ_GLOBAL_LEADERBOARD_NAMES = {}
+        return
+
+    if not isinstance(payload, dict):
+        print("[quiz] leaderboard load warning: payload is not an object", flush=True)
+        QUIZ_GLOBAL_LEADERBOARD = {}
+        QUIZ_GLOBAL_LEADERBOARD_NAMES = {}
+        return
+
+    loaded_scores = {}
+    loaded_names = {}
+    for raw_uid, raw_pts in dict(payload.get("scores") or {}).items():
+        try:
+            uid = int(raw_uid)
+            pts = int(raw_pts)
+        except Exception:
+            continue
+        if pts < 0:
+            continue
+        loaded_scores[uid] = pts
+
+    for raw_uid, raw_name in dict(payload.get("score_names") or {}).items():
+        try:
+            uid = int(raw_uid)
+        except Exception:
+            continue
+        loaded_names[uid] = _quiz_clean_display_name(raw_name)
+
+    for uid in loaded_scores.keys():
+        if uid not in loaded_names:
+            loaded_names[uid] = _quiz_clean_display_name(f"User {uid}")
+
+    QUIZ_GLOBAL_LEADERBOARD = loaded_scores
+    QUIZ_GLOBAL_LEADERBOARD_NAMES = loaded_names
+
+
+def save_quiz_leaderboard():
+    """Persist global quiz leaderboard to disk."""
+    file_path = _quiz_leaderboard_file_path()
+    payload = {
+        "version": 1,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "scores": {str(uid): int(points) for uid, points in QUIZ_GLOBAL_LEADERBOARD.items()},
+        "score_names": {
+            str(uid): _quiz_clean_display_name(name)
+            for uid, name in QUIZ_GLOBAL_LEADERBOARD_NAMES.items()
+        },
+    }
+
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=True, indent=2, sort_keys=True)
+    except Exception as e:
+        print(f"[quiz] leaderboard save error: {e}", flush=True)
+
+
+def _quiz_extract_leaderboard_top_limit(text, default=10, maximum=25):
+    match = QUIZ_LEADERBOARD_TOP_RE.search(str(text or ""))
+    if not match:
+        return default
+    try:
+        parsed = int(match.group(1))
+    except Exception:
+        return default
+    return max(1, min(maximum, parsed))
+
+
+def _quiz_is_leaderboard_request(text):
+    return bool(QUIZ_LEADERBOARD_REQUEST_RE.search(str(text or "")))
+
+
+def _quiz_format_global_leaderboard_reply(limit=10):
+    scores = dict(QUIZ_GLOBAL_LEADERBOARD)
+    names = dict(QUIZ_GLOBAL_LEADERBOARD_NAMES)
+    if not scores:
+        return "No global quiz wins recorded yet. Win one round and claim your first point."
+
+    sorted_items = sorted(
+        scores.items(),
+        key=lambda item: (
+            -int(item[1]),
+            _quiz_clean_display_name(names.get(item[0], f"User {item[0]}")).lower(),
+        ),
+    )
+    top_items = sorted_items[: max(1, int(limit))]
+    top_scores = {uid: pts for uid, pts in top_items}
+    score_block = _format_quiz_scores(top_scores, names)
+    top_uid, top_points = top_items[0]
+    top_name = _quiz_clean_display_name(names.get(top_uid, f"User {top_uid}"))
+    return (
+        f"Global Quiz Leaderboard (Top {len(top_items)}):\n"
+        f"{score_block}\n"
+        f"Top scorer right now: {top_name} with {top_points} point{'s' if int(top_points) != 1 else ''}."
+    )
+
+
+async def _quiz_record_global_win(user_id, display_name, points=1):
+    """Record lifetime quiz points for a user and persist leaderboard."""
+    try:
+        uid = int(user_id)
+        delta = int(points)
+    except Exception:
+        return
+    if delta <= 0:
+        return
+
+    async with QUIZ_LEADERBOARD_LOCK:
+        current_points = int(QUIZ_GLOBAL_LEADERBOARD.get(uid, 0))
+        QUIZ_GLOBAL_LEADERBOARD[uid] = current_points + delta
+        QUIZ_GLOBAL_LEADERBOARD_NAMES[uid] = _quiz_clean_display_name(display_name)
+        save_quiz_leaderboard()
+
+
 async def handle_quiz_post_answer_choice(message):
     """Handle follow-up choice after a wrong guess prompt."""
     channel_id = message.channel.id
@@ -7628,6 +7950,7 @@ async def handle_quiz_answer(message):
     winner_points = int(scores.get(winner_id, 0)) + 1
     scores[winner_id] = winner_points
     score_names[winner_id] = winner_name
+    await _quiz_record_global_win(winner_id, winner_name, points=1)
 
     ACTIVE_QUIZZES.pop(channel_id, None)
     thinking_message = await _quiz_send_thinking_message(message)
@@ -7837,6 +8160,11 @@ async def on_ready():
         f"{DAILY_ENCOURAGEMENT_MESSAGES} scheduled LLM encouragements per day.",
         flush=True,
     )
+    load_quiz_leaderboard()
+    print(
+        f"[quiz] global leaderboard loaded entries={len(QUIZ_GLOBAL_LEADERBOARD)}",
+        flush=True,
+    )
     # load frame data
     load_frame_data()
 
@@ -7872,6 +8200,18 @@ async def on_message(message):
         or _is_reply_to_quiz_followup_msg(message)
         or mode_prompt_reply
     )
+
+    if command_is_addressed and _quiz_is_leaderboard_request(content_lower):
+        top_limit = _quiz_extract_leaderboard_top_limit(content_lower)
+        leaderboard_reply = _quiz_format_global_leaderboard_reply(limit=top_limit)
+        try:
+            await message.reply(leaderboard_reply)
+        except Exception as e:
+            if is_deleted_message_reference_error(e):
+                await message.channel.send(leaderboard_reply)
+            else:
+                print(f"[quiz] leaderboard reply error: {e}", flush=True)
+        return
 
     # Follow-up after ending a quiz
     if (
