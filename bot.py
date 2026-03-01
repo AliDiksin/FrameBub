@@ -6715,6 +6715,7 @@ SPECIAL_STRENGTH_PROMPT_MODE_MAX = 300
 ACTIVE_QUIZZES = {}  # channel_id -> quiz_state; one active quiz per channel at a time
 QUIZ_PENDING_ANOTHER = {}  # channel_id -> {"created_at": utc_dt, "message_id": int|None}
 QUIZ_PENDING_MODE = {}  # channel_id -> {"created_at": utc_dt, "message_id": int|None}
+QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS = {}  # channel_id -> asyncio.Task
 QUIZ_LEADERBOARD_FILE = os.getenv("QUIZ_LEADERBOARD_FILE", "quiz_leaderboard.json")
 QUIZ_GLOBAL_LEADERBOARD = {}  # user_id -> lifetime quiz points
 QUIZ_GLOBAL_LEADERBOARD_NAMES = {}  # user_id -> latest seen display name
@@ -7941,6 +7942,7 @@ async def start_quiz(
 
         ACTIVE_QUIZZES[channel_id] = quiz_state
         QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+        _quiz_cancel_pending_another_timeout(channel_id)
         QUIZ_PENDING_MODE.pop(channel_id, None)
 
         thinking_message = await _quiz_send_thinking_message(message)
@@ -8048,6 +8050,7 @@ async def stop_quiz(message):
             "round": quiz.get("round", 1),
             "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
         }
+        _quiz_schedule_pending_another_timeout(channel_id, message.channel)
     except Exception as e:
         if is_deleted_message_reference_error(e):
             sent = await message.channel.send(reply_text)
@@ -8061,6 +8064,7 @@ async def stop_quiz(message):
                 "round": quiz.get("round", 1),
                 "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
             }
+            _quiz_schedule_pending_another_timeout(channel_id, message.channel)
         else:
             print(f"[quiz] stop send error: {e}", flush=True)
 
@@ -8157,6 +8161,70 @@ def _is_reply_to_quiz_mode_prompt(message):
     return pending_id is not None and ref.message_id == pending_id
 
 
+def _quiz_cancel_pending_another_timeout(channel_id):
+    task = QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS.pop(channel_id, None)
+    if task and not task.done():
+        task.cancel()
+
+
+def _quiz_timeout_expiry_message(pending_state):
+    scores = dict((pending_state or {}).get("scores") or {})
+    score_names = dict((pending_state or {}).get("score_names") or {})
+    crown_line = _quiz_build_crown_line(scores, score_names)
+    score_text = _format_quiz_scores(scores, score_names)
+    return (
+        "By decree of Bub, the 5-minute window for another question has closed.\n"
+        f"{crown_line}\n"
+        f"{score_text}"
+    )
+
+
+def _quiz_schedule_pending_another_timeout(channel_id, channel):
+    _quiz_cancel_pending_another_timeout(channel_id)
+
+    async def _timeout_worker():
+        try:
+            await asyncio.sleep(QUIZ_PENDING_ANOTHER_TTL_SECONDS)
+            pending = QUIZ_PENDING_ANOTHER.get(channel_id)
+            if not pending:
+                return
+
+            created_at = pending.get("created_at")
+            if created_at:
+                age = (datetime.datetime.now(datetime.timezone.utc) - created_at).total_seconds()
+                remaining = QUIZ_PENDING_ANOTHER_TTL_SECONDS - age
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
+
+            pending = QUIZ_PENDING_ANOTHER.get(channel_id)
+            if not pending:
+                return
+
+            created_at = pending.get("created_at")
+            if created_at:
+                age = (datetime.datetime.now(datetime.timezone.utc) - created_at).total_seconds()
+                if age <= QUIZ_PENDING_ANOTHER_TTL_SECONDS:
+                    return
+
+            expired_state = QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+            if not expired_state:
+                return
+
+            expiry_text = _quiz_timeout_expiry_message(expired_state)
+            try:
+                await channel.send(expiry_text)
+            except Exception as send_error:
+                print(f"[quiz] pending-expiry send error: {send_error}", flush=True)
+        except asyncio.CancelledError:
+            return
+        finally:
+            tracked_task = QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS.get(channel_id)
+            if tracked_task is asyncio.current_task():
+                QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS.pop(channel_id, None)
+
+    QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS[channel_id] = asyncio.create_task(_timeout_worker())
+
+
 def _quiz_pending_another_active(channel_id):
     pending = QUIZ_PENDING_ANOTHER.get(channel_id)
     if not pending:
@@ -8164,10 +8232,14 @@ def _quiz_pending_another_active(channel_id):
     created_at = pending.get("created_at")
     if not created_at:
         QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+        _quiz_cancel_pending_another_timeout(channel_id)
         return False
     age = (datetime.datetime.now(datetime.timezone.utc) - created_at).total_seconds()
     if age > QUIZ_PENDING_ANOTHER_TTL_SECONDS:
-        QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+        expired_state = QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+        _quiz_cancel_pending_another_timeout(channel_id)
+        if expired_state:
+            return False
         return False
     return True
 
@@ -8425,6 +8497,7 @@ async def handle_quiz_post_answer_choice(message):
                 "round": quiz.get("round", 1),
                 "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
             }
+            _quiz_schedule_pending_another_timeout(channel_id, message.channel)
         except Exception as e:
             if is_deleted_message_reference_error(e):
                 sent = await message.channel.send(reply_text)
@@ -8438,6 +8511,7 @@ async def handle_quiz_post_answer_choice(message):
                     "round": quiz.get("round", 1),
                     "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
                 }
+                _quiz_schedule_pending_another_timeout(channel_id, message.channel)
             else:
                 print(f"[quiz] reveal-end reply error: {e}", flush=True)
         return True
@@ -8515,6 +8589,7 @@ async def handle_quiz_answer(message):
         "round": quiz.get("round", 1),
         "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
     }
+    _quiz_schedule_pending_another_timeout(channel_id, message.channel)
 
     return True
 
@@ -8790,6 +8865,7 @@ async def on_message(message):
                 return
 
             QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+            _quiz_cancel_pending_another_timeout(channel_id)
             QUIZ_PENDING_MODE.pop(channel_id, None)
             thinking_message = await _quiz_send_thinking_message(message)
             crown_line = _quiz_build_crown_line(pending_scores, pending_score_names)
@@ -8805,6 +8881,7 @@ async def on_message(message):
 
         if requested_quiz_mode in QUIZ_VALID_MODES:
             QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+            _quiz_cancel_pending_another_timeout(channel_id)
             await start_quiz(
                 message,
                 mode=requested_quiz_mode,
@@ -8819,6 +8896,7 @@ async def on_message(message):
         if wants_another_yes or QUIZ_INTENT_RE.search(content_lower):
             followup_mode = str(requested_quiz_mode or pending.get("mode") or "").strip().lower()
             QUIZ_PENDING_ANOTHER.pop(channel_id, None)
+            _quiz_cancel_pending_another_timeout(channel_id)
             if followup_mode not in QUIZ_VALID_MODES:
                 await prompt_quiz_mode_selection(
                     message,
@@ -9418,8 +9496,9 @@ async def on_message(message):
             and not range_alias_query
             and not gif_query
         ):
-            await send_frame_table_response(message, fd_context_rows, fd_context_data)
-            return
+            if not LLM_ENABLED:
+                await send_frame_table_response(message, fd_context_rows, fd_context_data)
+                return
 
         # If Coach Mode, pre-pend some advice instruction
         coach_instruction = ""
