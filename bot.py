@@ -5,6 +5,7 @@ import base64
 import random
 import datetime
 import json
+import difflib
 from datetime import date
 import re
 import mimetypes
@@ -1501,6 +1502,30 @@ def find_moves_in_text(text):
         query_requests_sa2 = bool(
             re.search(r"\b(?:sa\s*2|super\s*art\s*2|super\s*2|level\s*2)\b", text_lower)
         )
+        query_requests_sa3 = bool(
+            re.search(r"\b(?:sa\s*3|super\s*art\s*3|super\s*3|level\s*3)\b", text_lower)
+        )
+        query_requests_ca = bool(
+            re.search(r"\b(?:ca|critical\s+art)\b", text_lower)
+        )
+        stock_hint_tokens = ("stock", "stocked", "enhanced", "windclad")
+
+        def token_is_stock_hint(token):
+            token_norm = str(token or "").lower().strip()
+            if not token_norm:
+                return False
+            if token_norm in stock_hint_tokens:
+                return True
+            return any(
+                difflib.SequenceMatcher(None, token_norm, hint_token).ratio() >= 0.82
+                for hint_token in stock_hint_tokens
+            )
+
+        query_requires_stocked = any(
+            token in text_tokens for token in ("stock", "stocked", "enhanced", "windclad")
+        ) or bool(re.search(r"\bwind\s+clad\b", text_lower)) or any(
+            token_is_stock_hint(token) for token in text_tokens
+        )
 
         def row_is_denjin_variant(row):
             move_name = str(row.get("moveName", "")).lower()
@@ -1535,6 +1560,39 @@ def find_moves_in_text(text):
                 move_name.startswith(("od ", "ex "))
                 or cmn_name.startswith(("od ", "ex "))
                 or num_cmd_compact.endswith(("pp", "kk"))
+            )
+
+        def row_is_ca_variant(row):
+            move_name = str(row.get("moveName", "")).lower()
+            cmn_name = str(row.get("cmnName", "")).lower()
+            num_cmd = str(row.get("numCmd", "")).lower()
+            return "critical art" in move_name or "critical art" in cmn_name or "(ca" in num_cmd
+
+        def row_is_stocked_variant(row):
+            move_name = str(row.get("moveName", "")).lower()
+            cmn_name = str(row.get("cmnName", "")).lower()
+            num_cmd = str(row.get("numCmd", "")).lower()
+            combined = f"{move_name} {cmn_name} {num_cmd}"
+            if re.search(r"\b0\s*stocks?\b", combined):
+                return False
+
+            has_stock_count = bool(re.search(r"\b[1-9]\d*\s*stocks?\b", combined))
+            has_stock_tag = "(stock" in move_name or "(stock" in cmn_name or "(stock" in num_cmd
+            has_enhanced_tag = (
+                "enhanced" in move_name
+                or "enhanced" in cmn_name
+                or "(enhanced" in num_cmd
+            )
+            has_windclad_tag = "windclad" in move_name or "windclad" in cmn_name
+            has_wind_stock_hold = "wind stock" in cmn_name and (
+                "(" in cmn_name or "(hold" in num_cmd
+            )
+            return (
+                has_stock_count
+                or has_stock_tag
+                or has_enhanced_tag
+                or has_windclad_tag
+                or has_wind_stock_hold
             )
 
     
@@ -1647,6 +1705,13 @@ def find_moves_in_text(text):
             re.search(
                 r"\b(?:air|aerial)\s*(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\b"
                 r"|\b(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\s*(?:air|aerial)\b",
+                text_lower,
+            )
+        )
+        air_sa3_context = bool(
+            re.search(
+                r"\b(?:air|aerial)\s*(?:sa\s*3|super\s*art\s*3|super\s*3|level\s*3|critical\s+art|ca)\b"
+                r"|\b(?:sa\s*3|super\s*art\s*3|super\s*3|level\s*3|critical\s+art|ca)\s*(?:air|aerial)\b",
                 text_lower,
             )
         )
@@ -1772,6 +1837,49 @@ def find_moves_in_text(text):
                         extra_inputs.append(alias_token)
                     break
 
+        if query_requests_ca and "critical art" not in extra_inputs:
+            extra_inputs.append("critical art")
+
+        if "akuma" in mentioned_chars:
+            if air_sa3_context and "sip of calamity" not in extra_inputs:
+                extra_inputs.append("sip of calamity")
+
+        if "lily" in mentioned_chars and query_requires_stocked:
+            lily_stocked_aliases = [
+                (r"\b(?:stocked|stock|windclad|wind\s+clad)\s+(?:condor\s+)?spire\b", "stocked spire"),
+                (r"\b(?:stocked|stock|windclad|wind\s+clad)\s+(?:tomahawk|tomahawk\s+buster)\b", "stocked tomahawk"),
+                (r"\b(?:stocked|stock|windclad|wind\s+clad|wind\s+stock)\s+(?:condor\s+)?wind\b", "stocked condor wind"),
+            ]
+            for pattern, alias_token in lily_stocked_aliases:
+                if re.search(pattern, text_lower) and alias_token not in extra_inputs:
+                    extra_inputs.append(alias_token)
+
+        if "mai" in mentioned_chars and query_requires_stocked:
+            mai_stocked_aliases = [
+                (r"\b(?:stocked|stock)\s+(?:fireball|kachousen)\b", "stocked fireball"),
+                (r"\b(?:stocked|stock)\s+(?:dp|ryuuenjin)\b", "stocked dp"),
+                (r"\b(?:stocked|stock)\s+(?:twirl|ryuuenbu)\b", "stocked twirl"),
+                (r"\b(?:stocked|stock)\s+(?:cartwheel|shinobi\s+bachi)\b", "stocked cartwheel"),
+                (r"\b(?:stocked|stock)\s+(?:air\s+)?sa\s*1\b", "stocked sa1"),
+                (r"\b(?:stocked|stock)\s+(?:air\s+)?sa\s*2\b", "stocked air sa2"),
+                (r"\b(?:air\s+)?(?:stocked|stock)\s+sa\s*2\b", "stocked air sa2"),
+            ]
+            for pattern, alias_token in mai_stocked_aliases:
+                if re.search(pattern, text_lower) and alias_token not in extra_inputs:
+                    extra_inputs.append(alias_token)
+
+        if "juri" in mentioned_chars and query_requires_stocked:
+            juri_stocked_aliases = [
+                (r"\b(?:stocked|stock)\s+(?:fireball|saihasho|fuha\s+release)\b", "stocked fireball"),
+                (r"\b(?:stocked|stock)\s+(?:axe\s+kick|ankensatsu)\b", "stocked axe kick"),
+                (r"\b(?:stocked|stock)\s+(?:spinning\s+kicks?|go\s+ohsatsu)\b", "stocked spinning kicks"),
+                (r"\b(?:stocked|stock)\s+(?:air\s+)?sa\s*1\b", "stocked sa1"),
+                (r"\b(?:air\s+)?(?:stocked|stock)\s+sa\s*1\b", "stocked sa1"),
+            ]
+            for pattern, alias_token in juri_stocked_aliases:
+                if re.search(pattern, text_lower) and alias_token not in extra_inputs:
+                    extra_inputs.append(alias_token)
+
         def is_special_motion_num_cmd(num_cmd_raw):
             compact = re.sub(r"[^a-z0-9]", "", str(num_cmd_raw).lower())
             if not compact or ">" in str(num_cmd_raw):
@@ -1808,6 +1916,8 @@ def find_moves_in_text(text):
             and mentioned_chars
             and not target_combo_query
             and not command_jump_notation_present
+            and not query_requires_stocked
+            and not query_requests_ca
         ):
             seen_special_prompts = set()
             for char in mentioned_chars:
@@ -2334,7 +2444,7 @@ def find_moves_in_text(text):
                         assigned_chars.add(target_char)
 
         explicit_move_attempt = bool(potential_inputs or extra_inputs)
-        if not explicit_move_attempt and mentioned_chars:
+        if mentioned_chars:
             stop_tokens = {
                 "frame", "frames", "framedata", "data", "startup", "recovery", "active",
                 "on", "hit", "block", "compare", "comparison", "versus", "vs", "which",
@@ -2356,6 +2466,9 @@ def find_moves_in_text(text):
             ]
             if residual_tokens:
                 explicit_move_attempt = True
+                residual_candidate = " ".join(residual_tokens).strip()
+                if residual_candidate and residual_candidate not in potential_inputs:
+                    potential_inputs.append(residual_candidate)
 
         strength_prefix_re = re.compile(r"^(?:lp|mp|hp|lk|mk|hk|pp|kk|od|ex|light|medium|heavy|l|m|h)\s+")
         text_compact = re.sub(r"[^a-z0-9]", "", text_lower)
@@ -2721,6 +2834,43 @@ def find_moves_in_text(text):
                     if fallback_row:
                         results = [fallback_row]
 
+        if (query_requests_sa3 or air_sa3_context) and results:
+            mentioned_sa3_chars = set(mentioned_chars) & {"akuma"}
+            if mentioned_sa3_chars:
+                filtered_results = []
+                for row in results:
+                    row_char_key = normalize_char_name(row.get("char_name", ""))
+                    row_char_matches = any(
+                        normalize_char_name(char) == row_char_key
+                        for char in mentioned_sa3_chars
+                    )
+                    if not row_char_matches:
+                        filtered_results.append(row)
+                        continue
+                    move_name = str(row.get("moveName", "")).lower()
+                    cmn_name = str(row.get("cmnName", "")).lower()
+                    num_cmd = str(row.get("numCmd", "")).lower()
+                    is_air_variant = "air" in move_name or "air" in cmn_name or "(air)" in num_cmd
+                    is_ca_variant = row_is_ca_variant(row)
+                    if not is_air_variant and not is_ca_variant:
+                        filtered_results.append(row)
+                if filtered_results:
+                    results = filtered_results
+                else:
+                    fallback_row = lookup_frame_data("akuma", "sip of calamity")
+                    if fallback_row:
+                        results = [fallback_row]
+
+        if query_requests_ca and results:
+            ca_rows = [row for row in results if row_is_ca_variant(row)]
+            if ca_rows:
+                results = ca_rows
+
+        if query_requires_stocked and results:
+            stocked_rows = [row for row in results if row_is_stocked_variant(row)]
+            if stocked_rows:
+                results = stocked_rows
+
         if akuma_followup_alias and results:
             alias_lower = akuma_followup_alias.lower()
             followup_keyword = None
@@ -2792,7 +2942,13 @@ def find_moves_in_text(text):
                 if filtered_results:
                     results = filtered_results
 
-        if not query_has_explicit_strength and results and not target_combo_query:
+        if (
+            not query_has_explicit_strength
+            and results
+            and not target_combo_query
+            and not query_requires_stocked
+            and not query_requests_ca
+        ):
             existing_special_prompt_keys = set()
             query_requests_air_context = bool(re.search(r"\b(?:air|aerial)\b", text_lower))
 
@@ -2896,7 +3052,14 @@ def find_moves_in_text(text):
                     filtered_results.append(row)
                 results = filtered_results
 
-    if special_prompt_blocks and (not query_has_explicit_strength or (special_grab_query and not results)):
+    if special_prompt_blocks and (
+        (
+            not query_has_explicit_strength
+            and not query_requires_stocked
+            and not query_requests_ca
+        )
+        or (special_grab_query and not results)
+    ):
         results = []
 
     if (
@@ -3216,6 +3379,30 @@ def lookup_frame_data(character, move_input):
     move_input = re.sub(r"^(?:7|9)\s*(lp|mp|hp|lk|mk|hk)$", r"jump \1", move_input)
 
     original_move_input = move_input
+    query_requests_air_context = bool(re.search(r"\b(air|aerial)\b", original_move_input))
+    query_requests_sa1 = bool(
+        re.search(r"\b(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\b", original_move_input)
+    )
+    query_requests_sa3 = bool(
+        re.search(r"\b(?:sa\s*3|super\s*art\s*3|super\s*3|level\s*3)\b", original_move_input)
+    )
+    query_requests_ca = bool(re.search(r"\b(?:ca|critical\s+art)\b", original_move_input))
+    stock_hint_tokens = ("stock", "stocked", "enhanced", "windclad")
+
+    def token_is_stock_hint(token):
+        token_norm = str(token or "").lower().strip()
+        if not token_norm:
+            return False
+        if token_norm in stock_hint_tokens:
+            return True
+        return any(
+            difflib.SequenceMatcher(None, token_norm, hint_token).ratio() >= 0.82
+            for hint_token in stock_hint_tokens
+        )
+
+    query_requests_stocked = bool(
+        re.search(r"\b(stock|stocked|enhanced|windclad|wind\s+clad)\b", original_move_input)
+    ) or any(token_is_stock_hint(token) for token in re.findall(r"[a-z0-9]+", original_move_input))
     neutral_tokens = []
     input_tokens = re.findall(r"[a-z0-9]+", original_move_input)
     if (
@@ -3486,6 +3673,9 @@ def lookup_frame_data(character, move_input):
         "sa1": "super art level 1",
         "sa2": "super art level 2",
         "sa3": "super art level 3",
+        "ca": "critical art",
+        "critical": "critical art",
+        "critical art": "critical art",
         "raging demon": "shun goku satsu",
         "sway": "juggling sway",
         "juggling sway": "juggling sway",
@@ -3720,6 +3910,23 @@ def lookup_frame_data(character, move_input):
             "run dragonlash": "run > dragonlash",
             "run dragon lash": "run > dragonlash",
             "run lash": "run > dragonlash",
+            "jinrai low": "jinrai > low",
+            "jinrai overhead": "jinrai > overhead",
+            "jinrai launcher": "jinrai > heavy",
+            "jinrai heavy": "jinrai > heavy",
+            "jinrai followup low": "jinrai > low",
+            "jinrai followup overhead": "jinrai > overhead",
+            "jinrai followup launcher": "jinrai > heavy",
+            "236k low": "jinrai > low",
+            "236k overhead": "jinrai > overhead",
+            "236k launcher": "jinrai > heavy",
+            "236k heavy": "jinrai > heavy",
+            "od jinrai low": "od jinrai > low",
+            "od jinrai overhead": "od jinrai > overhead",
+            "od jinrai launcher": "od jinrai > heavy",
+            "ex jinrai low": "od jinrai > low",
+            "ex jinrai overhead": "od jinrai > overhead",
+            "ex jinrai launcher": "od jinrai > heavy",
         },
         "luke": {
             "214p": "flash knuckle",
@@ -3782,6 +3989,21 @@ def lookup_frame_data(character, move_input):
             "j 214kk": "od shiku-sen",
             "214k air": "shiku-sen",
             "214kk air": "od shiku-sen",
+            "stocked fireball": "saihasho (stock)",
+            "stock fireball": "saihasho (stock)",
+            "stocked saihasho": "saihasho (stock)",
+            "stock saihasho": "saihasho (stock)",
+            "stocked fuha release": "saihasho (stock)",
+            "stocked axe kick": "ankensatsu (stock)",
+            "stock axe kick": "ankensatsu (stock)",
+            "stocked ankensatsu": "ankensatsu (stock)",
+            "stock ankensatsu": "ankensatsu (stock)",
+            "stocked spinning kicks": "go ohsatsu (stock)",
+            "stock spinning kicks": "go ohsatsu (stock)",
+            "stocked go ohsatsu": "go ohsatsu (stock)",
+            "stock go ohsatsu": "go ohsatsu (stock)",
+            "stocked sa1": "sakkai fuhazan (1 stock)",
+            "stock sa1": "sakkai fuhazan (1 stock)",
         },
         "akuma": {
             "demon flip": "demon raid",
@@ -4346,6 +4568,47 @@ def lookup_frame_data(character, move_input):
             "22k bomb": "amnesia: bomb",
             "22kk bomb": "od amnesia: bomb",
         },
+        "lily": {
+            "windclad spire": "lk condor spire (enhanced)",
+            "wind clad spire": "lk condor spire (enhanced)",
+            "stocked spire": "lk condor spire (enhanced)",
+            "stocked condor spire": "lk condor spire (enhanced)",
+            "l windclad spire": "lk condor spire (enhanced)",
+            "m windclad spire": "mk condor spire (enhanced)",
+            "h windclad spire": "hk condor spire (enhanced)",
+            "light windclad spire": "lk condor spire (enhanced)",
+            "medium windclad spire": "mk condor spire (enhanced)",
+            "heavy windclad spire": "hk condor spire (enhanced)",
+            "od windclad spire": "od condor spire (enhanced)",
+            "ex windclad spire": "od condor spire (enhanced)",
+            "stocked tomahawk": "lp tomahawk buster (enhanced)",
+            "windclad tomahawk": "lp tomahawk buster (enhanced)",
+            "wind clad tomahawk": "lp tomahawk buster (enhanced)",
+            "l stocked tomahawk": "lp tomahawk buster (enhanced)",
+            "m stocked tomahawk": "mp tomahawk buster (enhanced)",
+            "h stocked tomahawk": "hp tomahawk buster (enhanced)",
+            "od stocked tomahawk": "od tomahawk buster (enhanced)",
+            "stocked condor wind": "lp condor wind (2 stocks)",
+            "wind stock": "lp condor wind (2 stocks)",
+        },
+        "mai": {
+            "stocked fireball": "lp kachousen (stock)",
+            "stocked kachousen": "lp kachousen (stock)",
+            "l stocked fireball": "lp kachousen (stock)",
+            "m stocked fireball": "mp kachousen (stock)",
+            "h stocked fireball": "hp kachousen (stock)",
+            "od stocked fireball": "od kachousen (stock)",
+            "stocked dp": "lk hishou ryuuenjin (stock)",
+            "stocked ryuuenjin": "lk hishou ryuuenjin (stock)",
+            "stocked twirl": "lp ryuuenbu (stock)",
+            "stocked ryuuenbu": "lp ryuuenbu (stock)",
+            "stocked cartwheel": "lk hissatsu shinobi bachi (stock)",
+            "stocked shinobi bachi": "lk hissatsu shinobi bachi (stock)",
+            "stocked sa1": "kagerou no mai (stock)",
+            "stocked sa2": "chou hissatsu shinobi bachi (stock)",
+            "stocked air sa2": "air chou hissatsu shinobi bachi (stock)",
+            "air stocked sa2": "air chou hissatsu shinobi bachi (stock)",
+        },
         "a.k.i": {
             "236p": "serpent lash",
             "236 p": "serpent lash",
@@ -4533,6 +4796,78 @@ def lookup_frame_data(character, move_input):
     char_aliases = CHARACTER_INPUT_ALIASES.get(char_key, {})
     if move_input in char_aliases:
         move_input = char_aliases[move_input]
+
+    def resolve_fuzzy_alias_target(raw_input):
+        raw_compact = re.sub(r"[^a-z0-9]", "", str(raw_input or "").lower())
+        if len(raw_compact) < 4:
+            return None
+
+        alias_compact_to_target = {}
+        for alias_key, alias_target in char_aliases.items():
+            alias_compact = re.sub(r"[^a-z0-9]", "", str(alias_key or "").lower())
+            if len(alias_compact) < 4:
+                continue
+            if alias_compact not in alias_compact_to_target:
+                alias_compact_to_target[alias_compact] = str(alias_target)
+
+        for alias_key, alias_target in INPUT_ALIASES.items():
+            alias_compact = re.sub(r"[^a-z0-9]", "", str(alias_key or "").lower())
+            if len(alias_compact) < 4:
+                continue
+            if alias_compact not in alias_compact_to_target:
+                alias_compact_to_target[alias_compact] = str(alias_target)
+
+        if not alias_compact_to_target:
+            return None
+
+        close_matches = difflib.get_close_matches(
+            raw_compact,
+            list(alias_compact_to_target.keys()),
+            n=1,
+            cutoff=0.82,
+        )
+        if not close_matches:
+            return None
+        return alias_compact_to_target.get(close_matches[0])
+
+    fuzzy_alias_target = resolve_fuzzy_alias_target(move_input)
+    if fuzzy_alias_target and fuzzy_alias_target != move_input:
+        fuzzy_alias_row = lookup_frame_data(character, fuzzy_alias_target)
+        if fuzzy_alias_row is not None:
+            return fuzzy_alias_row
+
+    def row_is_ca_variant(row):
+        move_name = str(row.get("moveName", "")).lower()
+        cmn_name = str(row.get("cmnName", "")).lower()
+        num_cmd = str(row.get("numCmd", "")).lower()
+        return "critical art" in move_name or "critical art" in cmn_name or "(ca" in num_cmd
+
+    def row_is_stocked_variant(row):
+        move_name = str(row.get("moveName", "")).lower()
+        cmn_name = str(row.get("cmnName", "")).lower()
+        num_cmd = str(row.get("numCmd", "")).lower()
+        combined = f"{move_name} {cmn_name} {num_cmd}"
+        if re.search(r"\b0\s*stocks?\b", combined):
+            return False
+
+        has_stock_count = bool(re.search(r"\b[1-9]\d*\s*stocks?\b", combined))
+        has_stock_tag = "(stock" in move_name or "(stock" in cmn_name or "(stock" in num_cmd
+        has_enhanced_tag = (
+            "enhanced" in move_name
+            or "enhanced" in cmn_name
+            or "(enhanced" in num_cmd
+        )
+        has_windclad_tag = "windclad" in move_name or "windclad" in cmn_name
+        has_wind_stock_hold = "wind stock" in cmn_name and (
+            "(" in cmn_name or "(hold" in num_cmd
+        )
+        return (
+            has_stock_count
+            or has_stock_tag
+            or has_enhanced_tag
+            or has_windclad_tag
+            or has_wind_stock_hold
+        )
     move_input_compact = re.sub(r"[^a-z0-9]", "", move_input)
     move_input_num_cmd = normalize_num_cmd_for_lookup(move_input)
     move_input_num_cmd_generic = normalize_num_cmd_generic_for_lookup(move_input)
@@ -4540,12 +4875,79 @@ def lookup_frame_data(character, move_input):
         re.search(r"\b(air|hold|held|bomb|charged)\b", move_input)
         or any(ch in move_input for ch in "()[]{}")
     )
+
+    if query_requests_stocked:
+        base_stockless_input = re.sub(
+            r"\b(?:stocked|stock|enhanced|windclad|wind\s+clad)\b",
+            " ",
+            move_input,
+        )
+        base_stockless_input = re.sub(r"\s+", " ", base_stockless_input).strip()
+        if base_stockless_input and base_stockless_input != move_input:
+            base_row = lookup_frame_data(character, base_stockless_input)
+            if base_row:
+                base_token = normalize_num_cmd_token(base_row.get("numCmd", ""))
+                base_suffix = extract_button_suffix(base_token)
+                stocked_candidates = []
+                for row in data:
+                    if not row_is_stocked_variant(row):
+                        continue
+                    row_token = normalize_num_cmd_token(row.get("numCmd", ""))
+                    if row_token != base_token:
+                        continue
+                    stocked_candidates.append(row)
+                if stocked_candidates:
+                    if base_suffix:
+                        for row in stocked_candidates:
+                            row_suffix = extract_button_suffix(normalize_num_cmd_token(row.get("numCmd", "")))
+                            if row_suffix == base_suffix:
+                                return row
+                    return stocked_candidates[0]
+
+    if char_key == "akuma":
+        if move_input in {"air sa1", "aerial sa1", "sa1 air", "air super art 1"}:
+            move_input = "tenma gozanku"
+        if move_input in {"air sa3", "aerial sa3", "sa3 air", "air super art 3"}:
+            move_input = "sip of calamity"
+
     move_input_tigerless = move_input
     move_input_tigerless_compact = move_input_compact
     if char_key == "sagat":
         move_input_tigerless = re.sub(r"\btiger\b", "", move_input)
         move_input_tigerless = re.sub(r"\s+", " ", move_input_tigerless).strip()
         move_input_tigerless_compact = re.sub(r"[^a-z0-9]", "", move_input_tigerless)
+
+    if char_key == "akuma" and move_input_num_cmd_generic == "236236k":
+        akuma_super_rows = []
+        for row in data:
+            row_token = normalize_num_cmd_generic_for_lookup(row.get("numCmd", ""))
+            if row_token == "236236k":
+                akuma_super_rows.append(row)
+        if akuma_super_rows:
+            ca_rows = [row for row in akuma_super_rows if row_is_ca_variant(row)]
+            air_rows = [
+                row
+                for row in akuma_super_rows
+                if "air" in str(row.get("moveName", "")).lower()
+                or "air" in str(row.get("cmnName", "")).lower()
+                or "(air)" in str(row.get("numCmd", "")).lower()
+                or "tenma" in str(row.get("moveName", "")).lower()
+            ]
+            non_air_non_ca_rows = [
+                row
+                for row in akuma_super_rows
+                if row not in air_rows and row not in ca_rows
+            ]
+
+            if query_requests_ca and ca_rows:
+                return ca_rows[0]
+            if query_requests_air_context or query_requests_sa1:
+                if air_rows:
+                    return air_rows[0]
+            if query_requests_sa3 and non_air_non_ca_rows:
+                return non_air_non_ca_rows[0]
+            if non_air_non_ca_rows:
+                return non_air_non_ca_rows[0]
     
     # search priority: numCmd -> plnCmd -> moveName
     for row in data:
@@ -4624,6 +5026,25 @@ def lookup_frame_data(character, move_input):
                 ):
                     return row
             
+    if len(move_input_compact) >= 4:
+        fuzzy_candidates = []
+        for row in data:
+            move_name = str(row.get("moveName", "")).lower()
+            cmn_name = str(row.get("cmnName", "")).lower()
+            for candidate in (move_name, cmn_name):
+                candidate_compact = re.sub(r"[^a-z0-9]", "", candidate)
+                if len(candidate_compact) >= 4:
+                    fuzzy_candidates.append((candidate_compact, row))
+
+        if fuzzy_candidates:
+            choices = [candidate for candidate, _ in fuzzy_candidates]
+            close = difflib.get_close_matches(move_input_compact, choices, n=1, cutoff=0.86)
+            if close:
+                matched = close[0]
+                for candidate, row in fuzzy_candidates:
+                    if candidate == matched:
+                        return row
+
     return None
 
 
@@ -6337,7 +6758,7 @@ QUIZ_CHEAT_LOOKUP_RE = re.compile(
     re.IGNORECASE,
 )
 QUIZ_MODE_RE = re.compile(r"\b(easy|medium|hard)\b", re.IGNORECASE)
-QUIZ_PENDING_ANOTHER_TTL_SECONDS = 600
+QUIZ_PENDING_ANOTHER_TTL_SECONDS = 300
 QUIZ_PENDING_MODE_TTL_SECONDS = 600
 QUIZ_INTRO_BUTTON_RE = re.compile(
     r"\b(?:st|cr|j)\s*(?:lp|mp|hp|lk|mk|hk)\b|\b(?:standing|crouching|jumping)\s+(?:light|medium|heavy)\s+(?:punch|kick)\b|\b(?:[1-9]\d{0,2}(?:lp|mp|hp|lk|mk|hk))\b|\b(?:236|214|623|421|41236|63214|22|66|44)\b|\b(?:sa1|sa2|sa3|ca|level\s*[123])\b",
@@ -6392,6 +6813,8 @@ def _quiz_row_allowed_for_mode(row, mode):
     if mode_key == "medium":
         return move_type in {"normal", "special", "command-grab", "movement-special"}
 
+    if mode_key == "hard":
+        return move_type != "system"
     return True
 
 
@@ -7224,7 +7647,37 @@ def check_quiz_answer(quiz_state, text):
             allow_generic=allow_generic_strength,
         ):
             return True
+    # Fuzzy match fallback for misspellings in move names/common names.
+    user_move_name = str(move_text or "").strip().lower()
+    if not user_move_name:
+        return False
 
+    fuzzy_name_candidates = []
+    for row in FRAME_DATA.get(char_key, []):
+        if not _quiz_row_has_data(row):
+            continue
+        if not _quiz_row_allowed_for_mode(row, quiz_state.get("mode", "hard")):
+            continue
+        move_name = str(row.get("moveName", "")).strip().lower()
+        cmn_name = str(row.get("cmnName", "")).strip().lower()
+        for candidate_name in (move_name, cmn_name):
+            if len(candidate_name) < 4:
+                continue
+            fuzzy_name_candidates.append((candidate_name, row))
+
+    if fuzzy_name_candidates:
+        fuzzy_choices = [name for name, _ in fuzzy_name_candidates]
+        close_names = difflib.get_close_matches(user_move_name, fuzzy_choices, n=2, cutoff=0.84)
+        for close_name in close_names:
+            for candidate_name, row in fuzzy_name_candidates:
+                if candidate_name != close_name:
+                    continue
+                if _quiz_row_numcmd_matches_correct(
+                    row,
+                    correct_numcmd,
+                    allow_generic=allow_generic_strength,
+                ):
+                    return True
     return False
 
 
@@ -8952,7 +9405,22 @@ async def on_message(message):
                     else:
                         print(f"Direct startup reply error: {reply_error}", flush=True)
                 return
-        
+
+        if (
+            explicit_frame_request
+            and fd_context_mode == "frame"
+            and fd_context_rows
+            and not property_only_query
+            and not target_combo_query
+            and not startup_alias_query
+            and not hitconfirm_alias_query
+            and not super_gain_alias_query
+            and not range_alias_query
+            and not gif_query
+        ):
+            await send_frame_table_response(message, fd_context_rows, fd_context_data)
+            return
+
         # If Coach Mode, pre-pend some advice instruction
         coach_instruction = ""
         if is_coach_mode:
