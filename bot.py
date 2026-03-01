@@ -68,6 +68,19 @@ VIDEO_ENCOURAGEMENT_DELAY_SECONDS = int(os.getenv('VIDEO_ENCOURAGEMENT_DELAY_SEC
 DAILY_ENCOURAGEMENT_MESSAGES = 5
 DAILY_DAMN_GG_MESSAGES = 1
 DAILY_DAMN_GG_TEXT = "damn gg"
+try:
+    ENCOURAGEMENT_CONTEXT_CHANCE = float(os.getenv('ENCOURAGEMENT_CONTEXT_CHANCE', '0.35'))
+except (TypeError, ValueError):
+    ENCOURAGEMENT_CONTEXT_CHANCE = 0.35
+ENCOURAGEMENT_CONTEXT_CHANCE = max(0.0, min(1.0, ENCOURAGEMENT_CONTEXT_CHANCE))
+ENCOURAGEMENT_CONTEXT_MAX_MESSAGES = max(
+    5,
+    int(os.getenv('ENCOURAGEMENT_CONTEXT_MAX_MESSAGES', '20')),
+)
+ENCOURAGEMENT_CONTEXT_CHAR_BUDGET = max(
+    500,
+    int(os.getenv('ENCOURAGEMENT_CONTEXT_CHAR_BUDGET', '2400')),
+)
 ENCOURAGEMENT_IMPROVEMENT_PROMPT = (
     "Send a short, general encouragement to the channel about improvement. Philosophical tone. "
     "One sentence. Calm, pragmatic, nonchalant."
@@ -75,6 +88,13 @@ ENCOURAGEMENT_IMPROVEMENT_PROMPT = (
 ENCOURAGEMENT_ANECDOTE_PROMPT = (
     "Send a short, made up personal anecdote about yourself. "
     " One sentence. Calm, pragmatic, nonchalant."
+)
+ENCOURAGEMENT_CONTEXT_PROMPT_TEMPLATE = (
+    "Here is recent channel conversation context:\n"
+    "{context_text}\n\n"
+    "Write one short in-character message related to this discussion. "
+    "Give your opinion or take on the matter and, when natural, agree or disagree with one person by name. "
+    "Keep it calm, pragmatic, and concise (2-3) sentences)."
 )
 ENCOURAGEMENT_PROMPTS = (
     ENCOURAGEMENT_IMPROVEMENT_PROMPT,
@@ -628,6 +648,52 @@ async def build_llm_context_history(message, char_budget=None):
 
     context_history.reverse()
     return context_history
+
+
+async def build_channel_context_history(
+    channel,
+    max_messages=None,
+    char_budget=None,
+    include_bot_messages=False,
+):
+    """Collect recent channel lines for scheduled context-aware messages."""
+    context_history = []
+    consumed_chars = 0
+    limit = max(5, int(max_messages or ENCOURAGEMENT_CONTEXT_MAX_MESSAGES))
+    budget = max(500, int(char_budget or ENCOURAGEMENT_CONTEXT_CHAR_BUDGET))
+
+    async for prev_msg in channel.history(limit=limit):
+        if not include_bot_messages and prev_msg.author == client.user:
+            continue
+
+        msg_content = strip_discord_mentions(prev_msg.content or "").strip()
+        if not msg_content:
+            continue
+
+        msg_text = f"{prev_msg.author.display_name}: {msg_content}"
+        msg_chars = len(msg_text) + 1
+
+        if context_history and (consumed_chars + msg_chars) > budget:
+            break
+
+        context_history.append(msg_text)
+        consumed_chars += msg_chars
+
+        if consumed_chars >= budget:
+            break
+
+    context_history.reverse()
+    return context_history
+
+
+def build_contextual_encouragement_prompt(context_history):
+    """Build a context-grounded prompt for scheduled daily takes."""
+    if not context_history:
+        return None
+    context_text = "\n".join(context_history).strip()
+    if not context_text:
+        return None
+    return ENCOURAGEMENT_CONTEXT_PROMPT_TEMPLATE.format(context_text=context_text)
 
 
 def truncate_message(text, limit=1800):
@@ -5908,12 +5974,26 @@ async def send_generated_encouragement(channel, source_label="scheduled"):
         print(f"[encouragement] {source_label} skipped: LLM disabled.", flush=True)
         return
 
-    selected_prompt = random.choice(ENCOURAGEMENT_PROMPTS)
-    prompt_kind = (
-        "anecdote"
-        if selected_prompt == ENCOURAGEMENT_ANECDOTE_PROMPT
-        else "improvement"
-    )
+    context_history = []
+    try:
+        context_history = await build_channel_context_history(channel)
+    except Exception as e:
+        print(f"[encouragement] {source_label} context load error: {e}", flush=True)
+
+    context_prompt = build_contextual_encouragement_prompt(context_history)
+    use_context_prompt = bool(context_prompt) and (random.random() < ENCOURAGEMENT_CONTEXT_CHANCE)
+
+    if use_context_prompt:
+        selected_prompt = context_prompt
+        prompt_kind = "context"
+    else:
+        selected_prompt = random.choice(ENCOURAGEMENT_PROMPTS)
+        prompt_kind = (
+            "anecdote"
+            if selected_prompt == ENCOURAGEMENT_ANECDOTE_PROMPT
+            else "improvement"
+        )
+
     selected_figures_str = get_selected_figures_str(channel.guild)
     llm_messages = [
         {
@@ -5926,7 +6006,8 @@ async def send_generated_encouragement(channel, source_label="scheduled"):
         reply_text = await get_llm_response(llm_messages)
         await channel.send(reply_text)
         print(
-            f"[encouragement] {source_label} ({prompt_kind}) sent at {datetime.datetime.now().isoformat()}",
+            f"[encouragement] {source_label} ({prompt_kind}) sent at {datetime.datetime.now().isoformat()} "
+            f"context_lines={len(context_history)}",
             flush=True,
         )
     except Exception as e:
@@ -6066,7 +6147,8 @@ async def background_encouragement_task():
         return
 
     print(
-        f"[encouragement] Scheduling started. Target={DAILY_ENCOURAGEMENT_MESSAGES} LLM messages per day.",
+        f"[encouragement] Scheduling started. Target={DAILY_ENCOURAGEMENT_MESSAGES} LLM messages per day. "
+        f"context_chance={ENCOURAGEMENT_CONTEXT_CHANCE:.2f}",
         flush=True,
     )
 

@@ -46,3 +46,4 @@ gemini-3.md
 CLAUDE.md
 .claude/settings.local.json
 lltest.py
+.sisyphus/ralph-loop.local.md
