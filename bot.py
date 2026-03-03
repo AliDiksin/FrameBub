@@ -69,9 +69,27 @@ VIDEO_ENCOURAGEMENT_DELAY_SECONDS = int(os.getenv('VIDEO_ENCOURAGEMENT_DELAY_SEC
 DAILY_ENCOURAGEMENT_MESSAGES = 5
 DAILY_DAMN_GG_MESSAGES = 1
 DAILY_DAMN_GG_TEXT = "damn gg"
+ENCOURAGEMENT_CONTEXT_SOURCE = "default"
+_encouragement_context_raw = os.getenv('ENCOURAGEMENT_CONTEXT_CHANCE')
+if _encouragement_context_raw is not None:
+    ENCOURAGEMENT_CONTEXT_SOURCE = 'ENCOURAGEMENT_CONTEXT_CHANCE'
+else:
+    _encouragement_context_raw = os.getenv('ENCOURAGEMENT_CONTEXT_LIKELIHOOD')
+    if _encouragement_context_raw is not None:
+        ENCOURAGEMENT_CONTEXT_SOURCE = 'ENCOURAGEMENT_CONTEXT_LIKELIHOOD'
+    else:
+        _encouragement_context_raw = os.getenv('CONTEXT_LIKELIHOOD')
+        if _encouragement_context_raw is not None:
+            ENCOURAGEMENT_CONTEXT_SOURCE = 'CONTEXT_LIKELIHOOD'
+        else:
+            _encouragement_context_raw = '0.35'
 try:
-    ENCOURAGEMENT_CONTEXT_CHANCE = float(os.getenv('ENCOURAGEMENT_CONTEXT_CHANCE', '0.35'))
+    ENCOURAGEMENT_CONTEXT_CHANCE = float(_encouragement_context_raw)
 except (TypeError, ValueError):
+    print(
+        f"[config] Invalid encouragement context value '{_encouragement_context_raw}'. Using 0.35.",
+        flush=True,
+    )
     ENCOURAGEMENT_CONTEXT_CHANCE = 0.35
 ENCOURAGEMENT_CONTEXT_CHANCE = max(0.0, min(1.0, ENCOURAGEMENT_CONTEXT_CHANCE))
 ENCOURAGEMENT_CONTEXT_MAX_MESSAGES = max(
@@ -6569,7 +6587,7 @@ async def background_encouragement_task():
 
     print(
         f"[encouragement] Scheduling started. Target={DAILY_ENCOURAGEMENT_MESSAGES} LLM messages per day. "
-        f"context_chance={ENCOURAGEMENT_CONTEXT_CHANCE:.2f}",
+        f"context_chance={ENCOURAGEMENT_CONTEXT_CHANCE:.2f} source={ENCOURAGEMENT_CONTEXT_SOURCE}",
         flush=True,
     )
 
