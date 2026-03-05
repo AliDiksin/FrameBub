@@ -90,7 +90,7 @@ except (TypeError, ValueError):
         f"[config] Invalid encouragement context value '{_encouragement_context_raw}'. Using 0.35.",
         flush=True,
     )
-    ENCOURAGEMENT_CONTEXT_CHANCE = 0.35
+ENCOURAGEMENT_CONTEXT_CHANCE = 0.65
 ENCOURAGEMENT_CONTEXT_CHANCE = max(0.0, min(1.0, ENCOURAGEMENT_CONTEXT_CHANCE))
 ENCOURAGEMENT_CONTEXT_MAX_MESSAGES = max(
     5,
