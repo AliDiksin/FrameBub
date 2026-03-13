@@ -65,10 +65,21 @@ LLM_CONTEXT_HISTORY_CHAR_BUDGET = max(
 DAILY_VIDEO_URL = (
     "https://cdn.discordapp.com/attachments/1345474577316319265/1467924199996915918/l3.mp4?ex=69822671&is=6980d4f1&hm=7e1208fa08199a25f9cac3dc8132696f2a9374fac61bfb2b5ae75e31f6695bea&"
 )
-VIDEO_ENCOURAGEMENT_DELAY_SECONDS = int(os.getenv('VIDEO_ENCOURAGEMENT_DELAY_SECONDS', '120'))
 DAILY_ENCOURAGEMENT_MESSAGES = 5
 DAILY_DAMN_GG_MESSAGES = 1
 DAILY_DAMN_GG_TEXT = "damn gg"
+MEMORY_FILE = os.getenv('MEMORY_FILE', 'memory.md')
+MEMORY_MAX_ENTRIES = max(10, int(os.getenv('MEMORY_MAX_ENTRIES', '200')))
+MEMORY_CONTEXT_MAX_MESSAGES = max(4, int(os.getenv('MEMORY_CONTEXT_MAX_MESSAGES', '12')))
+MEMORY_CONTEXT_CHAR_BUDGET = max(600, int(os.getenv('MEMORY_CONTEXT_CHAR_BUDGET', '2200')))
+MEMORY_PROMPT = (
+    "You extract durable memory for a Discord bot from conversations it reads and participates in. "
+    "Return NONE if nothing from this exchange should be remembered. "
+    "Only keep lasting facts useful in later conversations: user preferences, ongoing projects, recurring plans, "
+    "important corrections, social context, or stable facts people explicitly mention. "
+    "Do not store secrets, one-off jokes, temporary moods, generic banter, or speculative claims. "
+    "Return at most 3 lines. Each line must be a short factual memory without a leading bullet."
+)
 ENCOURAGEMENT_CONTEXT_SOURCE = "default"
 _encouragement_context_raw = os.getenv('ENCOURAGEMENT_CONTEXT_CHANCE')
 if _encouragement_context_raw is not None:
@@ -640,7 +651,7 @@ def estimate_llm_context_history_char_budget(*parts):
     return max(16000, min(LLM_CONTEXT_HISTORY_CHAR_BUDGET, available_chars))
 
 
-async def build_llm_context_history(message, char_budget=None):
+async def build_llm_context_history(message, char_budget=None, include_bot_messages=True):
     context_history = []
     consumed_chars = 0
     budget = max(16000, int(char_budget or LLM_CONTEXT_HISTORY_CHAR_BUDGET))
@@ -649,6 +660,9 @@ async def build_llm_context_history(message, char_budget=None):
         limit=LLM_CONTEXT_HISTORY_MAX_MESSAGES,
         before=message,
     ):
+        if not include_bot_messages and prev_msg.author == client.user:
+            continue
+
         msg_content = strip_discord_mentions(prev_msg.content or "").strip()
         if not msg_content:
             continue
@@ -713,6 +727,210 @@ def build_contextual_encouragement_prompt(context_history):
     if not context_text:
         return None
     return ENCOURAGEMENT_CONTEXT_PROMPT_TEMPLATE.format(context_text=context_text)
+
+
+def get_memory_file_path():
+    path_text = str(MEMORY_FILE or "memory.md").strip()
+    if os.path.isabs(path_text):
+        return path_text
+    return os.path.join(os.path.dirname(__file__), path_text)
+
+
+def build_memory_file_text(entries=None):
+    entries = [str(entry).strip() for entry in (entries or []) if str(entry).strip()]
+    memory_lines = [f"- {entry}" for entry in entries]
+    if not memory_lines:
+        memory_lines = ["- No durable memory recorded yet."]
+    memory_block = "\n".join(memory_lines)
+    return (
+        "# Memory\n\n"
+        "This file stores durable information inferred from Discord conversations the bot reads and contributes to.\n\n"
+        "Guidelines:\n"
+        "- Keep only long-lived, useful facts.\n"
+        "- Do not store secrets, tokens, or private data.\n"
+        "- Prefer concise facts over summaries of jokes or transient chatter.\n\n"
+        "<!-- MEMORY_START -->\n"
+        f"{memory_block}\n"
+        "<!-- MEMORY_END -->\n"
+    )
+
+
+def ensure_memory_file_exists():
+    file_path = get_memory_file_path()
+    if os.path.exists(file_path):
+        return
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(build_memory_file_text())
+    except Exception as e:
+        print(f"[memory] create error: {e}", flush=True)
+
+
+def _memory_body_from_text(file_text):
+    match = re.search(
+        r"<!-- MEMORY_START -->\s*(.*?)\s*<!-- MEMORY_END -->",
+        str(file_text or ""),
+        flags=re.DOTALL,
+    )
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _memory_strip_date_prefix(text):
+    return re.sub(r"^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]\s*", "", str(text or "").strip())
+
+
+def normalize_memory_entry(text):
+    normalized = re.sub(r"\s+", " ", _memory_strip_date_prefix(text)).strip(" -\t\r\n")
+    if not normalized or normalized.lower() == "no durable memory recorded yet.":
+        return ""
+    return normalized
+
+
+def load_memory_entries():
+    file_path = get_memory_file_path()
+    if not os.path.exists(file_path):
+        return []
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            file_text = f.read()
+    except Exception as e:
+        print(f"[memory] load error: {e}", flush=True)
+        return []
+
+    body = _memory_body_from_text(file_text)
+    entries = []
+    for raw_line in body.splitlines():
+        raw_line = raw_line.strip()
+        if not raw_line.startswith("- "):
+            continue
+        entry = raw_line[2:].strip()
+        if normalize_memory_entry(entry):
+            entries.append(entry)
+    return entries
+
+
+def save_memory_entries(entries):
+    file_path = get_memory_file_path()
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(build_memory_file_text(entries))
+    except Exception as e:
+        print(f"[memory] save error: {e}", flush=True)
+
+
+def parse_memory_candidates(memory_text):
+    candidates = []
+    for raw_line in str(memory_text or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.upper() == "NONE":
+            continue
+        if line.startswith("- "):
+            line = line[2:].strip()
+        normalized = normalize_memory_entry(line)
+        if normalized:
+            candidates.append(normalized)
+    return candidates[:3]
+
+
+def append_memory_entries(new_entries):
+    normalized_new_entries = [normalize_memory_entry(entry) for entry in (new_entries or [])]
+    normalized_new_entries = [entry for entry in normalized_new_entries if entry]
+    if not normalized_new_entries:
+        return []
+
+    existing_entries = load_memory_entries()
+    existing_keys = {normalize_memory_entry(entry).lower() for entry in existing_entries if normalize_memory_entry(entry)}
+    today = datetime.datetime.now().date().isoformat()
+    added_entries = []
+
+    for entry in normalized_new_entries:
+        key = entry.lower()
+        if key in existing_keys:
+            continue
+        added_entries.append(f"[{today}] {entry}")
+        existing_keys.add(key)
+
+    if not added_entries:
+        return []
+
+    merged_entries = added_entries + existing_entries
+    save_memory_entries(merged_entries[:MEMORY_MAX_ENTRIES])
+    return added_entries
+
+
+def build_memory_context(max_entries=None, char_budget=None):
+    entries = load_memory_entries()
+    if not entries:
+        return ""
+
+    limit = max(1, int(max_entries or 8))
+    budget = max(200, int(char_budget or 1200))
+    selected = []
+    consumed = 0
+    for entry in entries[:limit]:
+        line = f"- {entry}"
+        line_len = len(line) + 1
+        if selected and (consumed + line_len) > budget:
+            break
+        selected.append(line)
+        consumed += line_len
+    return "\n".join(selected)
+
+
+async def capture_discord_memory(channel, recent_lines, source_label="conversation"):
+    if not LLM_ENABLED:
+        return
+
+    compact_lines = [str(line).strip() for line in (recent_lines or []) if str(line).strip()]
+    if not compact_lines:
+        return
+
+    transcript = "\n".join(compact_lines[-MEMORY_CONTEXT_MAX_MESSAGES:]).strip()
+    if not transcript:
+        return
+
+    try:
+        llm_messages = [
+            {"role": "system", "content": MEMORY_PROMPT},
+            {"role": "user", "content": f"Conversation transcript:\n{transcript}"},
+        ]
+        memory_reply = await get_llm_response(llm_messages)
+        parsed_entries = parse_memory_candidates(memory_reply)
+        added_entries = append_memory_entries(parsed_entries)
+        if added_entries:
+            print(
+                f"[memory] {source_label} stored {len(added_entries)} entr{'y' if len(added_entries) == 1 else 'ies'}",
+                flush=True,
+            )
+    except Exception as e:
+        print(f"[memory] {source_label} capture error: {e}", flush=True)
+
+
+async def capture_message_exchange_memory(message, source_label="reply"):
+    msg_content = strip_discord_mentions(message.content or "").strip()
+    if not msg_content:
+        return
+
+    context_history = []
+    try:
+        context_history = await build_llm_context_history(
+            message,
+            char_budget=MEMORY_CONTEXT_CHAR_BUDGET,
+            include_bot_messages=False,
+        )
+    except Exception as e:
+        print(f"[memory] context build error: {e}", flush=True)
+
+    recent_lines = list(context_history[-MEMORY_CONTEXT_MAX_MESSAGES:])
+    if msg_content:
+        recent_lines.append(f"{message.author.display_name}: {msg_content}")
+    await capture_discord_memory(
+        message.channel,
+        recent_lines,
+        source_label=source_label,
+    )
 
 
 def truncate_message(text, limit=1800):
@@ -6439,11 +6657,22 @@ async def send_generated_encouragement(channel, source_label="scheduled"):
             "role": "system",
             "content": IMPROVEMENT_PROMPT.format(selected_figures_str=selected_figures_str),
         },
-        {"role": "user", "content": selected_prompt},
     ]
+    memory_context = build_memory_context(max_entries=8, char_budget=1200)
+    if memory_context:
+        llm_messages.append({"role": "user", "content": f"Long-term Discord memory:\n{memory_context}"})
+        llm_messages.append({"role": "assistant", "content": "Understood. I will keep that memory in mind."})
+    llm_messages.append({"role": "user", "content": selected_prompt})
     try:
         reply_text = await get_llm_response(llm_messages)
         await channel.send(reply_text)
+        asyncio.create_task(
+            capture_discord_memory(
+                channel,
+                context_history[-MEMORY_CONTEXT_MAX_MESSAGES:],
+                source_label=f"encouragement/{source_label}",
+            )
+        )
         print(
             f"[encouragement] {source_label} ({prompt_kind}) sent at {datetime.datetime.now().isoformat()} "
             f"context_lines={len(context_history)}",
@@ -6502,7 +6731,7 @@ def get_daily_random_slots(day_start, count, excluded_slots=None):
 
 
 async def send_video_with_encouragement(channel):
-    """Send the video now and a short encouragement later."""
+    """Send the daily video message and track the message id."""
     global LAST_DAILY_VIDEO_ID
     print(f"Dispatching daily video at {datetime.datetime.now().isoformat()}", flush=True)
     try:
@@ -6513,18 +6742,9 @@ async def send_video_with_encouragement(channel):
         return
     print(f"Daily video dispatched successfully at {datetime.datetime.now().isoformat()}", flush=True)
 
-    if not LLM_ENABLED:
-        return
-
-    async def delayed_encouragement():
-        await asyncio.sleep(VIDEO_ENCOURAGEMENT_DELAY_SECONDS)
-        await send_generated_encouragement(channel, source_label="daily video")
-
-    client.loop.create_task(delayed_encouragement())
-
 
 async def send_daily_video(channel):
-    """Send the daily video and encouragement."""
+    """Send the scheduled daily video."""
     await send_video_with_encouragement(channel)
 
 async def background_task():
@@ -8680,11 +8900,26 @@ async def worker():
 
         embeds_sent = False
         try:
+            memory_context = build_memory_context(max_entries=10, char_budget=1400)
+            if memory_context:
+                insert_at = 1 if llm_messages and llm_messages[0].get("role") == "system" else 0
+                llm_messages = (
+                    llm_messages[:insert_at]
+                    + [
+                        {"role": "user", "content": f"Long-term Discord memory:\n{memory_context}"},
+                        {"role": "assistant", "content": "Understood. I will keep that memory in mind."},
+                    ]
+                    + llm_messages[insert_at:]
+                )
+
             # extract user query and determine if search should be used
             user_query = ""
             for msg in llm_messages:
                 if msg.get("role") == "user":
-                    user_query = msg.get("content", "")
+                    candidate_query = str(msg.get("content", "") or "")
+                    if candidate_query.startswith("Long-term Discord memory:"):
+                        continue
+                    user_query = candidate_query
                     break
             enable_search = should_use_search(user_query)
             if enable_search:
@@ -8702,6 +8937,12 @@ async def worker():
                                 await message.channel.send(embed=embed)
                             embeds_sent = True
                             await message.channel.send(final_reply)
+                            asyncio.create_task(
+                                capture_message_exchange_memory(
+                                    message,
+                                    source_label="worker-embed",
+                                )
+                            )
                         except Exception as embed_error:
                             print(f"Embed send failed, falling back to text: {embed_error}", flush=True)
                             fallback_payload = (
@@ -8710,8 +8951,20 @@ async def worker():
                                 else final_reply
                             )
                             await message.reply(fallback_payload)
+                            asyncio.create_task(
+                                capture_message_exchange_memory(
+                                    message,
+                                    source_label="worker-fallback",
+                                )
+                            )
                     else:
                         await message.reply(final_reply)
+                        asyncio.create_task(
+                            capture_message_exchange_memory(
+                                message,
+                                source_label="worker-reply",
+                            )
+                        )
                 except Exception as reply_error:
                     if not reply_embeds and is_deleted_message_reference_error(reply_error):
                         print("Worker reply target deleted before send. Triggering failsafe.", flush=True)
@@ -8788,6 +9041,8 @@ async def on_ready():
         f"{DAILY_ENCOURAGEMENT_MESSAGES} scheduled LLM encouragements per day.",
         flush=True,
     )
+    ensure_memory_file_exists()
+    print(f"[memory] loaded entries={len(load_memory_entries())}", flush=True)
     load_quiz_leaderboard()
     print(
         f"[quiz] global leaderboard loaded entries={len(QUIZ_GLOBAL_LEADERBOARD)}",

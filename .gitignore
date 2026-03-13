@@ -47,3 +47,5 @@ CLAUDE.md
 .claude/settings.local.json
 lltest.py
 .sisyphus/ralph-loop.local.md
+memory.md
+skills-lock.json
