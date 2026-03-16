@@ -10,7 +10,6 @@ from datetime import date
 import re
 import mimetypes
 import aiohttp
-import csv
 import pandas as pd
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
@@ -1356,7 +1355,41 @@ def load_frame_data():
                     stats_dict = dict(zip(df['name'], df['stat']))
                     FRAME_STATS[char_name] = stats_dict
                     # print(f"Loaded stats for {char_name}")
-                    
+
+            def normalize_loader_move_key(move_name, num_cmd):
+                normalized_name = re.sub(r"[^a-z0-9]+", "", str(move_name or "").lower())
+                normalized_num_cmd = re.sub(r"\([^)]*\)", "", str(num_cmd or "").lower())
+                normalized_num_cmd = re.sub(r"\s+", "", normalized_num_cmd)
+                normalized_num_cmd = re.sub(r"[^a-z0-9>]", "", normalized_num_cmd)
+                return normalized_name, normalized_num_cmd
+
+            # Jamie's drink-gated moves live on the drink-level sheets rather than JamieNormal.
+            # Merge unique rows so parser/lookup sees the full ODS moveset from one character key.
+            if "jamie" in FRAME_DATA:
+                jamie_extra_sheets = [
+                    name for name in xls.sheet_names
+                    if re.fullmatch(r"JamieD[1-4]", str(name or ""), re.IGNORECASE)
+                ]
+                existing_jamie_keys = {
+                    normalize_loader_move_key(row.get("moveName", ""), row.get("numCmd", ""))
+                    for row in FRAME_DATA["jamie"]
+                    if str(row.get("moveName", "")).strip() and str(row.get("numCmd", "")).strip()
+                }
+                for sheet_name in sorted(jamie_extra_sheets, key=str.lower):
+                    df = pd.read_excel(xls, sheet_name=sheet_name)
+                    records = df.fillna("").to_dict("records")
+                    for row in records:
+                        move_name = str(row.get("moveName", "")).strip()
+                        num_cmd = str(row.get("numCmd", "")).strip()
+                        if not move_name or not num_cmd:
+                            continue
+                        row_key = normalize_loader_move_key(move_name, num_cmd)
+                        if row_key in existing_jamie_keys:
+                            continue
+                        row["char_name"] = "Jamie"
+                        FRAME_DATA["jamie"].append(row)
+                        existing_jamie_keys.add(row_key)
+            
             print(f"Total characters loaded: {len(FRAME_DATA)}")
             print(f"Total stats loaded: {len(FRAME_STATS)}")
             
@@ -1802,7 +1835,11 @@ def find_moves_in_text(text):
             move_name = str(row.get("moveName", "")).lower()
             cmn_name = str(row.get("cmnName", "")).lower()
             num_cmd = str(row.get("numCmd", "")).lower()
-            return "critical art" in move_name or "critical art" in cmn_name or "(ca" in num_cmd
+            return (
+                "critical art" in move_name
+                or "critical art" in cmn_name
+                or bool(re.search(r"\(\s*ca\s*\)", num_cmd))
+            )
 
         def row_is_stocked_variant(row):
             move_name = str(row.get("moveName", "")).lower()
@@ -1931,6 +1968,9 @@ def find_moves_in_text(text):
         )
         akuma_followup_alias = None
         deejay_sway_followup_alias = None
+        ken_jinrai_followup_alias = None
+        jamie_drink_alias = None
+        query_requests_air_context = bool(re.search(r"\b(?:air|aerial)\b", text_lower))
         air_fireball_context = bool(
             re.search(
                 r"\b(?:air|aerial)\s+fireball\b|\bair\s+hadoken\b",
@@ -1941,6 +1981,13 @@ def find_moves_in_text(text):
             re.search(
                 r"\b(?:air|aerial)\s*(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\b"
                 r"|\b(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\s*(?:air|aerial)\b",
+                text_lower,
+            )
+        )
+        air_sa2_context = bool(
+            re.search(
+                r"\b(?:air|aerial)\s*(?:sa\s*2|super\s*art\s*2|super\s*2|level\s*2)\b"
+                r"|\b(?:sa\s*2|super\s*art\s*2|super\s*2|level\s*2)\s*(?:air|aerial)\b",
                 text_lower,
             )
         )
@@ -1963,6 +2010,25 @@ def find_moves_in_text(text):
         )
 
         if "ken" in mentioned_chars:
+            if re.search(
+                r"\b(?:(?:od|ex)\s+)?(?:jinrai|236k)\s*(?:>\s*)?(?:low|lk|6lk)\b"
+                r"|\b(?:low|lk|6lk)\s+(?:(?:od|ex)\s+)?jinrai\b",
+                text_lower,
+            ):
+                ken_jinrai_followup_alias = "od jinrai low" if query_wants_od_strength else "jinrai low"
+            elif re.search(
+                r"\b(?:(?:od|ex)\s+)?(?:jinrai|236k)\s*(?:>\s*)?(?:overhead|mk|6mk)\b"
+                r"|\b(?:overhead|mk|6mk)\s+(?:(?:od|ex)\s+)?jinrai\b",
+                text_lower,
+            ):
+                ken_jinrai_followup_alias = "od jinrai overhead" if query_wants_od_strength else "jinrai overhead"
+            elif re.search(
+                r"\b(?:(?:od|ex)\s+)?(?:jinrai|236k)\s*(?:>\s*)?(?:heavy|launcher|hk|6hk)\b"
+                r"|\b(?:heavy|launcher|hk|6hk)\s+(?:(?:od|ex)\s+)?jinrai\b",
+                text_lower,
+            ):
+                ken_jinrai_followup_alias = "od jinrai hk" if query_wants_od_strength else "jinrai hk"
+
             ken_run_alias_tokens = [
                 (r"\brun\s+stop\b", "emergency stop"),
                 (r"\brun\s+overhead\b", "thunder kick"),
@@ -1990,12 +2056,176 @@ def find_moves_in_text(text):
                         break
                 if selected_lash_alias and selected_lash_alias not in extra_inputs:
                     extra_inputs.append(selected_lash_alias)
+            if ken_jinrai_followup_alias and ken_jinrai_followup_alias not in extra_inputs:
+                extra_inputs.insert(0, ken_jinrai_followup_alias)
             if re.search(r"\brun\b", text_lower) and not re.search(
                 r"\brun\s+(?:stop|overhead|step|dp|shoryu|shoryuken|tatsu|dragonlash|dragon\s+lash|lash)\b",
                 text_lower,
             ):
                 if "quick dash" not in extra_inputs:
                     extra_inputs.append("quick dash")
+
+        if "mai" in mentioned_chars:
+            mai_fan_aliases = [
+                (r"\b(?:od|ex)\s+(?:stocked|stock)\s+(?:hold|held|charged)\s+fan\b", "od stocked hold fan"),
+                (r"\b(?:stocked|stock)\s+(?:od|ex)\s+(?:hold|held|charged)\s+fan\b", "od stocked hold fan"),
+                (r"\b(?:stocked|stock)\s+(?:hold|held|charged)\s+fan\b", "stocked hold fan"),
+                (r"\b(?:od|ex)\s+(?:hold|held|charged)\s+fan\b", "od hold fan"),
+                (r"\b(?:hold|held|charged)\s+fan\b", "hold fan"),
+                (r"\b(?:od|ex)\s+(?:stocked|stock)\s+fan\b", "od stocked fan"),
+                (r"\b(?:stocked|stock)\s+(?:od|ex)\s+fan\b", "od stocked fan"),
+                (r"\b(?:stocked|stock)\s+fan\b", "stocked fan"),
+                (r"\b(?:od|ex)\s+fan\b", "od fan"),
+                (r"\b(?:l|light|lp)\s+fan\b", "l fan"),
+                (r"\b(?:m|medium|mp)\s+fan\b", "m fan"),
+                (r"\b(?:h|heavy|hp)\s+fan\b", "h fan"),
+                (r"\bfan\b", "fan"),
+            ]
+            for pattern, alias_token in mai_fan_aliases:
+                if re.search(pattern, text_lower):
+                    if alias_token not in extra_inputs:
+                        extra_inputs.append(alias_token)
+                    break
+            if air_sa2_context and "air sa2" not in extra_inputs:
+                extra_inputs.append("air sa2")
+
+        if "jamie" in mentioned_chars:
+            if re.search(
+                r"\b(?:drink|dr\s*4)\s+activation\b|\blevel\s*4\s+activation\b|\bactivation\s+drink\b",
+                text_lower,
+            ):
+                jamie_drink_alias = "drink activation"
+            elif re.search(r"\b(?:drink\s*(?:level\s*)?4|level\s*4\s*drink|4\s*drinks?|four\s+drinks?)\b", text_lower):
+                jamie_drink_alias = "drink level 4"
+            elif re.search(r"\b(?:drink\s*(?:level\s*)?3|level\s*3\s*drink|3\s*drinks?|three\s+drinks?)\b", text_lower):
+                jamie_drink_alias = "drink level 3"
+            elif re.search(r"\b(?:drink\s*(?:level\s*)?2|level\s*2\s*drink|2\s*drinks?|two\s+drinks?)\b", text_lower):
+                jamie_drink_alias = "drink level 2"
+            elif re.search(r"\b(?:drink\s*(?:level\s*)?1|level\s*1\s*drink|1\s*drink|one\s+drink)\b", text_lower):
+                jamie_drink_alias = "drink level 1"
+            elif re.search(r"\bdrink\b", text_lower):
+                jamie_drink_alias = "drink"
+
+            if jamie_drink_alias and jamie_drink_alias not in extra_inputs:
+                extra_inputs.insert(0, jamie_drink_alias)
+
+            jamie_palm_aliases = [
+                (r"\b(?:od|ex)\s+(?:palm|swagger(?:\s+step)?)\b", "od palm"),
+                (r"\b(?:l|light|lp)\s+(?:palm|swagger(?:\s+step)?)\b", "lp palm"),
+                (r"\b(?:m|medium|mp)\s+(?:palm|swagger(?:\s+step)?)\b", "mp palm"),
+                (r"\b(?:h|heavy|hp)\s+(?:palm|swagger(?:\s+step)?)\b", "hp palm"),
+                (r"\b(?:palm|swagger(?:\s+step)?)\b", "palm"),
+            ]
+            for pattern, alias_token in jamie_palm_aliases:
+                if re.search(pattern, text_lower):
+                    if alias_token not in extra_inputs:
+                        extra_inputs.append(alias_token)
+                    break
+
+            jamie_rekka_aliases = [
+                (r"\b(?:od|ex)\s+(?:rekka|freeflow(?:\s+strikes)?)\b", "od rekka"),
+                (r"\b(?:l|light|lp)\s+(?:rekka|freeflow(?:\s+strikes)?)\b", "lp rekka"),
+                (r"\b(?:m|medium|mp)\s+(?:rekka|freeflow(?:\s+strikes)?)\b", "mp rekka"),
+                (r"\b(?:h|heavy|hp)\s+(?:rekka|freeflow(?:\s+strikes)?)\b", "hp rekka"),
+                (r"\b(?:rekka|freeflow(?:\s+strikes)?)\b", "rekka"),
+            ]
+            for pattern, alias_token in jamie_rekka_aliases:
+                if re.search(pattern, text_lower):
+                    if alias_token not in extra_inputs:
+                        extra_inputs.append(alias_token)
+                    break
+
+            jamie_arrow_aliases = [
+                (r"\b(?:od|ex)\s+(?:arrow\s+kick|up\s*kicks?|upkicks?)\b", "od arrow kick"),
+                (r"\b(?:l|light|lk)\s+(?:arrow\s+kick|up\s*kicks?|upkicks?)\b", "l arrow kick"),
+                (r"\b(?:m|medium|mk)\s+(?:arrow\s+kick|up\s*kicks?|upkicks?)\b", "m arrow kick"),
+                (r"\b(?:h|heavy|hk)\s+(?:arrow\s+kick|up\s*kicks?|upkicks?)\b", "h arrow kick"),
+                (r"\b(?:arrow\s+kick|up\s*kicks?|upkicks?)\b", "arrow kick"),
+            ]
+            for pattern, alias_token in jamie_arrow_aliases:
+                if re.search(pattern, text_lower):
+                    if alias_token not in extra_inputs:
+                        extra_inputs.append(alias_token)
+                    break
+
+            jamie_bakkai_aliases = [
+                (r"\b(?:od|ex)\s+(?:bakkai|break\s*dance)\b|\b236kk\b", "od bakkai"),
+                (r"\b(?:l|light|lk)\s+(?:bakkai|break\s*dance)\b|\b236lk\b", "lk bakkai"),
+                (r"\b(?:m|medium|mk)\s+(?:bakkai|break\s*dance)\b|\b236mk\b", "mk bakkai"),
+                (r"\b(?:h|heavy|hk)\s+(?:bakkai|break\s*dance)\b|\b236hk\b", "hk bakkai"),
+                (r"\b(?:bakkai|break\s*dance)\b|\b236k\b", "bakkai"),
+            ]
+            for pattern, alias_token in jamie_bakkai_aliases:
+                if re.search(pattern, text_lower):
+                    if alias_token not in extra_inputs:
+                        extra_inputs.append(alias_token)
+                    break
+
+            jamie_divekick_aliases = [
+                (
+                    r"\b(?:od|ex)\s+(?:luminous\s+)?dive\s+kick\b|\b(?:od|ex)\s+divekick\b|\b214kk\b|\bj\.?214kk\b",
+                    "od dive kick",
+                ),
+                (
+                    r"\b(?:l|light|lk)\s+(?:luminous\s+)?dive\s+kick\b|\b(?:l|light|lk)\s+divekick\b|\b214lk\b|\bj\.?214lk\b",
+                    "dive kick",
+                ),
+                (
+                    r"\b(?:m|medium|mk)\s+(?:luminous\s+)?dive\s+kick\b|\b(?:m|medium|mk)\s+divekick\b|\b214mk\b|\bj\.?214mk\b",
+                    "dive kick",
+                ),
+                (
+                    r"\b(?:h|heavy|hk)\s+(?:luminous\s+)?dive\s+kick\b|\b(?:h|heavy|hk)\s+divekick\b|\b214hk\b|\bj\.?214hk\b",
+                    "dive kick",
+                ),
+                (
+                    r"\b(?:luminous\s+)?dive\s+kick\b|\bdivekick\b|\b214k\b|\bj\.?214k\b",
+                    "dive kick",
+                ),
+            ]
+            for pattern, alias_token in jamie_divekick_aliases:
+                if re.search(pattern, text_lower):
+                    if alias_token not in extra_inputs:
+                        extra_inputs.append(alias_token)
+                    break
+
+            jamie_tenshin_aliases = [
+                (r"\b(?:od|ex)\s+(?:tenshin|command\s+grab)\b", "od tenshin"),
+                (r"\b(?:tenshin|command\s+grab)\b", "tenshin"),
+            ]
+            for pattern, alias_token in jamie_tenshin_aliases:
+                if re.search(pattern, text_lower):
+                    if alias_token not in extra_inputs:
+                        extra_inputs.append(alias_token)
+                    break
+
+            jamie_hermit_aliases = [
+                (
+                    r"\b(?:od|ex)\s+(?:swagger\s+hermit\s+punch|hermit\s+punch|palm\s+follow(?:-?up)?)\b",
+                    "od swagger hermit punch",
+                ),
+                (
+                    r"\b(?:l|light|lp)\s+(?:swagger\s+hermit\s+punch|hermit\s+punch|palm\s+follow(?:-?up)?)\b",
+                    "lp swagger hermit punch",
+                ),
+                (
+                    r"\b(?:m|medium|mp)\s+(?:swagger\s+hermit\s+punch|hermit\s+punch|palm\s+follow(?:-?up)?)\b",
+                    "mp swagger hermit punch",
+                ),
+                (
+                    r"\b(?:h|heavy|hp)\s+(?:swagger\s+hermit\s+punch|hermit\s+punch|palm\s+follow(?:-?up)?)\b",
+                    "hp swagger hermit punch",
+                ),
+                (
+                    r"\b(?:swagger\s+hermit\s+punch|hermit\s+punch|palm\s+follow(?:-?up)?)\b",
+                    "swagger hermit punch",
+                ),
+            ]
+            for pattern, alias_token in jamie_hermit_aliases:
+                if re.search(pattern, text_lower):
+                    if alias_token not in extra_inputs:
+                        extra_inputs.append(alias_token)
+                    break
 
         if "akuma" in mentioned_chars:
             has_od_strength = bool(re.search(r"\b(od|ex)\b", text_lower))
@@ -2092,13 +2322,39 @@ def find_moves_in_text(text):
 
         if "mai" in mentioned_chars and query_requires_stocked:
             mai_stocked_aliases = [
+                (r"\b(?:od|ex)\s+(?:stocked|stock)\s+(?:fireball|kachousen)\b", "od stocked fireball"),
+                (r"\b(?:stocked|stock)\s+(?:od|ex)\s+(?:fireball|kachousen)\b", "od stocked fireball"),
+                (r"\b(?:od|ex)\s+(?:stocked|stock)\s+(?:dp|ryuuenjin)\b", "od stocked dp"),
+                (r"\b(?:stocked|stock)\s+(?:od|ex)\s+(?:dp|ryuuenjin)\b", "od stocked dp"),
+                (r"\b(?:od|ex)\s+(?:stocked|stock)\s+(?:twirl|ryuuenbu)\b", "od stocked twirl"),
+                (r"\b(?:stocked|stock)\s+(?:od|ex)\s+(?:twirl|ryuuenbu)\b", "od stocked twirl"),
+                (r"\b(?:od|ex)\s+(?:stocked|stock)\s+(?:cartwheel|shinobi\s+bachi)\b", "od stocked cartwheel"),
+                (r"\b(?:stocked|stock)\s+(?:od|ex)\s+(?:cartwheel|shinobi\s+bachi)\b", "od stocked cartwheel"),
+                (
+                    r"\b(?:od|ex)\s+(?:stocked|stock)\s+(?:dive\s+kick|divekick|musasabi(?:\s+no\s+mai)?)\b",
+                    "od stocked dive kick",
+                ),
+                (
+                    r"\b(?:stocked|stock)\s+(?:od|ex)\s+(?:dive\s+kick|divekick|musasabi(?:\s+no\s+mai)?)\b",
+                    "od stocked dive kick",
+                ),
                 (r"\b(?:stocked|stock)\s+(?:fireball|kachousen)\b", "stocked fireball"),
                 (r"\b(?:stocked|stock)\s+(?:dp|ryuuenjin)\b", "stocked dp"),
                 (r"\b(?:stocked|stock)\s+(?:twirl|ryuuenbu)\b", "stocked twirl"),
                 (r"\b(?:stocked|stock)\s+(?:cartwheel|shinobi\s+bachi)\b", "stocked cartwheel"),
-                (r"\b(?:stocked|stock)\s+(?:air\s+)?sa\s*1\b", "stocked sa1"),
-                (r"\b(?:stocked|stock)\s+(?:air\s+)?sa\s*2\b", "stocked air sa2"),
-                (r"\b(?:air\s+)?(?:stocked|stock)\s+sa\s*2\b", "stocked air sa2"),
+                (
+                    r"\b(?:stocked|stock)\s+(?:dive\s+kick|divekick|musasabi(?:\s+no\s+mai)?)\b",
+                    "stocked dive kick",
+                ),
+                (r"\b(?:stocked|stock)\s+(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\b", "stocked sa1"),
+                (
+                    r"\b(?:stocked|stock)\s+(?:air\s+)?(?:sa\s*2|super\s*art\s*2|super\s*2|level\s*2)\b",
+                    "stocked air sa2",
+                ),
+                (
+                    r"\b(?:air\s+)?(?:stocked|stock)\s+(?:sa\s*2|super\s*art\s*2|super\s*2|level\s*2)\b",
+                    "stocked air sa2",
+                ),
             ]
             for pattern, alias_token in mai_stocked_aliases:
                 if re.search(pattern, text_lower) and alias_token not in extra_inputs:
@@ -3102,10 +3358,38 @@ def find_moves_in_text(text):
             if ca_rows:
                 results = ca_rows
 
+        if query_requests_air_context and results:
+            air_rows = []
+            for row in results:
+                move_name = str(row.get("moveName", "")).lower()
+                cmn_name = str(row.get("cmnName", "")).lower()
+                num_cmd = str(row.get("numCmd", "")).lower()
+                if "air" in move_name or "air" in cmn_name or "(air)" in num_cmd:
+                    air_rows.append(row)
+            if air_rows:
+                results = air_rows
+
         if query_requires_stocked and results:
             stocked_rows = [row for row in results if row_is_stocked_variant(row)]
             if stocked_rows:
                 results = stocked_rows
+
+        if (
+            "jamie" in mentioned_chars
+            and results
+            and re.search(
+                r"\b(?:rekka|freeflow|palm|swagger|arrow\s+kick|upkicks?|drink(?:\s+activation)?|activation)\b",
+                text_lower,
+            )
+        ):
+            jamie_special_rows = [
+                row
+                for row in results
+                if str(row.get("moveType", "")).strip().lower()
+                in {"special", "movement-special", "super", "command-grab"}
+            ]
+            if jamie_special_rows:
+                results = jamie_special_rows
 
         if akuma_followup_alias and results:
             alias_lower = akuma_followup_alias.lower()
@@ -3139,6 +3423,34 @@ def find_moves_in_text(text):
                     ):
                         continue
                     if followup_keyword in move_name or followup_keyword in cmn_name:
+                        filtered_results.append(row)
+                if filtered_results:
+                    results = filtered_results
+
+        if ken_jinrai_followup_alias and results:
+            alias_lower = ken_jinrai_followup_alias.lower()
+            ken_followup_keywords = []
+            if "low" in alias_lower or "lk" in alias_lower:
+                ken_followup_keywords = ["jinrai > low", "kazekama", "> 6lk"]
+            elif "overhead" in alias_lower or "mk" in alias_lower:
+                ken_followup_keywords = ["jinrai > overhead", "gorai", "> 6mk"]
+            elif any(token in alias_lower for token in ("heavy", "launcher", "hk")):
+                ken_followup_keywords = ["jinrai > heavy", "senka", "> 6hk"]
+
+            if ken_followup_keywords:
+                filtered_results = []
+                for row in results:
+                    row_char = normalize_char_name(row.get("char_name", ""))
+                    if row_char != "ken":
+                        filtered_results.append(row)
+                        continue
+                    move_name = str(row.get("moveName", "")).lower()
+                    cmn_name = str(row.get("cmnName", "")).lower()
+                    num_cmd = str(row.get("numCmd", "")).lower()
+                    if any(
+                        keyword in move_name or keyword in cmn_name or keyword in num_cmd
+                        for keyword in ken_followup_keywords
+                    ):
                         filtered_results.append(row)
                 if filtered_results:
                     results = filtered_results
@@ -3186,7 +3498,6 @@ def find_moves_in_text(text):
             and not query_requests_ca
         ):
             existing_special_prompt_keys = set()
-            query_requests_air_context = bool(re.search(r"\b(?:air|aerial)\b", text_lower))
 
             def variant_is_air_move(row):
                 move_name = str(row.get("moveName", "")).lower()
@@ -3569,9 +3880,15 @@ def find_moves_in_text(text):
     }
 
 
-def lookup_frame_data(character, move_input):
+def lookup_frame_data(character, move_input, _seen_inputs=None):
     """Search for a move in character's frame data by numCmd, plnCmd, or moveName."""
     move_input = str(move_input)
+    seen_key = move_input.strip().lower()
+    if _seen_inputs is None:
+        _seen_inputs = set()
+    if seen_key in _seen_inputs:
+        return None
+    _seen_inputs.add(seen_key)
     char_key = character.lower()
     if char_key not in FRAME_DATA:
         return None
@@ -3767,6 +4084,8 @@ def lookup_frame_data(character, move_input):
 
     def resolve_strength_special_input(raw_input):
         normalized = re.sub(r"\s+", " ", raw_input).strip().lower()
+        if ">" in normalized or "->" in normalized:
+            return normalized
         strength_map = {
             "light": ["lp", "lk"],
             "l": ["lp", "lk"],
@@ -3817,6 +4136,7 @@ def lookup_frame_data(character, move_input):
 
         return normalized
 
+    pre_strength_alias_input = move_input
     move_input = normalize_motion_strength_aliases(move_input)
     move_input = resolve_strength_special_input(move_input)
 
@@ -3909,6 +4229,15 @@ def lookup_frame_data(character, move_input):
         "sa1": "super art level 1",
         "sa2": "super art level 2",
         "sa3": "super art level 3",
+        "level 1": "super art level 1",
+        "level 2": "super art level 2",
+        "level 3": "super art level 3",
+        "lvl1": "super art level 1",
+        "lvl2": "super art level 2",
+        "lvl3": "super art level 3",
+        "lv1": "super art level 1",
+        "lv2": "super art level 2",
+        "lv3": "super art level 3",
         "ca": "critical art",
         "critical": "critical art",
         "critical art": "critical art",
@@ -4054,24 +4383,203 @@ def lookup_frame_data(character, move_input):
             "ex sway feint": "od jus cool > juggling dash > juggling sway",
         },
         "jamie": {
-            "dive kick": "l luminous dive kick",
-            "divekick": "l luminous dive kick",
-            "l dive kick": "l luminous dive kick",
-            "m dive kick": "m luminous dive kick",
-            "h dive kick": "h luminous dive kick",
-            "light dive kick": "l luminous dive kick",
-            "medium dive kick": "m luminous dive kick",
-            "heavy dive kick": "h luminous dive kick",
-            "od dive kick": "od luminous dive kick",
-            "ex dive kick": "od luminous dive kick",
-            "l divekick": "l luminous dive kick",
-            "m divekick": "m luminous dive kick",
-            "h divekick": "h luminous dive kick",
-            "light divekick": "l luminous dive kick",
-            "medium divekick": "m luminous dive kick",
-            "heavy divekick": "h luminous dive kick",
-            "od divekick": "od luminous dive kick",
-            "ex divekick": "od luminous dive kick",
+            "drink": "the devil inside",
+            "drink level 1": "the devil inside",
+            "level 1 drink": "the devil inside",
+            "1 drink": "the devil inside",
+            "one drink": "the devil inside",
+            "drink level 2": "the devil inside (2 drinks)",
+            "level 2 drink": "the devil inside (2 drinks)",
+            "2 drinks": "the devil inside (2 drinks)",
+            "two drinks": "the devil inside (2 drinks)",
+            "drink level 3": "the devil inside (3 drinks)",
+            "level 3 drink": "the devil inside (3 drinks)",
+            "3 drinks": "the devil inside (3 drinks)",
+            "three drinks": "the devil inside (3 drinks)",
+            "drink level 4": "the devil inside (4 drinks)",
+            "level 4 drink": "the devil inside (4 drinks)",
+            "4 drinks": "the devil inside (4 drinks)",
+            "four drinks": "the devil inside (4 drinks)",
+            "drink activation": "the devil inside (dr4 activation)",
+            "dr4 activation": "the devil inside (dr4 activation)",
+            "level 4 activation": "the devil inside (dr4 activation)",
+            "rekka": "freeflow strikes",
+            "freeflow": "freeflow strikes",
+            "freeflow strikes": "freeflow strikes",
+            "lp rekka": "lp freeflow strikes",
+            "mp rekka": "mp freeflow strikes",
+            "hp rekka": "hp freeflow strikes",
+            "od rekka": "od freeflow strikes",
+            "ex rekka": "od freeflow strikes",
+            "lp freeflow": "lp freeflow strikes",
+            "mp freeflow": "mp freeflow strikes",
+            "hp freeflow": "hp freeflow strikes",
+            "od freeflow": "od freeflow strikes",
+            "ex freeflow": "od freeflow strikes",
+            "rekka 1": "lp freeflow strikes",
+            "rekka punch": "lp freeflow strikes 2",
+            "rekka 2": "lp freeflow strikes 2",
+            "rekka 2 punch": "lp freeflow strikes 2",
+            "rekka 3": "lp freeflow strikes 3",
+            "rekka 3 punch": "lp freeflow strikes 3",
+            "rekka kick": "lp freeflow kicks 2",
+            "freeflow kicks": "lp freeflow kicks 2",
+            "rekka 2 kick": "lp freeflow kicks 2",
+            "rekka 3 kick": "lp freeflow kicks 3",
+            "lp rekka punch": "lp freeflow strikes 2",
+            "lp rekka 2": "lp freeflow strikes 2",
+            "lp rekka 2 punch": "lp freeflow strikes 2",
+            "lp rekka 3": "lp freeflow strikes 3",
+            "lp rekka 3 punch": "lp freeflow strikes 3",
+            "lp rekka kick": "lp freeflow kicks 2",
+            "lp rekka 2 kick": "lp freeflow kicks 2",
+            "lp rekka 3 kick": "lp freeflow kicks 3",
+            "mp rekka punch": "mp freeflow strikes 2",
+            "mp rekka 2": "mp freeflow strikes 2",
+            "mp rekka 2 punch": "mp freeflow strikes 2",
+            "mp rekka 3": "mp freeflow strikes 3",
+            "mp rekka 3 punch": "mp freeflow strikes 3",
+            "mp rekka kick": "mp freeflow kicks 2",
+            "mp rekka 2 kick": "mp freeflow kicks 2",
+            "mp rekka 3 kick": "mp freeflow kicks 3",
+            "hp rekka punch": "hp freeflow strikes 2",
+            "hp rekka 2": "hp freeflow strikes 2",
+            "hp rekka 2 punch": "hp freeflow strikes 2",
+            "hp rekka 3": "hp freeflow strikes 3",
+            "hp rekka 3 punch": "hp freeflow strikes 3",
+            "hp rekka kick": "hp freeflow kicks 2",
+            "hp rekka 2 kick": "hp freeflow kicks 2",
+            "hp rekka 3 kick": "hp freeflow kicks 3",
+            "od rekka punch": "od freeflow strikes 2",
+            "od rekka 2": "od freeflow strikes 2",
+            "od rekka 2 punch": "od freeflow strikes 2",
+            "od rekka 3": "od freeflow strikes 3",
+            "od rekka 3 punch": "od freeflow strikes 3",
+            "od rekka kick": "od freeflow kicks 2",
+            "od rekka 2 kick": "od freeflow kicks 2",
+            "od rekka 3 kick": "od freeflow kicks 3",
+            "ex rekka punch": "od freeflow strikes 2",
+            "ex rekka 2": "od freeflow strikes 2",
+            "ex rekka 3": "od freeflow strikes 3",
+            "ex rekka kick": "od freeflow kicks 2",
+            "ex rekka 2 kick": "od freeflow kicks 2",
+            "ex rekka 3 kick": "od freeflow kicks 3",
+            "palm": "swagger step",
+            "swagger": "swagger step",
+            "swagger step": "swagger step",
+            "lp palm": "lp swagger step",
+            "mp palm": "mp swagger step",
+            "hp palm": "hp swagger step",
+            "od palm": "od swagger step",
+            "ex palm": "od swagger step",
+            "light palm": "lp swagger step",
+            "medium palm": "mp swagger step",
+            "heavy palm": "hp swagger step",
+            "l palm": "lp swagger step",
+            "m palm": "mp swagger step",
+            "h palm": "hp swagger step",
+            "lp swagger": "lp swagger step",
+            "mp swagger": "mp swagger step",
+            "hp swagger": "hp swagger step",
+            "od swagger": "od swagger step",
+            "ex swagger": "od swagger step",
+            "arrow kick": "arrow kick",
+            "upkicks": "arrow kick",
+            "up kicks": "arrow kick",
+            "lp arrow kick": "lk arrow kick",
+            "mp arrow kick": "mk arrow kick",
+            "hp arrow kick": "hk arrow kick",
+            "od arrow kick": "od arrow kick",
+            "ex arrow kick": "od arrow kick",
+            "light arrow kick": "lk arrow kick",
+            "medium arrow kick": "mk arrow kick",
+            "heavy arrow kick": "hk arrow kick",
+            "l arrow kick": "lk arrow kick",
+            "m arrow kick": "mk arrow kick",
+            "h arrow kick": "hk arrow kick",
+            "bakkai": "lk bakkai (drink 2)",
+            "breakdance": "lk bakkai (drink 2)",
+            "break dance": "lk bakkai (drink 2)",
+            "lk bakkai": "lk bakkai (drink 2)",
+            "mk bakkai": "mk bakkai (drink 2)",
+            "hk bakkai": "hk bakkai (drink 2)",
+            "od bakkai": "od bakkai (drink 2)",
+            "ex bakkai": "od bakkai (drink 2)",
+            "l bakkai": "lk bakkai (drink 2)",
+            "m bakkai": "mk bakkai (drink 2)",
+            "h bakkai": "hk bakkai (drink 2)",
+            "light bakkai": "lk bakkai (drink 2)",
+            "medium bakkai": "mk bakkai (drink 2)",
+            "heavy bakkai": "hk bakkai (drink 2)",
+            "lk breakdance": "lk bakkai (drink 2)",
+            "mk breakdance": "mk bakkai (drink 2)",
+            "hk breakdance": "hk bakkai (drink 2)",
+            "od breakdance": "od bakkai (drink 2)",
+            "ex breakdance": "od bakkai (drink 2)",
+            "l breakdance": "lk bakkai (drink 2)",
+            "m breakdance": "mk bakkai (drink 2)",
+            "h breakdance": "hk bakkai (drink 2)",
+            "light breakdance": "lk bakkai (drink 2)",
+            "medium breakdance": "mk bakkai (drink 2)",
+            "heavy breakdance": "hk bakkai (drink 2)",
+            "236k": "lk bakkai (drink 2)",
+            "236lk": "lk bakkai (drink 2)",
+            "236mk": "mk bakkai (drink 2)",
+            "236hk": "hk bakkai (drink 2)",
+            "236kk": "od bakkai (drink 2)",
+            "breakin": "breakin'",
+            "break in": "breakin'",
+            "dive kick": "luminous dive kick (drink 1)",
+            "divekick": "luminous dive kick (drink 1)",
+            "l dive kick": "luminous dive kick (drink 1)",
+            "m dive kick": "luminous dive kick (drink 1)",
+            "h dive kick": "luminous dive kick (drink 1)",
+            "light dive kick": "luminous dive kick (drink 1)",
+            "medium dive kick": "luminous dive kick (drink 1)",
+            "heavy dive kick": "luminous dive kick (drink 1)",
+            "od dive kick": "od luminous dive kick (drink 1)",
+            "ex dive kick": "od luminous dive kick (drink 1)",
+            "l divekick": "luminous dive kick (drink 1)",
+            "m divekick": "luminous dive kick (drink 1)",
+            "h divekick": "luminous dive kick (drink 1)",
+            "light divekick": "luminous dive kick (drink 1)",
+            "medium divekick": "luminous dive kick (drink 1)",
+            "heavy divekick": "luminous dive kick (drink 1)",
+            "od divekick": "od luminous dive kick (drink 1)",
+            "ex divekick": "od luminous dive kick (drink 1)",
+            "luminous dive kick": "luminous dive kick (drink 1)",
+            "od luminous dive kick": "od luminous dive kick (drink 1)",
+            "ex luminous dive kick": "od luminous dive kick (drink 1)",
+            "214k": "luminous dive kick (drink 1)",
+            "214k air": "luminous dive kick (drink 1)",
+            "214kk": "od luminous dive kick (drink 1)",
+            "214kk air": "od luminous dive kick (drink 1)",
+            "j214k": "luminous dive kick (drink 1)",
+            "j.214k": "luminous dive kick (drink 1)",
+            "j 214k": "luminous dive kick (drink 1)",
+            "j214kk": "od luminous dive kick (drink 1)",
+            "j.214kk": "od luminous dive kick (drink 1)",
+            "j 214kk": "od luminous dive kick (drink 1)",
+            "tenshin": "tenshin (drink 3)",
+            "command grab": "tenshin (drink 3)",
+            "od tenshin": "od tenshin (drink 3)",
+            "ex tenshin": "od tenshin (drink 3)",
+            "od command grab": "od tenshin (drink 3)",
+            "ex command grab": "od tenshin (drink 3)",
+            "swagger hermit punch": "lp swagger hermit punch (drink 4)",
+            "hermit punch": "lp swagger hermit punch (drink 4)",
+            "lp swagger hermit punch": "lp swagger hermit punch (drink 4)",
+            "mp swagger hermit punch": "mp swagger hermit punch (drink 4)",
+            "hp swagger hermit punch": "hp swagger hermit punch (drink 4)",
+            "od swagger hermit punch": "od swagger hermit punch (drink 4)",
+            "ex swagger hermit punch": "od swagger hermit punch (drink 4)",
+            "lp hermit punch": "lp swagger hermit punch (drink 4)",
+            "mp hermit punch": "mp swagger hermit punch (drink 4)",
+            "hp hermit punch": "hp swagger hermit punch (drink 4)",
+            "od hermit punch": "od swagger hermit punch (drink 4)",
+            "ex hermit punch": "od swagger hermit punch (drink 4)",
+            "palm followup": "lp swagger hermit punch (drink 4)",
+            "palm follow-up": "lp swagger hermit punch (drink 4)",
         },
         "ryu": {
             "air tatsu": "air tatsumaki senpukyaku",
@@ -4147,22 +4655,40 @@ def lookup_frame_data(character, move_input):
             "run dragon lash": "run > dragonlash",
             "run lash": "run > dragonlash",
             "jinrai low": "jinrai > low",
+            "jinrai lk": "jinrai > low",
+            "jinrai 6lk": "jinrai > low",
             "jinrai overhead": "jinrai > overhead",
+            "jinrai mk": "jinrai > overhead",
+            "jinrai 6mk": "jinrai > overhead",
             "jinrai launcher": "jinrai > heavy",
             "jinrai heavy": "jinrai > heavy",
+            "jinrai hk": "jinrai > heavy",
+            "jinrai 6hk": "jinrai > heavy",
             "jinrai followup low": "jinrai > low",
             "jinrai followup overhead": "jinrai > overhead",
             "jinrai followup launcher": "jinrai > heavy",
+            "jinrai heavy followup": "jinrai > heavy",
+            "jinrai hk followup": "jinrai > heavy",
             "236k low": "jinrai > low",
+            "236k lk": "jinrai > low",
+            "236k 6lk": "jinrai > low",
             "236k overhead": "jinrai > overhead",
+            "236k mk": "jinrai > overhead",
+            "236k 6mk": "jinrai > overhead",
             "236k launcher": "jinrai > heavy",
             "236k heavy": "jinrai > heavy",
+            "236k hk": "jinrai > heavy",
+            "236k 6hk": "jinrai > heavy",
             "od jinrai low": "od jinrai > low",
+            "od jinrai lk": "od jinrai > low",
             "od jinrai overhead": "od jinrai > overhead",
+            "od jinrai mk": "od jinrai > overhead",
             "od jinrai launcher": "od jinrai > heavy",
+            "od jinrai hk": "od jinrai > heavy",
             "ex jinrai low": "od jinrai > low",
             "ex jinrai overhead": "od jinrai > overhead",
             "ex jinrai launcher": "od jinrai > heavy",
+            "ex jinrai hk": "od jinrai > heavy",
         },
         "luke": {
             "214p": "flash knuckle",
@@ -4576,6 +5102,7 @@ def lookup_frame_data(character, move_input):
             "light upball": "lk vertical rolling attack",
             "medium upball": "mk vertical rolling attack",
             "heavy upball": "hk vertical rolling attack",
+            "aerial ball": "Aerial Rolling Attack (air)"
         },
         "guile": {
             # 214P Sonic Blade
@@ -4828,18 +5355,94 @@ def lookup_frame_data(character, move_input):
             "wind stock": "lp condor wind (2 stocks)",
         },
         "mai": {
+            "fan": "fireball",
+            "fire fan": "fireball",
+            "kachousen": "fireball",
+            "l fan": "lp fireball",
+            "m fan": "mp fireball",
+            "h fan": "hp fireball",
+            "light fan": "lp fireball",
+            "medium fan": "mp fireball",
+            "heavy fan": "hp fireball",
+            "od fan": "od fireball",
+            "ex fan": "od fireball",
+            "hold fan": "hold fireball",
+            "held fan": "hold fireball",
+            "charged fan": "hold fireball",
+            "od hold fan": "od hold fireball",
+            "ex hold fan": "od hold fireball",
+            "stocked fan": "stocked fireball",
+            "stock fan": "stocked fireball",
+            "stocked kachousen": "stocked fireball",
+            "stocked hold fan": "stocked hold fireball",
+            "stocked held fan": "stocked hold fireball",
+            "stocked charged fan": "stocked hold fireball",
+            "od stocked fan": "od stocked fireball",
+            "ex stocked fan": "od stocked fireball",
+            "stocked od fan": "od stocked fireball",
+            "stocked ex fan": "od stocked fireball",
+            "od stocked hold fan": "od stocked hold fireball",
+            "ex stocked hold fan": "od stocked hold fireball",
+            "stocked od hold fan": "od stocked hold fireball",
+            "stocked ex hold fan": "od stocked hold fireball",
             "stocked fireball": "lp kachousen (stock)",
             "stocked kachousen": "lp kachousen (stock)",
+            "hold fireball": "kachousen (hold)",
+            "held fireball": "kachousen (hold)",
+            "charged fireball": "kachousen (hold)",
+            "air sa2": "air chou hissatsu shinobi bachi",
+            "aerial sa2": "air chou hissatsu shinobi bachi",
+            "sa2 air": "air chou hissatsu shinobi bachi",
+            "sa 2 air": "air chou hissatsu shinobi bachi",
+            "air super art 2": "air chou hissatsu shinobi bachi",
+            "aerial super art 2": "air chou hissatsu shinobi bachi",
+            "air super 2": "air chou hissatsu shinobi bachi",
+            "aerial super 2": "air chou hissatsu shinobi bachi",
+            "air level 2": "air chou hissatsu shinobi bachi",
+            "aerial level 2": "air chou hissatsu shinobi bachi",
+            "stocked hold fireball": "kachousen (stock + hold)",
+            "stocked held fireball": "kachousen (stock + hold)",
+            "stocked charged fireball": "kachousen (stock + hold)",
+            "od stocked fireball": "od kachousen (stock)",
+            "ex stocked fireball": "od kachousen (stock)",
+            "od hold fireball": "od kachousen (hold)",
+            "ex hold fireball": "od kachousen (hold)",
+            "od stocked hold fireball": "od kachousen (stock + hold)",
+            "ex stocked hold fireball": "od kachousen (stock + hold)",
             "l stocked fireball": "lp kachousen (stock)",
             "m stocked fireball": "mp kachousen (stock)",
             "h stocked fireball": "hp kachousen (stock)",
             "od stocked fireball": "od kachousen (stock)",
             "stocked dp": "lk hishou ryuuenjin (stock)",
             "stocked ryuuenjin": "lk hishou ryuuenjin (stock)",
+            "od stocked dp": "od hishou ryuuenjin (stock)",
+            "ex stocked dp": "od hishou ryuuenjin (stock)",
+            "stocked od dp": "od hishou ryuuenjin (stock)",
+            "stocked ex dp": "od hishou ryuuenjin (stock)",
             "stocked twirl": "lp ryuuenbu (stock)",
             "stocked ryuuenbu": "lp ryuuenbu (stock)",
+            "od stocked twirl": "od ryuuenbu (stock)",
+            "ex stocked twirl": "od ryuuenbu (stock)",
+            "stocked od twirl": "od ryuuenbu (stock)",
+            "stocked ex twirl": "od ryuuenbu (stock)",
             "stocked cartwheel": "lk hissatsu shinobi bachi (stock)",
             "stocked shinobi bachi": "lk hissatsu shinobi bachi (stock)",
+            "od stocked cartwheel": "od hissatsu shinobi bachi (stock)",
+            "ex stocked cartwheel": "od hissatsu shinobi bachi (stock)",
+            "stocked od cartwheel": "od hissatsu shinobi bachi (stock)",
+            "stocked ex cartwheel": "od hissatsu shinobi bachi (stock)",
+            "stocked dive kick": "musasabi no mai (stock)",
+            "stocked divekick": "musasabi no mai (stock)",
+            "stocked musasabi": "musasabi no mai (stock)",
+            "stocked musasabi no mai": "musasabi no mai (stock)",
+            "od stocked dive kick": "od musasabi no mai (stock)",
+            "ex stocked dive kick": "od musasabi no mai (stock)",
+            "stocked od dive kick": "od musasabi no mai (stock)",
+            "stocked ex dive kick": "od musasabi no mai (stock)",
+            "od stocked divekick": "od musasabi no mai (stock)",
+            "ex stocked divekick": "od musasabi no mai (stock)",
+            "od stocked musasabi": "od musasabi no mai (stock)",
+            "ex stocked musasabi": "od musasabi no mai (stock)",
             "stocked sa1": "kagerou no mai (stock)",
             "stocked sa2": "chou hissatsu shinobi bachi (stock)",
             "stocked air sa2": "air chou hissatsu shinobi bachi (stock)",
@@ -5026,12 +5629,33 @@ def lookup_frame_data(character, move_input):
         "c.viper": ["seismo"],
     }
     
-    # Check if input matches an alias
-    if move_input in INPUT_ALIASES:
-        move_input = INPUT_ALIASES[move_input]
     char_aliases = CHARACTER_INPUT_ALIASES.get(char_key, {})
-    if move_input in char_aliases:
-        move_input = char_aliases[move_input]
+    alias_lookup_candidates = []
+    for candidate in (pre_strength_alias_input, move_input):
+        candidate = str(candidate or "").strip().lower()
+        if candidate and candidate not in alias_lookup_candidates:
+            alias_lookup_candidates.append(candidate)
+
+    def resolve_input_alias_chain(raw_value):
+        current = str(raw_value or "").strip().lower()
+        seen_alias_values = set()
+        while current and current not in seen_alias_values:
+            seen_alias_values.add(current)
+            next_value = None
+            if current in char_aliases:
+                next_value = str(char_aliases[current]).strip().lower()
+            elif current in INPUT_ALIASES:
+                next_value = str(INPUT_ALIASES[current]).strip().lower()
+            if not next_value or next_value == current:
+                break
+            current = next_value
+        return current
+
+    for candidate in alias_lookup_candidates:
+        resolved_candidate = resolve_input_alias_chain(candidate)
+        if resolved_candidate != candidate or candidate in char_aliases or candidate in INPUT_ALIASES:
+            move_input = resolved_candidate
+            break
 
     def resolve_fuzzy_alias_target(raw_input):
         raw_compact = re.sub(r"[^a-z0-9]", "", str(raw_input or "").lower())
@@ -5066,17 +5690,15 @@ def lookup_frame_data(character, move_input):
             return None
         return alias_compact_to_target.get(close_matches[0])
 
-    fuzzy_alias_target = resolve_fuzzy_alias_target(move_input)
-    if fuzzy_alias_target and fuzzy_alias_target != move_input:
-        fuzzy_alias_row = lookup_frame_data(character, fuzzy_alias_target)
-        if fuzzy_alias_row is not None:
-            return fuzzy_alias_row
-
     def row_is_ca_variant(row):
         move_name = str(row.get("moveName", "")).lower()
         cmn_name = str(row.get("cmnName", "")).lower()
         num_cmd = str(row.get("numCmd", "")).lower()
-        return "critical art" in move_name or "critical art" in cmn_name or "(ca" in num_cmd
+        return (
+            "critical art" in move_name
+            or "critical art" in cmn_name
+            or bool(re.search(r"\(\s*ca\s*\)", num_cmd))
+        )
 
     def row_is_stocked_variant(row):
         move_name = str(row.get("moveName", "")).lower()
@@ -5111,34 +5733,6 @@ def lookup_frame_data(character, move_input):
         re.search(r"\b(air|hold|held|bomb|charged)\b", move_input)
         or any(ch in move_input for ch in "()[]{}")
     )
-
-    if query_requests_stocked:
-        base_stockless_input = re.sub(
-            r"\b(?:stocked|stock|enhanced|windclad|wind\s+clad)\b",
-            " ",
-            move_input,
-        )
-        base_stockless_input = re.sub(r"\s+", " ", base_stockless_input).strip()
-        if base_stockless_input and base_stockless_input != move_input:
-            base_row = lookup_frame_data(character, base_stockless_input)
-            if base_row:
-                base_token = normalize_num_cmd_token(base_row.get("numCmd", ""))
-                base_suffix = extract_button_suffix(base_token)
-                stocked_candidates = []
-                for row in data:
-                    if not row_is_stocked_variant(row):
-                        continue
-                    row_token = normalize_num_cmd_token(row.get("numCmd", ""))
-                    if row_token != base_token:
-                        continue
-                    stocked_candidates.append(row)
-                if stocked_candidates:
-                    if base_suffix:
-                        for row in stocked_candidates:
-                            row_suffix = extract_button_suffix(normalize_num_cmd_token(row.get("numCmd", "")))
-                            if row_suffix == base_suffix:
-                                return row
-                    return stocked_candidates[0]
 
     if char_key == "akuma":
         if move_input in {"air sa1", "aerial sa1", "sa1 air", "air super art 1"}:
@@ -5261,7 +5855,35 @@ def lookup_frame_data(character, move_input):
                     or move_input_tigerless_compact in move_tigerless_compact
                 ):
                     return row
-            
+
+    if query_requests_stocked:
+        base_stockless_input = re.sub(
+            r"\b(?:stocked|stock|enhanced|windclad|wind\s+clad)\b",
+            " ",
+            move_input,
+        )
+        base_stockless_input = re.sub(r"\s+", " ", base_stockless_input).strip()
+        if base_stockless_input and base_stockless_input != move_input:
+            base_row = lookup_frame_data(character, base_stockless_input, _seen_inputs=_seen_inputs)
+            if base_row:
+                base_token = normalize_num_cmd_token(base_row.get("numCmd", ""))
+                base_suffix = extract_button_suffix(base_token)
+                stocked_candidates = []
+                for row in data:
+                    if not row_is_stocked_variant(row):
+                        continue
+                    row_token = normalize_num_cmd_token(row.get("numCmd", ""))
+                    if row_token != base_token:
+                        continue
+                    stocked_candidates.append(row)
+                if stocked_candidates:
+                    if base_suffix:
+                        for row in stocked_candidates:
+                            row_suffix = extract_button_suffix(normalize_num_cmd_token(row.get("numCmd", "")))
+                            if row_suffix == base_suffix:
+                                return row
+                    return stocked_candidates[0]
+
     if len(move_input_compact) >= 4:
         fuzzy_candidates = []
         for row in data:
@@ -5280,6 +5902,12 @@ def lookup_frame_data(character, move_input):
                 for candidate, row in fuzzy_candidates:
                     if candidate == matched:
                         return row
+
+    fuzzy_alias_target = resolve_fuzzy_alias_target(move_input)
+    if fuzzy_alias_target and fuzzy_alias_target != move_input:
+        fuzzy_alias_row = lookup_frame_data(character, fuzzy_alias_target, _seen_inputs=_seen_inputs)
+        if fuzzy_alias_row is not None:
+            return fuzzy_alias_row
 
     return None
 
@@ -5393,6 +6021,11 @@ def build_num_cmd_candidates_for_gif(row):
     candidates = set()
     if row_num_cmd:
         candidates.add(row_num_cmd)
+        if ">" in row_num_cmd:
+            parts = [part for part in row_num_cmd.split(">") if part]
+            candidates.update(parts)
+            if parts:
+                candidates.add(parts[-1])
 
     row_suffix = extract_button_suffix(row_num_cmd)
     move_name_lower = str(row.get("moveName", "")).lower()
@@ -5409,6 +6042,14 @@ def build_num_cmd_candidates_for_gif(row):
 
     if row_suffix and "air" in cmn_name_lower and row_num_cmd.startswith("4268"):
         candidates.add(f"9{row_suffix}")
+
+    if row_suffix in {"p", "k"} and ">" not in row_num_cmd:
+        prefix = row_num_cmd[:-1]
+        if prefix:
+            if row_suffix == "p":
+                candidates.update({f"{prefix}lp", f"{prefix}mp", f"{prefix}hp"})
+            else:
+                candidates.update({f"{prefix}lk", f"{prefix}mk", f"{prefix}hk"})
 
     return candidates
 
@@ -5535,6 +6176,14 @@ def lookup_hitbox_gif_link(row):
         if not items:
             return None
         filtered = apply_row_context_filters(items)
+        if row_suffix in {"p", "k"}:
+            specific_suffixes = {
+                item["suffix"]
+                for item in filtered
+                if item["suffix"] and item["suffix"] not in {"p", "k"}
+            }
+            if len(specific_suffixes) > 1:
+                return None
         if row_suffix:
             suffix_matches = [item for item in filtered if item["suffix"] == row_suffix]
             if suffix_matches:
@@ -5594,11 +6243,7 @@ def lookup_hitbox_gif_link(row):
     if link:
         return link
 
-    fallback_candidates = apply_row_context_filters(gif_candidates)
-    if fallback_candidates:
-        return fallback_candidates[0]["link"]
-
-    return gif_candidates[0]["link"]
+    return None
 
 
 def collect_hitbox_gif_links(rows, limit=3):
@@ -5687,12 +6332,89 @@ def extract_gif_move_query_text(text, char_key):
     return " ".join(filtered_tokens).strip()
 
 
+def resolve_hitbox_gif_query_alias(char_key, move_query):
+    query_raw = str(move_query or "").strip().lower()
+    if not query_raw:
+        return query_raw
+
+    query_raw = re.sub(r"\bdivekick\b", "dive kick", query_raw)
+    if char_key != "jamie":
+        return query_raw
+
+    jamie_gif_aliases = {
+        "breakdance": "bakkai",
+        "break dance": "bakkai",
+        "l breakdance": "l bakkai",
+        "l break dance": "l bakkai",
+        "m breakdance": "m bakkai",
+        "m break dance": "m bakkai",
+        "h breakdance": "h bakkai",
+        "h break dance": "h bakkai",
+        "od breakdance": "od bakkai",
+        "od break dance": "od bakkai",
+        "ex breakdance": "od bakkai",
+        "ex break dance": "od bakkai",
+        "236k": "bakkai",
+        "236lk": "l bakkai",
+        "236mk": "m bakkai",
+        "236hk": "h bakkai",
+        "236kk": "od bakkai",
+        "dive kick": "luminous dive kick",
+        "l dive kick": "l luminous dive kick",
+        "m dive kick": "m luminous dive kick",
+        "h dive kick": "h luminous dive kick",
+        "od dive kick": "od luminous dive kick",
+        "ex dive kick": "od luminous dive kick",
+        "luminous dive kick": "luminous dive kick",
+        "l luminous dive kick": "l luminous dive kick",
+        "m luminous dive kick": "m luminous dive kick",
+        "h luminous dive kick": "h luminous dive kick",
+        "od luminous dive kick": "od luminous dive kick",
+        "ex luminous dive kick": "od luminous dive kick",
+        "214k": "luminous dive kick",
+        "214lk": "l luminous dive kick",
+        "214mk": "m luminous dive kick",
+        "214hk": "h luminous dive kick",
+        "214kk": "od luminous dive kick",
+        "j214k": "luminous dive kick",
+        "j.214k": "luminous dive kick",
+        "j 214k": "luminous dive kick",
+        "j214lk": "l luminous dive kick",
+        "j.214lk": "l luminous dive kick",
+        "j 214lk": "l luminous dive kick",
+        "j214mk": "m luminous dive kick",
+        "j.214mk": "m luminous dive kick",
+        "j 214mk": "m luminous dive kick",
+        "j214hk": "h luminous dive kick",
+        "j.214hk": "h luminous dive kick",
+        "j 214hk": "h luminous dive kick",
+        "j214kk": "od luminous dive kick",
+        "j.214kk": "od luminous dive kick",
+        "j 214kk": "od luminous dive kick",
+        "swagger hermit punch": "freeflow strikes (2) (drink 4)",
+        "hermit punch": "freeflow strikes (2) (drink 4)",
+        "lp swagger hermit punch": "freeflow strikes (2) (drink 4)",
+        "mp swagger hermit punch": "freeflow strikes (2) (drink 4)",
+        "hp swagger hermit punch": "freeflow strikes (2) (drink 4)",
+        "lp hermit punch": "freeflow strikes (2) (drink 4)",
+        "mp hermit punch": "freeflow strikes (2) (drink 4)",
+        "hp hermit punch": "freeflow strikes (2) (drink 4)",
+        "palm followup": "freeflow strikes (2) (drink 4)",
+        "palm follow-up": "freeflow strikes (2) (drink 4)",
+        "od swagger hermit punch": "od drink level 4 freeflow strikes (2)",
+        "ex swagger hermit punch": "od drink level 4 freeflow strikes (2)",
+        "od hermit punch": "od drink level 4 freeflow strikes (2)",
+        "ex hermit punch": "od drink level 4 freeflow strikes (2)",
+    }
+    return jamie_gif_aliases.get(query_raw, query_raw)
+
+
 def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=3):
     gif_rows = HITBOX_GIF_DATA.get(char_key, [])
     if not gif_rows:
         return []
 
-    query_raw = str(move_query or "").strip().lower()
+    query_raw = resolve_hitbox_gif_query_alias(char_key, move_query)
     if not query_raw:
         return []
 
@@ -5862,6 +6584,10 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
     normalized_query = normalize_move_name_for_gif_text(text_lower)
     normalized_tokens = set(normalized_query.split())
     normalized_num_cmd = normalize_num_cmd_token(text_lower)
+    query_has_strength_preference = bool(
+        normalized_tokens & {"l", "m", "h", "od"}
+        or normalized_num_cmd.endswith(("lp", "mp", "hp", "lk", "mk", "hk", "pp", "kk"))
+    )
 
     query_prefers_text_match = bool(
         normalized_tokens & {
@@ -5900,6 +6626,19 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
             move_query = extract_gif_move_query_text(text, char_key)
             if not move_query:
                 continue
+            raw_move_query = move_query
+            move_query = resolve_hitbox_gif_query_alias(char_key, move_query)
+            query_links = lookup_hitbox_gif_links_from_query(char_key, move_query, limit=limit)
+            for move_link in query_links:
+                if move_link in seen:
+                    continue
+                seen.add(move_link)
+                links.append(move_link)
+                if len(links) >= limit:
+                    return True
+
+            if move_query != raw_move_query and query_links:
+                continue
 
             resolved_row = lookup_frame_data(char_key, move_query)
             if resolved_row:
@@ -5909,19 +6648,18 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
                     links.append(move_link)
                     if len(links) >= limit:
                         return True
-
-            query_links = lookup_hitbox_gif_links_from_query(char_key, move_query, limit=limit)
-            for move_link in query_links:
-                if move_link in seen:
-                    continue
-                seen.add(move_link)
-                links.append(move_link)
-                if len(links) >= limit:
-                    return True
         return False
 
     if has_frame_rows:
-        if add_frame_row_links():
+        if len(frame_rows or []) > 1:
+            add_query_links()
+            if links:
+                return links
+            add_frame_row_links()
+            return links
+
+        add_frame_row_links()
+        if links:
             return links
         add_query_links()
         return links
@@ -6730,23 +7468,6 @@ def get_daily_random_slots(day_start, count, excluded_slots=None):
     return [day_start + datetime.timedelta(seconds=slot) for slot in second_slots]
 
 
-async def send_video_with_encouragement(channel):
-    """Send the daily video message and track the message id."""
-    global LAST_DAILY_VIDEO_ID
-    print(f"Dispatching daily video at {datetime.datetime.now().isoformat()}", flush=True)
-    try:
-        sent_msg = await channel.send(DAILY_VIDEO_URL)
-        LAST_DAILY_VIDEO_ID[channel.id] = sent_msg.id
-    except Exception as e:
-        print(f"Daily video error: {e}")
-        return
-    print(f"Daily video dispatched successfully at {datetime.datetime.now().isoformat()}", flush=True)
-
-
-async def send_daily_video(channel):
-    """Send the scheduled daily video."""
-    await send_video_with_encouragement(channel)
-
 async def background_task():
     global NEXT_RUN_TIME
     await client.wait_until_ready()
@@ -6875,47 +7596,6 @@ async def background_damn_gg_task():
         NEXT_DAMN_GG_TIME = None
 
 
-async def background_video_task():
-    global NEXT_VIDEO_TIME
-    await client.wait_until_ready()
-    channel = client.get_channel(CHANNEL_ID)
-    if not channel:
-        print(f"Could not find channel with ID {CHANNEL_ID}")
-        return
-
-    print("Video scheduling started.")
-
-    now = datetime.datetime.now()
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    random_seconds = random.randint(0, 86399)
-    target_time = start_of_day + datetime.timedelta(seconds=random_seconds)
-
-    if target_time < now:
-        start_of_tomorrow = start_of_day + datetime.timedelta(days=1)
-        random_seconds = random.randint(0, 86399)
-        target_time = start_of_tomorrow + datetime.timedelta(seconds=random_seconds)
-        print(f"Video slot elapsed. Scheduling for next cycle at {target_time}", flush=True)
-    else:
-        print(f"Scheduling video for current cycle at {target_time}", flush=True)
-
-    NEXT_VIDEO_TIME = target_time
-
-    while not client.is_closed():
-        now = datetime.datetime.now()
-        wait_seconds = (target_time - now).total_seconds()
-
-        if wait_seconds > 0:
-            await asyncio.sleep(wait_seconds)
-
-        await send_daily_video(channel)
-
-        now_after_run = datetime.datetime.now()
-        start_of_next_day = now_after_run.replace(hour=0, minute=0, second=0, microsecond=0) + datetime.timedelta(days=1)
-        random_seconds_next = random.randint(0, 86399)
-        target_time = start_of_next_day + datetime.timedelta(seconds=random_seconds_next)
-
-        print(f"Video run complete. Next run scheduled for {target_time}", flush=True)
-        NEXT_VIDEO_TIME = target_time
 
 async def time_handler(request):
     data = {
@@ -7042,18 +7722,60 @@ def _quiz_extract_mode_from_text(text):
     return match.group(1).lower()
 
 
+def _quiz_row_is_shared_mechanic(row):
+    move_type = str(row.get("moveType", "")).strip().lower()
+    if move_type in {"system", "drive", "throw", "taunt"}:
+        return True
+
+    combined = " ".join(
+        str(row.get(key, "")).lower().strip()
+        for key in ("moveName", "cmnName", "numCmd", "plnCmd")
+    )
+    return any(
+        re.search(pattern, combined)
+        for pattern in (
+            r"\bdrive impact\b",
+            r"\bdrive reversal\b",
+            r"\bdrive rush\b",
+            r"\bdrive parry\b",
+            r"\b(?:forward|back)?\s*throw\b",
+            r"\btaunt\b",
+        )
+    )
+
+
+def _quiz_row_is_jump_normal(row):
+    move_type = str(row.get("moveType", "")).strip().lower()
+    if move_type != "normal":
+        return False
+
+    move_name = str(row.get("moveName", "")).lower().strip()
+    cmn_name = str(row.get("cmnName", "")).lower().strip()
+    num_cmd = str(row.get("numCmd", "")).lower().strip()
+    pln_cmd = str(row.get("plnCmd", "")).lower().strip()
+    return (
+        move_name.startswith("jump ")
+        or cmn_name.startswith("jump ")
+        or num_cmd.startswith(("7", "8", "9"))
+        or pln_cmd.startswith(("u+", "ub+", "uf+", "j"))
+    )
+
+
 def _quiz_row_allowed_for_mode(row, mode):
     mode_key = _quiz_normalize_mode(mode)
     move_type = str(row.get("moveType", "")).strip().lower()
 
+    if _quiz_row_is_shared_mechanic(row):
+        return False
+
     if mode_key == "easy":
-        return move_type == "normal"
+        return move_type == "normal" and not _quiz_row_is_jump_normal(row)
 
     if mode_key == "medium":
         return move_type in {"normal", "special", "command-grab", "movement-special"}
 
     if mode_key == "hard":
-        return move_type != "system"
+        return move_type in {"normal", "special", "movement-special", "command-grab", "super"}
     return True
 
 
@@ -7435,7 +8157,6 @@ async def build_quiz_cheating_warning_message(channel):
                     "Write one short in-character anti-cheat warning that is playful, sharp, and a little aggressive. "
                     "Call out the cheating attempt and tell them to answer the quiz directly from memory. "
                     "Do not reveal any answer clues. "
-                    "No slurs. No hate speech. "
                     "One sentence only. No emojis. No em dash. ASCII only."
                 ),
             },
@@ -7780,10 +8501,29 @@ def _quiz_numcmd_variants(numcmd, include_generic=False):
     return variants
 
 
+def _quiz_genericize_combo_numcmd(numcmd):
+    normalized = _normalize_quiz_numcmd(numcmd)
+    if not normalized:
+        return ""
+    parts = [part for part in normalized.split(">") if part]
+    if not parts:
+        return normalized
+    return ">".join(_quiz_genericize_numcmd_suffix(part) for part in parts)
+
+
 def _quiz_row_numcmd_matches_correct(row, correct_numcmd, allow_generic=False):
     candidate_numcmd = str((row or {}).get("numCmd", "")).strip().lower()
     if not candidate_numcmd:
         return False
+
+    candidate_norm = _normalize_quiz_numcmd(candidate_numcmd)
+    correct_norm = _normalize_quiz_numcmd(correct_numcmd)
+    if ">" in correct_norm or ">" in candidate_norm:
+        if candidate_norm == correct_norm:
+            return True
+        if not allow_generic:
+            return False
+        return _quiz_genericize_combo_numcmd(candidate_norm) == _quiz_genericize_combo_numcmd(correct_norm)
 
     candidate_strict = _quiz_numcmd_variants(candidate_numcmd, include_generic=False)
     correct_strict = _quiz_numcmd_variants(correct_numcmd, include_generic=False)
@@ -7827,8 +8567,19 @@ def check_quiz_answer(quiz_state, text):
     """
     correct_char = quiz_state["char_key"]
     correct_numcmd = quiz_state["numcmd"]
+    correct_row = quiz_state.get("row") or {}
     if not correct_numcmd:
         return False
+
+    def quiz_row_is_ca_variant(row):
+        move_name = str((row or {}).get("moveName", "")).lower()
+        cmn_name = str((row or {}).get("cmnName", "")).lower()
+        num_cmd = str((row or {}).get("numCmd", "")).lower()
+        return (
+            "critical art" in move_name
+            or "critical art" in cmn_name
+            or bool(re.search(r"\(\s*ca\s*\)", num_cmd))
+        )
 
     char_key, move_text = _extract_char_and_move_from_text(text)
     if not char_key or not move_text:
@@ -7859,6 +8610,11 @@ def check_quiz_answer(quiz_state, text):
     direct_row = lookup_frame_data(char_key, move_text)
     if direct_row is not None:
         candidate_rows.append(direct_row)
+
+    if quiz_row_is_ca_variant(correct_row) and re.search(r"\b(?:ca|critical(?:\s+art)?)\b", move_text):
+        ca_row = lookup_frame_data(char_key, "critical art")
+        if ca_row is not None and ca_row not in candidate_rows:
+            candidate_rows.append(ca_row)
 
     if re.search(r"\b(tc|target\s+combo|targetcombo)\b", move_text):
         parser_query = f"{char_key} {move_text}".strip().lower()
@@ -9023,9 +9779,6 @@ async def on_ready():
     # start damn gg task
     if background_damn_gg_task_handle is None or background_damn_gg_task_handle.done():
         background_damn_gg_task_handle = client.loop.create_task(background_damn_gg_task())
-    # start video task
-    if background_video_task_handle is None or background_video_task_handle.done():
-        background_video_task_handle = client.loop.create_task(background_video_task())
     # start worker
     if worker_task is None or worker_task.done():
         worker_task = client.loop.create_task(worker())
@@ -9348,9 +10101,6 @@ async def on_message(message):
         await message.reply("it's less how i think and more so the nature of existence. free will is an illusion. everything that happens in the universe has been metaphysically set in stone since the big bang. menaRD was always going to be the best. if i were destined for more, it would've happened already. <:sponge:1416270403923480696>")
         return
 
-    if client.user.mentioned_in(message) and "send the video" in content_lower:
-        await send_video_with_encouragement(message.channel)
-        return
 
     if client.user.mentioned_in(message) and "link the mod" in content_lower:
         await message.reply("This message was sponsored by LL. Download the LL hitbox viewer mod now from the link below! 'I am Daigo Umehara and I endorse this message' - Daigo Umehara <https://github.com/LL5270/sf6mods>  <:sponge:1416270403923480696>")
