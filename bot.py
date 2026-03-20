@@ -1277,19 +1277,112 @@ def normalize_char_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(name).lower())
 
 
+PARSER_TOKEN_VOCAB_CACHE = None
+
+
+def get_parser_token_vocabulary():
+    global PARSER_TOKEN_VOCAB_CACHE
+    if PARSER_TOKEN_VOCAB_CACHE is not None:
+        return PARSER_TOKEN_VOCAB_CACHE
+
+    vocabulary = {
+        "framedata", "frame", "frames", "gif", "gifs", "hitbox", "hitboxes",
+        "startup", "active", "recovery", "damage", "range", "cancel",
+        "charged", "charge", "hold", "held", "stocked", "stock", "air", "aerial",
+        "light", "medium", "heavy", "od", "ex", "drive", "impact", "rush", "reversal",
+        "jump", "neutral", "forward", "back", "backward", "overhead", "launcher",
+        "command", "grab", "followup", "follow", "target", "combo", "super", "critical",
+        "art", "ca", "sa1", "sa2", "sa3",
+    }
+
+    for char_key in FRAME_DATA.keys():
+        for token in re.findall(r"[a-z0-9]+", str(char_key).lower()):
+            if token and not token.isdigit():
+                vocabulary.add(token)
+
+    for alias in CHARACTER_ALIASES.keys():
+        for token in re.findall(r"[a-z0-9]+", str(alias).lower()):
+            if token and not token.isdigit():
+                vocabulary.add(token)
+
+    for rows in FRAME_DATA.values():
+        for row in rows:
+            for field in ("moveName", "cmnName", "plnCmd", "numCmd"):
+                for token in re.findall(r"[a-z0-9]+", str(row.get(field, "")).lower()):
+                    if token and not token.isdigit():
+                        vocabulary.add(token)
+
+    PARSER_TOKEN_VOCAB_CACHE = sorted(vocabulary)
+    return PARSER_TOKEN_VOCAB_CACHE
+
+
+def fuzzy_normalize_parser_text(text):
+    raw_tokens = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    if not raw_tokens:
+        return str(text or "")
+
+    vocabulary = get_parser_token_vocabulary()
+    protected_tokens = {
+        "lp", "mp", "hp", "lk", "mk", "hk",
+        "pp", "kk", "st", "cr", "nj", "dj",
+        "sa1", "sa2", "sa3", "ca", "od", "ex",
+        "l", "m", "h", "p", "k", "j",
+    }
+    corrected_tokens = []
+    changed = False
+
+    for token in raw_tokens:
+        if (
+            token in protected_tokens
+            or token.isdigit()
+            or len(token) < 4
+            or token in vocabulary
+        ):
+            corrected_tokens.append(token)
+            continue
+
+        cutoff = 0.88 if len(token) <= 4 else 0.84
+        close_matches = difflib.get_close_matches(token, vocabulary, n=1, cutoff=cutoff)
+        if close_matches:
+            corrected_tokens.append(close_matches[0])
+            changed = True
+        else:
+            corrected_tokens.append(token)
+
+    if not changed:
+        return str(text or "")
+    return " ".join(corrected_tokens)
+
+
 def resolve_character_key(name: str):
     """Resolve free-form character text to a FRAME_DATA key."""
     normalized = normalize_char_name(name)
     if not normalized:
         return None
 
+    candidate_lookup = {}
     for char_key in FRAME_DATA.keys():
-        if normalize_char_name(char_key) == normalized:
+        normalized_char_key = normalize_char_name(char_key)
+        candidate_lookup.setdefault(normalized_char_key, char_key)
+        if normalized_char_key == normalized:
             return char_key
 
     for alias, canonical in CHARACTER_ALIASES.items():
-        if normalize_char_name(alias) == normalized and canonical in FRAME_DATA:
+        normalized_alias = normalize_char_name(alias)
+        if canonical in FRAME_DATA:
+            candidate_lookup.setdefault(normalized_alias, canonical)
+        if normalized_alias == normalized and canonical in FRAME_DATA:
             return canonical
+
+    if len(normalized) >= 4 and candidate_lookup:
+        close_matches = difflib.get_close_matches(
+            normalized,
+            list(candidate_lookup.keys()),
+            n=1,
+            cutoff=0.84,
+        )
+        if close_matches:
+            return candidate_lookup.get(close_matches[0])
 
     return None
 
@@ -1316,11 +1409,12 @@ def format_sheet_text(df: pd.DataFrame) -> str:
 
 def load_frame_data():
     """Load frame data, stats, combos, oki, and character info from ODS."""
-    global FRAME_DATA, FRAME_STATS, BNB_DATA, OKI_DATA, CHARACTER_INFO, HITBOX_GIF_DATA, RANGE_DATA, QUIZ_CHARACTER_TERMS_CACHE, QUIZ_MOVE_NAME_TERMS_CACHE, QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE
+    global FRAME_DATA, FRAME_STATS, BNB_DATA, OKI_DATA, CHARACTER_INFO, HITBOX_GIF_DATA, RANGE_DATA, QUIZ_CHARACTER_TERMS_CACHE, QUIZ_MOVE_NAME_TERMS_CACHE, QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE, PARSER_TOKEN_VOCAB_CACHE
     filename = "FAT - SF6 Frame Data.ods"
     QUIZ_CHARACTER_TERMS_CACHE = None
     QUIZ_MOVE_NAME_TERMS_CACHE = None
     QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = None
+    PARSER_TOKEN_VOCAB_CACHE = None
     
     if os.path.exists(filename):
         try:
@@ -1573,6 +1667,7 @@ def find_moves_in_text(text):
     """Extract character/move mentions and return context payload with mode."""
     found_data = []
     text_lower = strip_discord_mentions(text).lower()
+    text_lower = fuzzy_normalize_parser_text(text_lower)
     text_lower = normalize_jump_normal_text(text_lower)
     text_lower = re.sub(r"\bdivekick\b", "dive kick", text_lower)
     tc_prompt_blocks = []
@@ -1608,6 +1703,14 @@ def find_moves_in_text(text):
         char_tokens = re.findall(r"[a-z0-9]+", char)
         if tokens_in_text(char_tokens) and char not in mentioned_chars:
             mentioned_chars.append(char)
+
+    if not mentioned_chars:
+        for seq_len in (2, 1):
+            for idx in range(len(text_tokens) - seq_len + 1):
+                candidate = " ".join(text_tokens[idx:idx + seq_len]).strip()
+                resolved_char = resolve_character_key(candidate)
+                if resolved_char and resolved_char not in mentioned_chars:
+                    mentioned_chars.append(resolved_char)
 
     if not mentioned_chars and (
         re.search(r"\braging\s+demon\b", text_lower)
@@ -3894,7 +3997,9 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
         return None
     
     data = FRAME_DATA[char_key]
-    move_input = normalize_jump_normal_text(move_input.lower().strip())
+    move_input = normalize_jump_normal_text(
+        fuzzy_normalize_parser_text(move_input.lower().strip())
+    )
 
     def normalize_strength_word_shorthand(text):
         prefix_map = {"l": "light", "m": "medium", "h": "heavy"}
@@ -3933,6 +4038,7 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
 
     original_move_input = move_input
     query_requests_air_context = bool(re.search(r"\b(air|aerial)\b", original_move_input))
+    query_requests_charged = bool(re.search(r"\b(charged|hold|held)\b", original_move_input))
     query_requests_sa1 = bool(
         re.search(r"\b(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\b", original_move_input)
     )
@@ -3974,7 +4080,7 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
     move_input = re.sub(r"^ex\s+", "od ", move_input)
     move_input = re.sub(r"\bdivekick\b", "dive kick", move_input)
     if not re.match(
-        r"^(jump|j)[\s\.]+(?:214|236|623|421|22|46|28|41236|63214)",
+        r"^(jump|j)[\s\.]+(?:(?:214|236|623|421|22|46|28|41236|63214)|(?:[123]\s*(?:lp|mp|hp|lk|mk|hk|p|k)))",
         move_input,
     ):
         move_input = re.sub(r"^(jump|j)[\s\.]+", "8", move_input)
@@ -5657,6 +5763,63 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
             move_input = resolved_candidate
             break
 
+    def build_lookup_token_vocabulary():
+        vocab = set()
+        sources = [move_input, pre_strength_alias_input]
+        sources.extend(char_aliases.keys())
+        sources.extend(INPUT_ALIASES.keys())
+        for row in data:
+            for field in ("moveName", "cmnName", "plnCmd", "numCmd"):
+                sources.append(row.get(field, ""))
+        for value in sources:
+            for token in re.findall(r"[a-z0-9]+", str(value or "").lower()):
+                if token and not token.isdigit():
+                    vocab.add(token)
+        return vocab
+
+    def fuzzy_correct_lookup_text(raw_input):
+        raw_tokens = re.findall(r"[a-z0-9]+", str(raw_input or "").lower())
+        if not raw_tokens:
+            return None
+
+        lookup_vocab = build_lookup_token_vocabulary()
+        protected_tokens = {
+            "lp", "mp", "hp", "lk", "mk", "hk",
+            "pp", "kk", "od", "ex", "ca",
+            "sa1", "sa2", "sa3",
+            "j", "nj", "st", "cr",
+            "l", "m", "h", "p", "k",
+        }
+        corrected_tokens = []
+        changed = False
+
+        for token in raw_tokens:
+            if (
+                token in protected_tokens
+                or token in lookup_vocab
+                or token.isdigit()
+                or len(token) < 4
+            ):
+                corrected_tokens.append(token)
+                continue
+
+            cutoff = 0.88 if len(token) <= 4 else 0.84
+            close_matches = difflib.get_close_matches(
+                token,
+                list(lookup_vocab),
+                n=1,
+                cutoff=cutoff,
+            )
+            if close_matches:
+                corrected_tokens.append(close_matches[0])
+                changed = True
+            else:
+                corrected_tokens.append(token)
+
+        if not changed:
+            return None
+        return " ".join(corrected_tokens).strip()
+
     def resolve_fuzzy_alias_target(raw_input):
         raw_compact = re.sub(r"[^a-z0-9]", "", str(raw_input or "").lower())
         if len(raw_compact) < 4:
@@ -5700,6 +5863,19 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
             or bool(re.search(r"\(\s*ca\s*\)", num_cmd))
         )
 
+    def row_is_charged_variant(row):
+        move_name = str(row.get("moveName", "")).lower()
+        cmn_name = str(row.get("cmnName", "")).lower()
+        num_cmd = str(row.get("numCmd", "")).lower()
+        return (
+            "charged" in move_name
+            or "charged" in cmn_name
+            or "hold" in move_name
+            or "hold" in cmn_name
+            or "(charged" in num_cmd
+            or "(hold" in num_cmd
+        )
+
     def row_is_stocked_variant(row):
         move_name = str(row.get("moveName", "")).lower()
         cmn_name = str(row.get("cmnName", "")).lower()
@@ -5726,6 +5902,14 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
             or has_windclad_tag
             or has_wind_stock_hold
         )
+
+    def genericize_lookup_button_suffix(num_cmd_token):
+        token = str(num_cmd_token or "")
+        token = re.sub(r"(lp|mp|hp)$", "p", token)
+        token = re.sub(r"(lk|mk|hk)$", "k", token)
+        token = re.sub(r"pp$", "p", token)
+        token = re.sub(r"kk$", "k", token)
+        return token
     move_input_compact = re.sub(r"[^a-z0-9]", "", move_input)
     move_input_num_cmd = normalize_num_cmd_for_lookup(move_input)
     move_input_num_cmd_generic = normalize_num_cmd_generic_for_lookup(move_input)
@@ -5855,6 +6039,63 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
                     or move_input_tigerless_compact in move_tigerless_compact
                 ):
                     return row
+
+    fuzzy_corrected_move_input = fuzzy_correct_lookup_text(move_input)
+    if fuzzy_corrected_move_input and fuzzy_corrected_move_input != move_input:
+        corrected_row = lookup_frame_data(character, fuzzy_corrected_move_input, _seen_inputs=_seen_inputs)
+        if corrected_row is not None:
+            return corrected_row
+
+    if query_requests_charged:
+        base_chargeless_input = re.sub(
+            r"\b(?:charged|hold|held)\b",
+            " ",
+            move_input,
+        )
+        base_chargeless_input = re.sub(r"\s+", " ", base_chargeless_input).strip()
+        if base_chargeless_input and base_chargeless_input != move_input:
+            base_row = lookup_frame_data(character, base_chargeless_input, _seen_inputs=_seen_inputs)
+            if base_row:
+                base_token = normalize_num_cmd_token(base_row.get("numCmd", ""))
+                base_suffix = extract_button_suffix(base_token)
+                charged_candidates = []
+                for row in data:
+                    if not row_is_charged_variant(row):
+                        continue
+                    row_token = normalize_num_cmd_token(row.get("numCmd", ""))
+                    if row_token != base_token:
+                        continue
+                    charged_candidates.append(row)
+                if charged_candidates:
+                    if base_suffix:
+                        for row in charged_candidates:
+                            row_suffix = extract_button_suffix(normalize_num_cmd_token(row.get("numCmd", "")))
+                            if row_suffix == base_suffix:
+                                return row
+                    return charged_candidates[0]
+
+                base_generic_token = genericize_lookup_button_suffix(base_token)
+                generic_channel = ""
+                if base_suffix in {"lp", "mp", "hp", "pp", "p"}:
+                    generic_channel = "p"
+                elif base_suffix in {"lk", "mk", "hk", "kk", "k"}:
+                    generic_channel = "k"
+
+                generic_charged_candidates = []
+                for row in data:
+                    if not row_is_charged_variant(row):
+                        continue
+                    row_token = normalize_num_cmd_token(row.get("numCmd", ""))
+                    if genericize_lookup_button_suffix(row_token) != base_generic_token:
+                        continue
+                    generic_charged_candidates.append(row)
+                if generic_charged_candidates:
+                    if generic_channel:
+                        for row in generic_charged_candidates:
+                            row_suffix = extract_button_suffix(normalize_num_cmd_token(row.get("numCmd", "")))
+                            if row_suffix == generic_channel:
+                                return row
+                    return generic_charged_candidates[0]
 
     if query_requests_stocked:
         base_stockless_input = re.sub(
@@ -6017,7 +6258,8 @@ def move_name_match_tokens(move_name, num_cmd=""):
 
 
 def build_num_cmd_candidates_for_gif(row):
-    row_num_cmd = normalize_num_cmd_token(row.get("numCmd", ""))
+    row_num_cmd_raw = str(row.get("numCmd", "")).lower()
+    row_num_cmd = normalize_num_cmd_token(row_num_cmd_raw)
     candidates = set()
     if row_num_cmd:
         candidates.add(row_num_cmd)
@@ -6042,6 +6284,11 @@ def build_num_cmd_candidates_for_gif(row):
 
     if row_suffix and "air" in cmn_name_lower and row_num_cmd.startswith("4268"):
         candidates.add(f"9{row_suffix}")
+
+    if row_suffix and "(air" in row_num_cmd_raw:
+        compact_air_cmd = re.sub(r"[^a-z0-9]", "", row_num_cmd_raw)
+        if compact_air_cmd.startswith("2") or compact_air_cmd.startswith("1or2or3"):
+            candidates.add(f"92{row_suffix}")
 
     if row_suffix in {"p", "k"} and ">" not in row_num_cmd:
         prefix = row_num_cmd[:-1]
@@ -6196,6 +6443,15 @@ def lookup_hitbox_gif_link(row):
     if row_cmn_name_norm and row_cmn_name_norm not in row_names:
         row_names.append(row_cmn_name_norm)
 
+    preferred_air_command_candidates = [
+        item
+        for item in gif_candidates
+        if item["num_cmd"] and item["num_cmd"] in num_cmd_candidates and item["num_cmd"].startswith("92")
+    ]
+    link = pick_first_link(preferred_air_command_candidates)
+    if link:
+        return link
+
     exact_num_cmd_matches = [
         item for item in gif_candidates
         if row_num_cmd and item["num_cmd"] == row_num_cmd
@@ -6261,7 +6517,7 @@ def collect_hitbox_gif_links(rows, limit=3):
 
 
 def find_characters_in_text(text):
-    text_lower = strip_discord_mentions(text).lower()
+    text_lower = fuzzy_normalize_parser_text(strip_discord_mentions(text).lower())
     tokens = re.findall(r"[a-z0-9]+", text_lower)
 
     def has_token_sequence(sequence):
@@ -6291,6 +6547,14 @@ def find_characters_in_text(text):
         if has_token_sequence(char_tokens) and char_key not in found:
             found.append(char_key)
 
+    if not found:
+        for seq_len in (2, 1):
+            for idx in range(len(tokens) - seq_len + 1):
+                candidate = " ".join(tokens[idx:idx + seq_len]).strip()
+                resolved_char = resolve_character_key(candidate)
+                if resolved_char and resolved_char not in found:
+                    found.append(resolved_char)
+
     return found
 
 
@@ -6305,7 +6569,8 @@ def remove_first_token_sequence(tokens, sequence):
 
 
 def extract_gif_move_query_text(text, char_key):
-    tokens = re.findall(r"[a-z0-9]+", strip_discord_mentions(text).lower())
+    normalized_text = fuzzy_normalize_parser_text(strip_discord_mentions(text).lower())
+    tokens = re.findall(r"[a-z0-9]+", normalized_text)
 
     alias_forms = {char_key}
     for alias, canonical in CHARACTER_ALIASES.items():
@@ -6322,11 +6587,20 @@ def extract_gif_move_query_text(text, char_key):
     for sequence in alias_sequences:
         tokens, _ = remove_first_token_sequence(tokens, list(sequence))
 
+    for prefix_len in (2, 1):
+        if len(tokens) < prefix_len:
+            continue
+        candidate = " ".join(tokens[:prefix_len]).strip()
+        if resolve_character_key(candidate) == char_key:
+            tokens = tokens[prefix_len:]
+            break
+
     filler_tokens = {
         "send", "show", "post", "drop", "give", "get", "share", "link",
         "gif", "gifs", "hitbox", "hitboxes", "the", "a", "an", "me",
         "please", "can", "you", "for", "of", "to", "with", "and",
         "korean", "bub",
+        "framedata", "frame", "frames", "data",
     }
     filtered_tokens = [tok for tok in tokens if tok not in filler_tokens]
     return " ".join(filtered_tokens).strip()
@@ -7009,10 +7283,10 @@ def build_frame_embed(row):
     return embed
 
 
-def build_frame_embeds(rows):
-    embeds = []
+def iter_unique_frame_rows(rows):
     seen = set()
-    for row in rows:
+    unique_rows = []
+    for row in rows or []:
         key = (
             row.get("char_name", "Unknown"),
             row.get("moveName", "Unknown"),
@@ -7021,6 +7295,13 @@ def build_frame_embeds(rows):
         if key in seen:
             continue
         seen.add(key)
+        unique_rows.append(row)
+    return unique_rows
+
+
+def build_frame_embeds(rows):
+    embeds = []
+    for row in iter_unique_frame_rows(rows):
         embeds.append(build_frame_embed(row))
     return embeds
 
@@ -7431,25 +7712,119 @@ async def send_daily_damn_gg(channel, source_label="scheduled"):
         print(f"{source_label.capitalize()} literal message error: {e}", flush=True)
 
 
+def get_frame_row_gif_links(row, limit=4):
+    if not isinstance(row, dict):
+        return []
+
+    links = []
+    seen = set()
+
+    direct_link = lookup_hitbox_gif_link(row)
+    if direct_link:
+        seen.add(direct_link)
+        links.append(direct_link)
+        return links
+
+    row_char = str(row.get("char_name", "")).strip()
+    char_key = resolve_character_key(row_char)
+    if not char_key:
+        return []
+
+    candidate_queries = []
+
+    def add_query_variant(raw_value):
+        query = str(raw_value or "").strip()
+        if not query:
+            return
+        stripped_drink_query = re.sub(r"\s*\(drink[^)]*\)", "", query, flags=re.IGNORECASE).strip()
+        stripped_drink_query = re.sub(r"\s+", " ", stripped_drink_query).strip()
+        if stripped_drink_query and stripped_drink_query not in candidate_queries:
+            candidate_queries.append(stripped_drink_query)
+        if stripped_drink_query == query and query not in candidate_queries:
+            candidate_queries.append(query)
+
+    for value in (row.get("moveName", ""), row.get("cmnName", ""), row.get("numCmd", "")):
+        add_query_variant(value)
+
+    for query in candidate_queries:
+        query_links = lookup_hitbox_gif_links_from_query(char_key, query, limit=limit)
+        for move_link in query_links:
+            if move_link in seen:
+                continue
+            seen.add(move_link)
+            links.append(move_link)
+            if len(links) >= limit:
+                return links
+
+    return links
+
+
+class FrameDataGifButton(discord.ui.Button):
+    def __init__(self, row, gif_links):
+        super().__init__(label="Show GIF", style=discord.ButtonStyle.primary, disabled=not gif_links)
+        self.frame_row = row
+        self.gif_links = list(gif_links or [])
+
+    async def callback(self, interaction: discord.Interaction):
+        move_name = str((self.frame_row or {}).get("moveName", "This move")).strip() or "This move"
+        if not self.gif_links:
+            await interaction.response.send_message(
+                f"I have frame data for {move_name} but no hitbox gif link yet.",
+                ephemeral=True,
+            )
+            return
+
+        if len(self.gif_links) == 1:
+            await interaction.response.send_message(self.gif_links[0])
+            return
+
+        await interaction.response.send_message("\n".join(self.gif_links[:4]))
+
+
+class FrameDataGifView(discord.ui.View):
+    def __init__(self, row):
+        super().__init__(timeout=3600)
+        self.add_item(FrameDataGifButton(row, get_frame_row_gif_links(row)))
+
+
+async def send_frame_embeds_with_views(channel, rows, embeds=None):
+    unique_rows = iter_unique_frame_rows(rows or [])
+    embed_list = list(embeds or build_frame_embeds(unique_rows))
+    if not embed_list:
+        return False
+
+    for index, embed in enumerate(embed_list):
+        view = FrameDataGifView(unique_rows[index]) if index < len(unique_rows) else None
+        await channel.send(embed=embed, view=view)
+    return True
+
+
 async def send_frame_table_response(message, rows, data_text):
-    embeds = build_frame_embeds(rows or [])
-    if embeds:
+    unique_rows = iter_unique_frame_rows(rows or [])
+    if unique_rows:
         try:
-            for embed in embeds:
-                await message.channel.send(embed=embed)
+            await send_frame_embeds_with_views(message.channel, unique_rows)
             return True
         except Exception as e:
-            print(f"Direct frame embed send failed, falling back to text: {e}", flush=True)
-    if data_text:
-        try:
-            await message.reply(data_text)
-            return True
-        except Exception as reply_error:
-            if is_deleted_message_reference_error(reply_error):
-                print("Direct frame table reply target deleted. Triggering failsafe.", flush=True)
-                await send_deleted_message_failsafe(message.channel)
-            else:
-                print(f"Direct frame table reply error: {reply_error}", flush=True)
+            print(f"Direct frame embed send failed: {e}", flush=True)
+    return False
+
+
+async def send_gif_links_response(message, gif_links, wants_comparison=False):
+    if not gif_links:
+        return False
+    try:
+        if wants_comparison and len(gif_links) > 1:
+            await message.reply("\n".join(gif_links))
+        else:
+            await message.reply(gif_links[0])
+        return True
+    except Exception as reply_error:
+        if is_deleted_message_reference_error(reply_error):
+            print("Hitbox gif reply target deleted. Triggering failsafe.", flush=True)
+            await send_deleted_message_failsafe(message.channel)
+        else:
+            print(f"Hitbox gif reply error: {reply_error}", flush=True)
     return False
 
 
@@ -9639,20 +10014,26 @@ async def worker():
     while True:
         # get msg from queue
         ctx = await message_queue.get()
-        if len(ctx) == 5:
+        if len(ctx) == 6:
+            message, llm_messages, fallback_reply, reply_prefix, reply_embeds, reply_embed_rows = ctx
+        elif len(ctx) == 5:
             message, llm_messages, fallback_reply, reply_prefix, reply_embeds = ctx
+            reply_embed_rows = []
         elif len(ctx) == 4:
             message, llm_messages, fallback_reply, reply_prefix = ctx
             reply_embeds = []
+            reply_embed_rows = []
         elif len(ctx) == 3:
             message, llm_messages, fallback_reply = ctx
             reply_prefix = None
             reply_embeds = []
+            reply_embed_rows = []
         else:
             message, llm_messages = ctx
             fallback_reply = None
             reply_prefix = None
             reply_embeds = []
+            reply_embed_rows = []
 
         embeds_sent = False
         try:
@@ -9682,47 +10063,36 @@ async def worker():
                 print(f"Google Search enabled for query: {user_query[:50]}...")
 
             async with message.channel.typing():
-                reply_text = await get_llm_response(llm_messages, enable_search=enable_search)
                 if reply_embeds:
-                    reply_text = sanitize_embed_followup_text(reply_text)
-                final_reply = f"{reply_prefix}\n\n{reply_text}" if reply_prefix else reply_text
-                try:
-                    if reply_embeds:
-                        try:
-                            for embed in reply_embeds:
-                                await message.channel.send(embed=embed)
-                            embeds_sent = True
-                            await message.channel.send(final_reply)
-                            asyncio.create_task(
-                                capture_message_exchange_memory(
-                                    message,
-                                    source_label="worker-embed",
-                                )
-                            )
-                        except Exception as embed_error:
-                            print(f"Embed send failed, falling back to text: {embed_error}", flush=True)
-                            fallback_payload = (
-                                f"{fallback_reply}\n\n{reply_text}"
-                                if fallback_reply
-                                else final_reply
-                            )
-                            await message.reply(fallback_payload)
-                            asyncio.create_task(
-                                capture_message_exchange_memory(
-                                    message,
-                                    source_label="worker-fallback",
-                                )
-                            )
-                    else:
-                        await message.reply(final_reply)
+                    try:
+                        await send_frame_embeds_with_views(
+                            message.channel,
+                            reply_embed_rows,
+                            embeds=reply_embeds,
+                        )
+                        embeds_sent = True
                         asyncio.create_task(
                             capture_message_exchange_memory(
                                 message,
-                                source_label="worker-reply",
+                                source_label="worker-embed",
                             )
                         )
+                    except Exception as embed_error:
+                        print(f"Embed send failed: {embed_error}", flush=True)
+                    continue
+
+                reply_text = await get_llm_response(llm_messages, enable_search=enable_search)
+                final_reply = f"{reply_prefix}\n\n{reply_text}" if reply_prefix else reply_text
+                try:
+                    await message.reply(final_reply)
+                    asyncio.create_task(
+                        capture_message_exchange_memory(
+                            message,
+                            source_label="worker-reply",
+                        )
+                    )
                 except Exception as reply_error:
-                    if not reply_embeds and is_deleted_message_reference_error(reply_error):
+                    if is_deleted_message_reference_error(reply_error):
                         print("Worker reply target deleted before send. Triggering failsafe.", flush=True)
                         await send_deleted_message_failsafe(message.channel)
                     else:
@@ -9733,9 +10103,14 @@ async def worker():
             try:
                 if reply_embeds:
                     if not embeds_sent:
-                        for embed in reply_embeds:
-                            await message.channel.send(embed=embed)
-                    await message.channel.send(f"LLM error: {error_detail}")
+                        try:
+                            await send_frame_embeds_with_views(
+                                message.channel,
+                                reply_embed_rows,
+                                embeds=reply_embeds,
+                            )
+                        except Exception as embed_error:
+                            print(f"Worker embed error send failed: {embed_error}", flush=True)
                 else:
                     if fallback_reply:
                         error_reply = f"{fallback_reply}\n\nLLM error: {error_detail}"
@@ -10278,6 +10653,11 @@ async def on_message(message):
         if force_verbatim_frame_reply and fd_context_rows
         else []
     )
+    frame_reply_rows = (
+        iter_unique_frame_rows(fd_context_rows)
+        if force_verbatim_frame_reply and fd_context_rows
+        else []
+    )
     if frame_reply_embeds:
         print(
             "Frame embed mode active: "
@@ -10290,6 +10670,16 @@ async def on_message(message):
     should_handle_direct_frame = (
         client.user.mentioned_in(message)
         or ".framedata" in content_lower
+    )
+    combined_frame_gif_request = bool(
+        gif_query
+        and explicit_frame_request
+        and fd_context_mode == "frame"
+        and not property_only_query
+        and not startup_alias_query
+        and not hitconfirm_alias_query
+        and not super_gain_alias_query
+        and not range_alias_query
     )
 
     vague_move_query_without_output_intent = False
@@ -10349,6 +10739,85 @@ async def on_message(message):
             )
             return
 
+        if combined_frame_gif_request and client.user.mentioned_in(message):
+            if "Special Strength Options" in fd_context_data:
+                try:
+                    sent_prompt = await message.reply(fd_context_data)
+                    remember_special_strength_prompt_mode(sent_prompt.id, "both")
+                except Exception as reply_error:
+                    if is_deleted_message_reference_error(reply_error):
+                        print("Special strength options both reply target deleted. Triggering failsafe.", flush=True)
+                        await send_deleted_message_failsafe(message.channel)
+                    else:
+                        print(f"Special strength options both reply error: {reply_error}", flush=True)
+                return
+
+            if not explicit_move_attempt:
+                await message.reply("Tell me the exact move too, like 'aki 5hp gif framedata'.")
+                return
+
+            if missing_scrolls_query:
+                missing_msg = (
+                    f"I don't have the scrolls for that move. "
+                    f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
+                )
+                try:
+                    await message.reply(missing_msg)
+                except Exception as reply_error:
+                    if is_deleted_message_reference_error(reply_error):
+                        print("Missing-scrolls both reply target deleted. Triggering failsafe.", flush=True)
+                        await send_deleted_message_failsafe(message.channel)
+                    else:
+                        print(f"Missing-scrolls both reply error: {reply_error}", flush=True)
+                return
+
+            if fd_context_rows:
+                await send_frame_table_response(message, fd_context_rows, fd_context_data)
+
+                gif_frame_rows = fd_context_rows
+                if wants_comparison and fd_context_rows:
+                    comparison_rows = []
+                    seen_comparison_chars = set()
+                    for row in fd_context_rows:
+                        row_char = normalize_char_name(row.get("char_name", ""))
+                        if not row_char or row_char in seen_comparison_chars:
+                            continue
+                        seen_comparison_chars.add(row_char)
+                        comparison_rows.append(row)
+                    if len(comparison_rows) >= 2:
+                        gif_frame_rows = comparison_rows
+
+                gif_limit = 3
+                if wants_comparison and gif_frame_rows:
+                    gif_limit = max(2, min(6, len(gif_frame_rows)))
+
+                gif_links = collect_hitbox_gif_links_from_text(
+                    content_no_mentions,
+                    frame_rows=gif_frame_rows,
+                    limit=gif_limit,
+                )
+                if gif_links:
+                    await send_gif_links_response(
+                        message,
+                        gif_links,
+                        wants_comparison=wants_comparison,
+                    )
+                    return
+
+                missing_gif_msg = (
+                    f"I have frame data for that move but no hitbox gif link yet. "
+                    f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
+                )
+                try:
+                    await message.reply(missing_gif_msg)
+                except Exception as reply_error:
+                    if is_deleted_message_reference_error(reply_error):
+                        print("Missing-gif both reply target deleted. Triggering failsafe.", flush=True)
+                        await send_deleted_message_failsafe(message.channel)
+                    else:
+                        print(f"Missing-gif both reply error: {reply_error}", flush=True)
+                return
+
         if gif_query and client.user.mentioned_in(message):
             if "Special Strength Options" in fd_context_data:
                 try:
@@ -10389,17 +10858,11 @@ async def on_message(message):
                 limit=gif_limit,
             )
             if gif_links:
-                try:
-                    if wants_comparison and len(gif_links) > 1:
-                        await message.reply("\n".join(gif_links))
-                    else:
-                        await message.reply(gif_links[0])
-                except Exception as reply_error:
-                    if is_deleted_message_reference_error(reply_error):
-                        print("Hitbox gif reply target deleted. Triggering failsafe.", flush=True)
-                        await send_deleted_message_failsafe(message.channel)
-                    else:
-                        print(f"Hitbox gif reply error: {reply_error}", flush=True)
+                await send_gif_links_response(
+                    message,
+                    gif_links,
+                    wants_comparison=wants_comparison,
+                )
                 return
 
             if fd_context_rows:
@@ -10786,7 +11249,12 @@ async def on_message(message):
         special_query = (content_no_mentions or "").strip()
         raw_special_reply_lower = special_query.lower()
         special_query_lower = raw_special_reply_lower
-        special_request_mode = "gif" if (special_strength_reply_mode == "gif" or gif_query) else "frame"
+        if special_strength_reply_mode == "both":
+            special_request_mode = "both"
+        elif special_strength_reply_mode == "gif" or gif_query:
+            special_request_mode = "gif"
+        else:
+            special_request_mode = "frame"
 
         selected_option_name = None
         selected_option_cmd = None
@@ -10865,6 +11333,26 @@ async def on_message(message):
                                     f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
                                 )
                                 await message.reply(missing_gif_msg)
+                        elif special_request_mode == "both":
+                            await send_frame_table_response(message, [direct_row], format_frame_data(direct_row))
+                            gif_links = []
+                            direct_link = lookup_hitbox_gif_link(direct_row)
+                            if direct_link:
+                                gif_links.append(direct_link)
+                            else:
+                                gif_links = collect_hitbox_gif_links_from_text(
+                                    f"{char_hint} {direct_value} gif",
+                                    frame_rows=[direct_row],
+                                    limit=1,
+                                )
+                            if gif_links:
+                                await send_gif_links_response(message, gif_links)
+                            else:
+                                missing_gif_msg = (
+                                    "I have frame data for that move but no hitbox gif link yet. "
+                                    f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
+                                )
+                                await message.reply(missing_gif_msg)
                         else:
                             await send_frame_table_response(message, [direct_row], format_frame_data(direct_row))
                         return
@@ -10887,6 +11375,9 @@ async def on_message(message):
         if special_request_mode == "gif":
             if not re.search(r"\b(gif|gifs|hitbox|hitboxes)\b", special_query_lower):
                 special_query = f"{special_query} gif".strip()
+        elif special_request_mode == "both":
+            if not re.search(r"\b(gif|gifs|hitbox|hitboxes)\b", special_query_lower):
+                special_query = f"{special_query} gif framedata".strip()
         elif not (
             "framedata" in special_query_lower
             or "frame data" in special_query_lower
@@ -10918,6 +11409,28 @@ async def on_message(message):
                 )
             if gif_links:
                 await message.reply(gif_links[0])
+                return
+            missing_gif_msg = (
+                "I have frame data for that move but no hitbox gif link yet. "
+                f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
+            )
+            await message.reply(missing_gif_msg)
+            return
+        if special_request_mode == "both" and special_rows:
+            await send_frame_table_response(message, special_rows, special_data)
+            gif_links = []
+            if len(special_rows) == 1:
+                direct_link = lookup_hitbox_gif_link(special_rows[0])
+                if direct_link:
+                    gif_links.append(direct_link)
+            if not gif_links:
+                gif_links = collect_hitbox_gif_links_from_text(
+                    special_query,
+                    frame_rows=special_rows,
+                    limit=1,
+                )
+            if gif_links:
+                await send_gif_links_response(message, gif_links)
                 return
             missing_gif_msg = (
                 "I have frame data for that move but no hitbox gif link yet. "
@@ -11032,7 +11545,7 @@ async def on_message(message):
                     llm_messages.append(user_message)
                 
                 # push to queue
-                await message_queue.put((message, llm_messages, fallback_reply, None, frame_reply_embeds))
+                await message_queue.put((message, llm_messages, fallback_reply, None, frame_reply_embeds, frame_reply_rows))
 
              except Exception as e:
                 await message.reply(f"Error generating response: {e}")
