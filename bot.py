@@ -24,21 +24,89 @@ except (TypeError, ValueError):
     print("Error: CHANNEL_ID not found or invalid in .env")
     CHANNEL_ID = None
 
+USE_GEMINI_API = False
+USE_OPENROUTER_API = False
+USE_MIMO_API = True
+
+
+def parse_bool_env(name, default="false"):
+    return os.getenv(name, default).strip().lower() in ('true', '1', 'yes', 'on')
+
+
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'xiaomi/mimo-v2-flash:free')
 OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
-OPENROUTER_ENABLED = bool(OPENROUTER_API_KEY)
 
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview')
 GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta'
-GEMINI_ENABLED = bool(GEMINI_API_KEY)
 GEMINI_INLINE_MAX_BYTES = int(os.getenv('GEMINI_INLINE_MAX_BYTES', '10485760'))
 GEMINI_THINKING_LEVEL = os.getenv('GEMINI_THINKING_LEVEL', 'high')
 GEMINI_IMAGE_RESOLUTION = os.getenv('GEMINI_IMAGE_RESOLUTION', 'media_resolution_high')
 GEMINI_VIDEO_RESOLUTION = os.getenv('GEMINI_VIDEO_RESOLUTION', 'media_resolution_low')
+GEMINI_GOOGLE_SEARCH = parse_bool_env('GEMINI_GOOGLE_SEARCH')
 MEDIA_HISTORY_LIMIT = int(os.getenv('MEDIA_HISTORY_LIMIT', '6'))
 GEMINI_MEDIA_RESOLUTION_ENABLED = "v1alpha" in GEMINI_BASE_URL.lower()
+
+MIMO_API_KEY = os.getenv('MIMO_API_KEY')
+MIMO_MODEL = os.getenv('MIMO_MODEL', 'mimo-v2-omni')
+MIMO_BASE_URL = os.getenv('MIMO_BASE_URL', 'https://api.xiaomimimo.com/v1').rstrip('/')
+MIMO_THINKING_TYPE = os.getenv('MIMO_THINKING_TYPE', 'disabled').strip().lower() or 'disabled'
+MIMO_VIDEO_FPS = max(1, int(os.getenv('MIMO_VIDEO_FPS', '2')))
+MIMO_VIDEO_MEDIA_RESOLUTION = os.getenv('MIMO_VIDEO_MEDIA_RESOLUTION', 'default').strip() or 'default'
+MIMO_WEB_SEARCH = parse_bool_env('MIMO_WEB_SEARCH')
+MIMO_WEB_SEARCH_MAX_KEYWORD = max(1, int(os.getenv('MIMO_WEB_SEARCH_MAX_KEYWORD', '3')))
+MIMO_WEB_SEARCH_LIMIT = max(1, int(os.getenv('MIMO_WEB_SEARCH_LIMIT', '1')))
+MIMO_WEB_SEARCH_FORCE = parse_bool_env('MIMO_WEB_SEARCH_FORCE', 'true')
+MIMO_WEB_SEARCH_COUNTRY = os.getenv('MIMO_WEB_SEARCH_COUNTRY', '').strip()
+MIMO_WEB_SEARCH_REGION = os.getenv('MIMO_WEB_SEARCH_REGION', '').strip()
+MIMO_WEB_SEARCH_CITY = os.getenv('MIMO_WEB_SEARCH_CITY', '').strip()
+
+LLM_PROVIDER_LABELS = {
+    'gemini': 'Gemini',
+    'openrouter': 'OpenRouter',
+    'mimo': 'MiMo',
+}
+LLM_PROVIDER_FLAGS = {
+    'gemini': USE_GEMINI_API,
+    'openrouter': USE_OPENROUTER_API,
+    'mimo': USE_MIMO_API,
+}
+LLM_PROVIDER_KEYS = {
+    'gemini': GEMINI_API_KEY,
+    'openrouter': OPENROUTER_API_KEY,
+    'mimo': MIMO_API_KEY,
+}
+selected_provider_names = [
+    name for name, enabled in LLM_PROVIDER_FLAGS.items() if enabled
+]
+LLM_PROVIDER_ERROR = None
+if len(selected_provider_names) > 1:
+    ACTIVE_LLM_PROVIDER = None
+    LLM_PROVIDER_ERROR = (
+        "Multiple LLM provider flags enabled. Set only one of "
+        "USE_GEMINI_API, USE_OPENROUTER_API, or USE_MIMO_API to True."
+    )
+elif selected_provider_names:
+    ACTIVE_LLM_PROVIDER = selected_provider_names[0]
+else:
+    ACTIVE_LLM_PROVIDER = None
+
+GEMINI_ENABLED = (
+    ACTIVE_LLM_PROVIDER == 'gemini' and bool(GEMINI_API_KEY)
+)
+OPENROUTER_ENABLED = (
+    ACTIVE_LLM_PROVIDER == 'openrouter' and bool(OPENROUTER_API_KEY)
+)
+MIMO_ENABLED = (
+    ACTIVE_LLM_PROVIDER == 'mimo' and bool(MIMO_API_KEY)
+)
+LLM_ENABLED = GEMINI_ENABLED or OPENROUTER_ENABLED or MIMO_ENABLED
+
+if ACTIVE_LLM_PROVIDER and not LLM_ENABLED and LLM_PROVIDER_ERROR is None:
+    provider_label = LLM_PROVIDER_LABELS.get(ACTIVE_LLM_PROVIDER, ACTIVE_LLM_PROVIDER)
+    LLM_PROVIDER_ERROR = f"{provider_label} selected but API key is missing."
+
 LLM_CONTEXT_WINDOW_TOKENS = int(
     os.getenv(
         'LLM_CONTEXT_WINDOW_TOKENS',
@@ -188,7 +256,6 @@ else:
     )
 TZ_REGEX = re.compile(rf"(?<!\w){tz_pattern}(?!\w)", re.IGNORECASE)
 MENTION_PATTERN = re.compile(r"<@!?\d+>|<@&\d+>|<#\d+>")
-GEMINI_GOOGLE_SEARCH = os.getenv('GEMINI_GOOGLE_SEARCH', 'false').lower() in ('true', '1', 'yes', 'on')
 
 SEARCH_KEYWORDS = [
     'news', 'recent', 'latest', 'today', 'current', 'weather', 'stock', 'price',
@@ -199,19 +266,27 @@ SEARCH_KEYWORDS = [
 
 def should_use_search(query: str) -> bool:
     """Determine if a query likely needs real-time information."""
-    if not GEMINI_GOOGLE_SEARCH:
+    if GEMINI_ENABLED:
+        search_enabled = GEMINI_GOOGLE_SEARCH
+    elif MIMO_ENABLED:
+        search_enabled = MIMO_WEB_SEARCH
+    else:
+        search_enabled = False
+    if not search_enabled:
         return False
     query_lower = query.lower()
     return any(keyword in query_lower for keyword in SEARCH_KEYWORDS)
 
-LLM_ENABLED = GEMINI_ENABLED or OPENROUTER_ENABLED
-
 if GEMINI_ENABLED:
     print(f"Gemini enabled with model: {GEMINI_MODEL}")
+elif MIMO_ENABLED:
+    print(f"MiMo enabled with model: {MIMO_MODEL}")
 elif OPENROUTER_ENABLED:
     print(f"OpenRouter enabled with model: {OPENROUTER_MODEL}")
+elif LLM_PROVIDER_ERROR:
+    print(f"[config] {LLM_PROVIDER_ERROR}")
 else:
-    print("No LLM API key found. Chat feature disabled.")
+    print("No LLM provider enabled. Chat feature disabled.")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -288,14 +363,14 @@ async def get_openrouter_response(messages):
     """Call OpenRouter API and return the response text."""
     if not OPENROUTER_ENABLED:
         raise RuntimeError("OpenRouter not configured")
-    
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://discord.com",
         "X-Title": "Chinese Bub Bot"
     }
-    
+
     clean_messages = [
         {"role": msg.get("role", ""), "content": msg.get("content", "")}
         for msg in messages
@@ -311,7 +386,7 @@ async def get_openrouter_response(messages):
             "effort": "medium"
         }
     }
-    
+
     async with aiohttp.ClientSession() as session:
         async with session.post(
             f"{OPENROUTER_BASE_URL}/chat/completions",
@@ -321,14 +396,17 @@ async def get_openrouter_response(messages):
             if response.status != 200:
                 error_text = await response.text()
                 raise RuntimeError(f"OpenRouter API error {response.status}: {error_text}")
-            
+
             data = await response.json()
             content = data['choices'][0]['message']['content']
-            
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
-            content = re.sub(r'^\s*\(.*?\)\s*', '', content, flags=re.DOTALL)
-            
-            return content.strip()
+            return strip_llm_response_text(content)
+
+
+def strip_llm_response_text(content):
+    content = str(content or "")
+    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+    content = re.sub(r'^\s*\(.*?\)\s*', '', content, flags=re.DOTALL)
+    return content.strip()
 
 
 def has_llm_content(messages):
@@ -345,7 +423,11 @@ def has_llm_content(messages):
                 if isinstance(text, str) and text.strip():
                     return True
                 if isinstance(part, dict) and (
-                    part.get("inlineData") or part.get("inline_data")
+                    part.get("inlineData")
+                    or part.get("inline_data")
+                    or part.get("image_url")
+                    or part.get("video_url")
+                    or part.get("input_audio")
                 ):
                     return True
     return False
@@ -447,7 +529,19 @@ async def get_message_media_items(message):
     return list(deduped.values())
 
 
-async def build_message_media_parts(items):
+def guess_media_content_type(item):
+    content_type = str(item.get("content_type") or "").split(";")[0].strip().lower()
+    if content_type:
+        return content_type
+    filename = item.get("filename") or ""
+    url = item.get("url") or ""
+    guessed_type = mimetypes.guess_type(filename)[0]
+    if not guessed_type and url:
+        guessed_type = mimetypes.guess_type(url.split("?")[0])[0]
+    return (guessed_type or "").lower()
+
+
+async def build_gemini_media_parts(items):
     parts = []
     notes = []
     if not items:
@@ -458,14 +552,7 @@ async def build_message_media_parts(items):
             url = item.get("url")
             if not url:
                 continue
-            content_type = item.get("content_type") or ""
             filename = item.get("filename") or "media"
-            size = item.get("size")
-            if not content_type:
-                guessed_type = mimetypes.guess_type(filename)[0]
-                if not guessed_type:
-                    guessed_type = mimetypes.guess_type(url.split("?")[0])[0]
-                content_type = guessed_type or ""
             data = None
             final_type = ""
             try:
@@ -481,7 +568,7 @@ async def build_message_media_parts(items):
                 continue
 
             if not final_type:
-                final_type = content_type
+                final_type = guess_media_content_type(item)
             if not final_type.startswith(("image/", "video/")):
                 notes.append(f"{filename} unsupported type {final_type or 'unknown'}")
                 continue
@@ -505,6 +592,37 @@ async def build_message_media_parts(items):
     return parts, notes
 
 
+def build_mimo_media_parts(items):
+    parts = []
+    notes = []
+    for item in items:
+        url = item.get("url")
+        if not url:
+            continue
+        filename = item.get("filename") or "media"
+        content_type = guess_media_content_type(item)
+        if content_type.startswith("image/"):
+            parts.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": url,
+                },
+            })
+            continue
+        if content_type.startswith("video/"):
+            parts.append({
+                "type": "video_url",
+                "video_url": {
+                    "url": url,
+                },
+                "fps": MIMO_VIDEO_FPS,
+                "media_resolution": MIMO_VIDEO_MEDIA_RESOLUTION,
+            })
+            continue
+        notes.append(f"{filename} unsupported type {content_type or 'unknown'}")
+    return parts, notes
+
+
 def get_media_context(items, media_parts, media_notes):
     if not items:
         return ""
@@ -512,14 +630,7 @@ def get_media_context(items, media_parts, media_notes):
     video_count = 0
     other_count = 0
     for item in items:
-        content_type = item.get("content_type") or ""
-        filename = item.get("filename") or ""
-        url = item.get("url") or ""
-        if not content_type:
-            guessed_type = mimetypes.guess_type(filename)[0]
-            if not guessed_type:
-                guessed_type = mimetypes.guess_type(url.split("?")[0])[0]
-            content_type = guessed_type or ""
+        content_type = guess_media_content_type(item)
         if content_type.startswith("image/"):
             image_count += 1
         elif content_type.startswith("video/"):
@@ -609,6 +720,106 @@ def build_gemini_payload(messages, enable_search=False):
     return payload
 
 
+def build_mimo_message_content(message):
+    parts = message.get("parts")
+    content = message.get("content", "")
+    if not parts:
+        return content
+
+    mimo_parts = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text", "")
+        if isinstance(text, str) and text.strip():
+            mimo_parts.append({"type": "text", "text": text})
+            continue
+        if part.get("image_url"):
+            mimo_parts.append({
+                "type": "image_url",
+                "image_url": dict(part.get("image_url") or {}),
+            })
+            continue
+        if part.get("video_url"):
+            normalized_video_part = {
+                "type": "video_url",
+                "video_url": dict(part.get("video_url") or {}),
+            }
+            if part.get("fps") is not None:
+                normalized_video_part["fps"] = part.get("fps")
+            if part.get("media_resolution"):
+                normalized_video_part["media_resolution"] = part.get("media_resolution")
+            mimo_parts.append(normalized_video_part)
+            continue
+        if part.get("input_audio"):
+            mimo_parts.append({
+                "type": "input_audio",
+                "input_audio": dict(part.get("input_audio") or {}),
+            })
+            continue
+
+    if mimo_parts:
+        return mimo_parts
+    return content
+
+
+def build_mimo_search_tool():
+    tool = {
+        "type": "web_search",
+        "max_keyword": MIMO_WEB_SEARCH_MAX_KEYWORD,
+        "force_search": MIMO_WEB_SEARCH_FORCE,
+        "limit": MIMO_WEB_SEARCH_LIMIT,
+    }
+    if any((MIMO_WEB_SEARCH_COUNTRY, MIMO_WEB_SEARCH_REGION, MIMO_WEB_SEARCH_CITY)):
+        user_location = {"type": "approximate"}
+        if MIMO_WEB_SEARCH_COUNTRY:
+            user_location["country"] = MIMO_WEB_SEARCH_COUNTRY
+        if MIMO_WEB_SEARCH_REGION:
+            user_location["region"] = MIMO_WEB_SEARCH_REGION
+        if MIMO_WEB_SEARCH_CITY:
+            user_location["city"] = MIMO_WEB_SEARCH_CITY
+        tool["user_location"] = user_location
+    return tool
+
+
+def build_mimo_payload(messages, enable_search=False):
+    mimo_messages = []
+    for msg in messages:
+        role = msg.get("role", "")
+        content = build_mimo_message_content(msg)
+        if isinstance(content, list):
+            if not content:
+                continue
+        elif not str(content or "").strip():
+            continue
+        mimo_messages.append({
+            "role": role,
+            "content": content,
+        })
+
+    if not mimo_messages:
+        raise RuntimeError("MiMo payload empty: no user/model content")
+
+    payload = {
+        "model": MIMO_MODEL,
+        "messages": mimo_messages,
+        "max_completion_tokens": 4096,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "stream": False,
+        "stop": None,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+        "thinking": {
+            "type": MIMO_THINKING_TYPE,
+        },
+    }
+    if enable_search and MIMO_WEB_SEARCH:
+        payload["tools"] = [build_mimo_search_tool()]
+        payload["tool_choice"] = "auto"
+    return payload
+
+
 async def get_gemini_response(messages, enable_search=False):
     """Call Gemini API and return the response text."""
     if not GEMINI_ENABLED:
@@ -626,9 +837,40 @@ async def get_gemini_response(messages, enable_search=False):
                 raise RuntimeError("Gemini API error: empty candidates")
             parts = candidates[0].get("content", {}).get("parts", [])
             content = "".join(part.get("text", "") for part in parts)
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
-            content = re.sub(r'^\s*\(.*?\)\s*', '', content, flags=re.DOTALL)
-            return content.strip()
+            return strip_llm_response_text(content)
+
+
+async def get_mimo_response(messages, enable_search=False):
+    """Call MiMo API and return the response text."""
+    if not MIMO_ENABLED:
+        raise RuntimeError("MiMo not configured")
+    payload = build_mimo_payload(messages, enable_search=enable_search)
+    headers = {
+        "Authorization": f"Bearer {MIMO_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{MIMO_BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+        ) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise RuntimeError(f"MiMo API error {response.status}: {error_text}")
+            data = await response.json()
+            choices = data.get("choices", [])
+            if not choices:
+                raise RuntimeError("MiMo API error: empty choices")
+            message = choices[0].get("message", {})
+            content = message.get("content", "")
+            if isinstance(content, list):
+                content = "".join(
+                    part.get("text", "")
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "text"
+                )
+            return strip_llm_response_text(content)
 
 
 async def get_llm_response(messages, enable_search=False):
@@ -637,8 +879,12 @@ async def get_llm_response(messages, enable_search=False):
         raise RuntimeError("LLM payload empty: no user content")
     if GEMINI_ENABLED:
         return await get_gemini_response(messages, enable_search=enable_search)
+    if MIMO_ENABLED:
+        return await get_mimo_response(messages, enable_search=enable_search)
     if OPENROUTER_ENABLED:
         return await get_openrouter_response(messages)
+    if LLM_PROVIDER_ERROR:
+        raise RuntimeError(LLM_PROVIDER_ERROR)
     raise RuntimeError("No LLM provider configured")
 
 
@@ -1257,6 +1503,7 @@ CHARACTER_ALIASES = {
     "kim": "kimberly",
     "gief": "zangief",
     "sim": "dhalsim",
+    "aksel": "alex",
     "chun": "chun-li",
     "dj": "dee jay",
     "deejay": "dee jay",
@@ -1277,112 +1524,19 @@ def normalize_char_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(name).lower())
 
 
-PARSER_TOKEN_VOCAB_CACHE = None
-
-
-def get_parser_token_vocabulary():
-    global PARSER_TOKEN_VOCAB_CACHE
-    if PARSER_TOKEN_VOCAB_CACHE is not None:
-        return PARSER_TOKEN_VOCAB_CACHE
-
-    vocabulary = {
-        "framedata", "frame", "frames", "gif", "gifs", "hitbox", "hitboxes",
-        "startup", "active", "recovery", "damage", "range", "cancel",
-        "charged", "charge", "hold", "held", "stocked", "stock", "air", "aerial",
-        "light", "medium", "heavy", "od", "ex", "drive", "impact", "rush", "reversal",
-        "jump", "neutral", "forward", "back", "backward", "overhead", "launcher",
-        "command", "grab", "followup", "follow", "target", "combo", "super", "critical",
-        "art", "ca", "sa1", "sa2", "sa3",
-    }
-
-    for char_key in FRAME_DATA.keys():
-        for token in re.findall(r"[a-z0-9]+", str(char_key).lower()):
-            if token and not token.isdigit():
-                vocabulary.add(token)
-
-    for alias in CHARACTER_ALIASES.keys():
-        for token in re.findall(r"[a-z0-9]+", str(alias).lower()):
-            if token and not token.isdigit():
-                vocabulary.add(token)
-
-    for rows in FRAME_DATA.values():
-        for row in rows:
-            for field in ("moveName", "cmnName", "plnCmd", "numCmd"):
-                for token in re.findall(r"[a-z0-9]+", str(row.get(field, "")).lower()):
-                    if token and not token.isdigit():
-                        vocabulary.add(token)
-
-    PARSER_TOKEN_VOCAB_CACHE = sorted(vocabulary)
-    return PARSER_TOKEN_VOCAB_CACHE
-
-
-def fuzzy_normalize_parser_text(text):
-    raw_tokens = re.findall(r"[a-z0-9]+", str(text or "").lower())
-    if not raw_tokens:
-        return str(text or "")
-
-    vocabulary = get_parser_token_vocabulary()
-    protected_tokens = {
-        "lp", "mp", "hp", "lk", "mk", "hk",
-        "pp", "kk", "st", "cr", "nj", "dj",
-        "sa1", "sa2", "sa3", "ca", "od", "ex",
-        "l", "m", "h", "p", "k", "j",
-    }
-    corrected_tokens = []
-    changed = False
-
-    for token in raw_tokens:
-        if (
-            token in protected_tokens
-            or token.isdigit()
-            or len(token) < 4
-            or token in vocabulary
-        ):
-            corrected_tokens.append(token)
-            continue
-
-        cutoff = 0.88 if len(token) <= 4 else 0.84
-        close_matches = difflib.get_close_matches(token, vocabulary, n=1, cutoff=cutoff)
-        if close_matches:
-            corrected_tokens.append(close_matches[0])
-            changed = True
-        else:
-            corrected_tokens.append(token)
-
-    if not changed:
-        return str(text or "")
-    return " ".join(corrected_tokens)
-
-
 def resolve_character_key(name: str):
     """Resolve free-form character text to a FRAME_DATA key."""
     normalized = normalize_char_name(name)
     if not normalized:
         return None
 
-    candidate_lookup = {}
     for char_key in FRAME_DATA.keys():
-        normalized_char_key = normalize_char_name(char_key)
-        candidate_lookup.setdefault(normalized_char_key, char_key)
-        if normalized_char_key == normalized:
+        if normalize_char_name(char_key) == normalized:
             return char_key
 
     for alias, canonical in CHARACTER_ALIASES.items():
-        normalized_alias = normalize_char_name(alias)
-        if canonical in FRAME_DATA:
-            candidate_lookup.setdefault(normalized_alias, canonical)
-        if normalized_alias == normalized and canonical in FRAME_DATA:
+        if normalize_char_name(alias) == normalized and canonical in FRAME_DATA:
             return canonical
-
-    if len(normalized) >= 4 and candidate_lookup:
-        close_matches = difflib.get_close_matches(
-            normalized,
-            list(candidate_lookup.keys()),
-            n=1,
-            cutoff=0.84,
-        )
-        if close_matches:
-            return candidate_lookup.get(close_matches[0])
 
     return None
 
@@ -1409,12 +1563,11 @@ def format_sheet_text(df: pd.DataFrame) -> str:
 
 def load_frame_data():
     """Load frame data, stats, combos, oki, and character info from ODS."""
-    global FRAME_DATA, FRAME_STATS, BNB_DATA, OKI_DATA, CHARACTER_INFO, HITBOX_GIF_DATA, RANGE_DATA, QUIZ_CHARACTER_TERMS_CACHE, QUIZ_MOVE_NAME_TERMS_CACHE, QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE, PARSER_TOKEN_VOCAB_CACHE
+    global FRAME_DATA, FRAME_STATS, BNB_DATA, OKI_DATA, CHARACTER_INFO, HITBOX_GIF_DATA, RANGE_DATA, QUIZ_CHARACTER_TERMS_CACHE, QUIZ_MOVE_NAME_TERMS_CACHE, QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE
     filename = "FAT - SF6 Frame Data.ods"
     QUIZ_CHARACTER_TERMS_CACHE = None
     QUIZ_MOVE_NAME_TERMS_CACHE = None
     QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = None
-    PARSER_TOKEN_VOCAB_CACHE = None
     
     if os.path.exists(filename):
         try:
@@ -1504,14 +1657,30 @@ def load_frame_data():
                     character_lookup[normalize_char_name(canonical)] = canonical
 
             def normalize_range_cmd_token(value):
-                text = str(value or "").lower()
+                raw_text = str(value or "").lower()
+                is_air_context = bool(
+                    "(air" in raw_text
+                    or raw_text.startswith("j.")
+                    or raw_text.startswith("j ")
+                    or raw_text.startswith("j")
+                    or "jump" in raw_text
+                )
+                text = raw_text
                 text = text.replace("->", ">")
                 text = text.replace("~", ">")
                 text = text.replace("|", "/")
                 text = re.sub(r"\bor\b", "/", text)
                 text = re.sub(r"\([^)]*\)", "", text)
                 text = re.sub(r"\s+", "", text)
-                return re.sub(r"[^a-z0-9>/+]", "", text)
+                text = re.sub(r"[^a-z0-9>/+]", "", text)
+                text = text.replace("+", "")
+                text = re.sub(r"^j42684268", "j720", text)
+                text = re.sub(r"^42684268", "720", text)
+                text = re.sub(r"^j4268", "j360", text)
+                text = re.sub(r"^4268", "360", text)
+                if is_air_context and re.match(r"^(360|720)", text):
+                    text = f"j{text}"
+                return text
 
             def build_range_cmd_tokens(value):
                 normalized = normalize_range_cmd_token(value)
@@ -1667,7 +1836,6 @@ def find_moves_in_text(text):
     """Extract character/move mentions and return context payload with mode."""
     found_data = []
     text_lower = strip_discord_mentions(text).lower()
-    text_lower = fuzzy_normalize_parser_text(text_lower)
     text_lower = normalize_jump_normal_text(text_lower)
     text_lower = re.sub(r"\bdivekick\b", "dive kick", text_lower)
     tc_prompt_blocks = []
@@ -1703,14 +1871,6 @@ def find_moves_in_text(text):
         char_tokens = re.findall(r"[a-z0-9]+", char)
         if tokens_in_text(char_tokens) and char not in mentioned_chars:
             mentioned_chars.append(char)
-
-    if not mentioned_chars:
-        for seq_len in (2, 1):
-            for idx in range(len(text_tokens) - seq_len + 1):
-                candidate = " ".join(text_tokens[idx:idx + seq_len]).strip()
-                resolved_char = resolve_character_key(candidate)
-                if resolved_char and resolved_char not in mentioned_chars:
-                    mentioned_chars.append(resolved_char)
 
     if not mentioned_chars and (
         re.search(r"\braging\s+demon\b", text_lower)
@@ -1934,6 +2094,75 @@ def find_moves_in_text(text):
                 or num_cmd_compact.endswith(("pp", "kk"))
             )
 
+        def row_matches_explicit_strength(row, strength_query_text):
+            row_move_name = str(row.get("moveName", "")).lower().strip()
+            row_cmn_name = str(row.get("cmnName", "")).lower().strip()
+            row_num_cmd = str(row.get("numCmd", "")).lower().strip()
+            row_num_cmd_compact = re.sub(r"[^a-z0-9]", "", row_num_cmd)
+
+            if re.search(r"\b(?:od|ex)\b", strength_query_text):
+                return row_is_od_variant(row)
+
+            strength_groups = [
+                ({"light", "l", "lp", "lk"}, {"lp", "lk"}),
+                ({"medium", "m", "mp", "mk"}, {"mp", "mk"}),
+                ({"heavy", "h", "hp", "hk"}, {"hp", "hk"}),
+            ]
+
+            requested_suffixes = set()
+            for token_group, suffixes in strength_groups:
+                if any(re.search(rf"\b{re.escape(token)}\b", strength_query_text) for token in token_group):
+                    requested_suffixes.update(suffixes)
+
+            if not requested_suffixes:
+                return False
+
+            if any(row_move_name.startswith(f"{suffix} ") or row_cmn_name.startswith(f"{suffix} ") for suffix in requested_suffixes):
+                return True
+            if any(
+                row_move_name.startswith(f"{word} ") or row_cmn_name.startswith(f"{word} ")
+                for word in ("light", "medium", "heavy")
+                if word[0] in {suffix[0] for suffix in requested_suffixes}
+            ):
+                return True
+            return row_num_cmd_compact.endswith(tuple(requested_suffixes))
+
+        def row_matches_query_move_terms(row):
+            ignored_tokens = {
+                "framedata", "frame", "frames", "data", "gif", "gifs", "hitbox", "hitboxes",
+                "light", "medium", "heavy", "l", "m", "h",
+                "lp", "mp", "hp", "lk", "mk", "hk", "pp", "kk",
+                "od", "ex", "charged", "hold", "held",
+                "startup", "active", "recovery", "range",
+                "on", "hit", "block", "damage", "cancel",
+            }
+            for char in mentioned_chars:
+                ignored_tokens.update(re.findall(r"[a-z0-9]+", str(char).lower()))
+            for alias, canonical in CHARACTER_ALIASES.items():
+                if canonical in mentioned_chars:
+                    ignored_tokens.update(re.findall(r"[a-z0-9]+", str(alias).lower()))
+
+            significant_tokens = [
+                token for token in text_tokens
+                if token not in ignored_tokens and len(token) >= 3
+            ]
+            if not significant_tokens:
+                return True
+
+            row_text = " ".join(
+                str(row.get(field, "")).lower()
+                for field in ("moveName", "cmnName", "numCmd", "plnCmd")
+            )
+            row_text_compact = re.sub(r"[^a-z0-9]", "", row_text)
+            for token in significant_tokens:
+                token_compact = re.sub(r"[^a-z0-9]", "", token)
+                if not token_compact:
+                    continue
+                if token in row_text or token_compact in row_text_compact:
+                    continue
+                return False
+            return True
+
         def row_is_ca_variant(row):
             move_name = str(row.get("moveName", "")).lower()
             cmn_name = str(row.get("cmnName", "")).lower()
@@ -2091,6 +2320,18 @@ def find_moves_in_text(text):
             re.search(
                 r"\b(?:air|aerial)\s*(?:sa\s*2|super\s*art\s*2|super\s*2|level\s*2)\b"
                 r"|\b(?:sa\s*2|super\s*art\s*2|super\s*2|level\s*2)\s*(?:air|aerial)\b",
+                text_lower,
+            )
+        )
+        zangief_borscht_context = bool(
+            re.search(r"\bborscht\b", text_lower)
+            or re.search(r"\bj\.?\s*360\s*\+?\s*k{1,2}\b", text_lower)
+            or re.search(r"\bj\s+360\s*\+?\s*k{1,2}\b", text_lower)
+        )
+        alex_stance_followup_context = bool(
+            re.search(
+                r"\bstance\s+(?:lp|mp|hp|lk|mk|hk|6p|6|4|lplk|5lplk|2lplk|"
+                r"jab|shoulder|lariat|hop|stomp|throw|command\s+grab|hk\s+hk)\b",
                 text_lower,
             )
         )
@@ -3211,52 +3452,65 @@ def find_moves_in_text(text):
                         results.append(row)
 
         # SPD/360 variations - for Zangief (Screw Piledriver) and Lily (Mexican Typhoon)
-            spd_patterns = [
-                ("l spd", "lp"), ("m spd", "mp"), ("h spd", "hp"),
-                ("light spd", "lp"), ("medium spd", "mp"), ("heavy spd", "hp"),
-                ("lspd", "lp"), ("mspd", "mp"), ("hspd", "hp"),
-                ("od spd", "od"), ("ex spd", "od"),
-                ("l command grab", "lp"), ("m command grab", "mp"), ("h command grab", "hp"),
-                ("light command grab", "lp"), ("medium command grab", "mp"), ("heavy command grab", "hp"),
-                ("od command grab", "od"), ("ex command grab", "od"),
-                ("360+lp", "lp"), ("360+mp", "mp"), ("360+hp", "hp"), ("360+pp", "od"),
-                ("360lp", "lp"), ("360mp", "mp"), ("360hp", "hp"), ("360pp", "od"),
-                ("command grab", ""), ("spd", ""), ("360", ""),
-            ]
-            for pattern, strength in spd_patterns:
-                if pattern in text_lower:
-                    if not strength and query_has_explicit_strength:
-                        continue
-                    # Try both Screw Piledriver (Gief) and Mexican Typhoon (Lily)
-                    if strength:
-                        move_names = [
-                            f"{strength} command grab",
-                            f"{strength} screw piledriver",
-                            f"{strength} mexican typhoon",
-                        ]
-                    else:
-                        move_names = ["command grab", "screw piledriver", "mexican typhoon"]
-                    for move_name in move_names:
-                        row = lookup_frame_data(char, move_name)
+            if not (char == "zangief" and zangief_borscht_context):
+                spd_patterns = [
+                    ("l spd", "lp"), ("m spd", "mp"), ("h spd", "hp"),
+                    ("light spd", "lp"), ("medium spd", "mp"), ("heavy spd", "hp"),
+                    ("lspd", "lp"), ("mspd", "mp"), ("hspd", "hp"),
+                    ("od spd", "od"), ("ex spd", "od"),
+                    ("l command grab", "lp"), ("m command grab", "mp"), ("h command grab", "hp"),
+                    ("light command grab", "lp"), ("medium command grab", "mp"), ("heavy command grab", "hp"),
+                    ("od command grab", "od"), ("ex command grab", "od"),
+                    ("360+lp", "lp"), ("360+mp", "mp"), ("360+hp", "hp"), ("360+pp", "od"),
+                    ("360lp", "lp"), ("360mp", "mp"), ("360hp", "hp"), ("360pp", "od"),
+                    ("command grab", ""), ("spd", ""), ("360", ""),
+                ]
+                for pattern, strength in spd_patterns:
+                    if pattern in text_lower:
+                        if not strength and query_has_explicit_strength:
+                            continue
+                        # Try both Screw Piledriver (Gief) and Mexican Typhoon (Lily)
+                        if strength:
+                            move_names = [
+                                f"{strength} command grab",
+                                f"{strength} screw piledriver",
+                                f"{strength} mexican typhoon",
+                            ]
+                        else:
+                            move_names = ["command grab", "screw piledriver", "mexican typhoon"]
+                        for move_name in move_names:
+                            row = lookup_frame_data(char, move_name)
+                            if row and row not in results:
+                                results.append(row)
+                                break
+                        break  # Only match one SPD variant
+
+            if char == "zangief" and zangief_borscht_context:
+                borscht_lookup = "od borscht dynamite" if (
+                    re.search(r"\b(?:od|ex)\s+borscht\b", text_lower)
+                    or re.search(r"\bj\.?\s*360\s*\+?\s*kk\b", text_lower)
+                    or re.search(r"\bj\s+360\s*\+?\s*kk\b", text_lower)
+                ) else "borscht dynamite"
+                row = lookup_frame_data(char, borscht_lookup)
+                if row and row not in results:
+                    results.append(row)
+
+            # Chun-Li serenity stream aliases are special-cased here because they
+            # use generic "stance"/"ss" wording that would otherwise be too broad.
+            if char == "chun-li":
+                stance_patterns = [
+                    ("stance lp", "stance lp"), ("stance mp", "stance mp"), ("stance hp", "stance hp"),
+                    ("stance lk", "stance lk"), ("stance mk", "stance mk"), ("stance hk", "stance hk"),
+                    ("ss lp", "ss lp"), ("ss mp", "ss mp"), ("ss hp", "ss hp"),
+                    ("ss lk", "ss lk"), ("ss mk", "ss mk"), ("ss hk", "ss hk"),
+                    ("serenity stream", "stance"), ("stance", "stance"), ("ss", "ss"),
+                ]
+                for pattern, alias_key in stance_patterns:
+                    if pattern in text_lower:
+                        row = lookup_frame_data(char, alias_key)
                         if row and row not in results:
                             results.append(row)
-                            break
-                    break  # Only match one SPD variant
-
-            # Chun-Li stance/serenity stream and followups
-            stance_patterns = [
-                ("stance lp", "stance lp"), ("stance mp", "stance mp"), ("stance hp", "stance hp"),
-                ("stance lk", "stance lk"), ("stance mk", "stance mk"), ("stance hk", "stance hk"),
-                ("ss lp", "ss lp"), ("ss mp", "ss mp"), ("ss hp", "ss hp"),
-                ("ss lk", "ss lk"), ("ss mk", "ss mk"), ("ss hk", "ss hk"),
-                ("serenity stream", "stance"), ("stance", "stance"), ("ss", "ss"),
-            ]
-            for pattern, alias_key in stance_patterns:
-                if pattern in text_lower:
-                    row = lookup_frame_data(char, alias_key)
-                    if row and row not in results:
-                        results.append(row)
-                    break  # Only match one stance variant
+                        break  # Only match one stance variant
 
             # Lily Mexican Typhoon variations
             typhoon_patterns = [
@@ -3337,6 +3591,34 @@ def find_moves_in_text(text):
                 non_od_results = [row for row in results if not row_is_od_variant(row)]
                 if non_od_results:
                     results = non_od_results
+
+            exact_strength_results = [
+                row for row in results
+                if row_matches_explicit_strength(row, text_lower)
+            ]
+            if exact_strength_results:
+                results = exact_strength_results
+
+            exact_term_results = [
+                row for row in results
+                if row_matches_query_move_terms(row)
+            ]
+            if exact_term_results:
+                results = exact_term_results
+
+        if alex_stance_followup_context and results:
+            filtered_results = []
+            for row in results:
+                row_char_key = normalize_char_name(row.get("char_name", ""))
+                if row_char_key != "alex":
+                    filtered_results.append(row)
+                    continue
+                row_num_cmd_norm = normalize_num_cmd_token(row.get("numCmd", ""))
+                row_cmn_name = str(row.get("cmnName", "")).lower()
+                if row_num_cmd_norm.startswith("2pp>") or "stance >" in row_cmn_name:
+                    filtered_results.append(row)
+            if filtered_results:
+                results = filtered_results
 
         if air_tatsu_context and results:
             air_tatsu_chars = {"ryu", "ken", "akuma"}
@@ -3997,9 +4279,7 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
         return None
     
     data = FRAME_DATA[char_key]
-    move_input = normalize_jump_normal_text(
-        fuzzy_normalize_parser_text(move_input.lower().strip())
-    )
+    move_input = normalize_jump_normal_text(move_input.lower().strip())
 
     def normalize_strength_word_shorthand(text):
         prefix_map = {"l": "light", "m": "medium", "h": "heavy"}
@@ -5346,6 +5626,22 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
             "command grab": "hooligan > throw",
             "hooligan throw": "hooligan > throw",
             "hooligan > throw": "hooligan > throw",
+            "reverse edge": "hooligan combination > reverse edge",
+            "od reverse edge": "od hooligan combination > reverse edge",
+            "silent step": "hooligan combination > silent step",
+            "od silent step": "od hooligan combination > silent step",
+            "cannon strike": "hooligan combination > cannon strike",
+            "od cannon strike": "od hooligan combination > cannon strike",
+            "fatal leg twister": "hooligan combination > throw",
+            "od fatal leg twister": "od hooligan > throw",
+            "hooligan combination reverse edge": "hooligan combination > reverse edge",
+            "od hooligan combination reverse edge": "od hooligan combination > reverse edge",
+            "hooligan combination silent step": "hooligan combination > silent step",
+            "od hooligan combination silent step": "od hooligan combination > silent step",
+            "hooligan combination cannon strike": "hooligan combination > cannon strike",
+            "od hooligan combination cannon strike": "od hooligan combination > cannon strike",
+            "hooligan combination fatal leg twister": "hooligan > throw",
+            "od hooligan combination fatal leg twister": "od hooligan > throw",
             "ex command grab": "od hooligan > throw",
             "od command grab": "od hooligan > throw",
             "ex hooligan throw": "od hooligan > throw",
@@ -5353,6 +5649,88 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
             "h command grab": "hp hooligan (hold) > throw",
             "hp command grab": "hp hooligan (hold) > throw",
             "hooligan hold throw": "hp hooligan (hold) > throw",
+        },
+        "dhalsim": {
+            "fireball": "yoga fire",
+            "yoga fire": "yoga fire",
+            "236p": "yoga fire",
+            "236 p": "yoga fire",
+            "236lp": "yoga fire",
+            "236 lp": "yoga fire",
+            "236mp": "yoga fire",
+            "236 mp": "yoga fire",
+            "236hp": "yoga fire",
+            "236 hp": "yoga fire",
+            "l yoga fire": "yoga fire",
+            "m yoga fire": "yoga fire",
+            "h yoga fire": "yoga fire",
+            "light yoga fire": "yoga fire",
+            "medium yoga fire": "yoga fire",
+            "heavy yoga fire": "yoga fire",
+            "od yoga fire": "od yoga fire",
+            "ex yoga fire": "od yoga fire",
+            "236pp": "od yoga fire",
+            "236 pp": "od yoga fire",
+            "arch": "yoga arch",
+            "yoga arch": "yoga arch",
+            "236k": "yoga arch",
+            "236 k": "yoga arch",
+            "236lk": "yoga arch",
+            "236 lk": "yoga arch",
+            "236mk": "yoga arch",
+            "236 mk": "yoga arch",
+            "236hk": "yoga arch",
+            "236 hk": "yoga arch",
+            "l arch": "yoga arch",
+            "m arch": "yoga arch",
+            "h arch": "yoga arch",
+            "light arch": "yoga arch",
+            "medium arch": "yoga arch",
+            "heavy arch": "yoga arch",
+            "l yoga arch": "yoga arch",
+            "m yoga arch": "yoga arch",
+            "h yoga arch": "yoga arch",
+            "light yoga arch": "yoga arch",
+            "medium yoga arch": "yoga arch",
+            "heavy yoga arch": "yoga arch",
+            "od yoga arch": "od yoga arch",
+            "ex yoga arch": "od yoga arch",
+            "236kk": "od yoga arch",
+            "236 kk": "od yoga arch",
+            "comet": "yoga comet (air)",
+            "commet": "yoga comet (air)",
+            "yoga comet": "yoga comet (air)",
+            "yoga commet": "yoga comet (air)",
+            "air comet": "yoga comet (air)",
+            "air commet": "yoga comet (air)",
+            "air yoga comet": "yoga comet (air)",
+            "air yoga commet": "yoga comet (air)",
+            "63214p": "yoga comet (air)",
+            "63214 p": "yoga comet (air)",
+            "63214lp": "yoga comet (air)",
+            "63214 lp": "yoga comet (air)",
+            "63214mp": "yoga comet (air)",
+            "63214 mp": "yoga comet (air)",
+            "63214hp": "yoga comet (air)",
+            "63214 hp": "yoga comet (air)",
+            "l yoga comet": "yoga comet (air)",
+            "m yoga comet": "yoga comet (air)",
+            "h yoga comet": "yoga comet (air)",
+            "l yoga commet": "yoga comet (air)",
+            "m yoga commet": "yoga comet (air)",
+            "h yoga commet": "yoga comet (air)",
+            "light yoga comet": "yoga comet (air)",
+            "medium yoga comet": "yoga comet (air)",
+            "heavy yoga comet": "yoga comet (air)",
+            "light yoga commet": "yoga comet (air)",
+            "medium yoga commet": "yoga comet (air)",
+            "heavy yoga commet": "yoga comet (air)",
+            "od yoga comet": "od yoga comet (air)",
+            "ex yoga comet": "od yoga comet (air)",
+            "od yoga commet": "od yoga comet (air)",
+            "ex yoga commet": "od yoga comet (air)",
+            "63214pp": "od yoga comet (air)",
+            "63214 pp": "od yoga comet (air)",
         },
         "zangief": {
             # Neutral jump HP -> Flying Headbutt
@@ -5368,6 +5746,31 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
             "neutral jump heavy punch": "flying headbutt",
             "flying headbutt": "flying headbutt",
             "air headbutt": "flying headbutt",
+            "borscht": "borscht dynamite",
+            "od borscht": "od borscht dynamite",
+            "ex borscht": "od borscht dynamite",
+            "borscht dynamite": "borscht dynamite",
+            "od borscht dynamite": "od borscht dynamite",
+            "ex borscht dynamite": "od borscht dynamite",
+            "j360k": "borscht dynamite",
+            "j.360k": "borscht dynamite",
+            "j 360k": "borscht dynamite",
+            "j360kk": "od borscht dynamite",
+            "j.360kk": "od borscht dynamite",
+            "j 360kk": "od borscht dynamite",
+            "j360+k": "borscht dynamite",
+            "j.360+k": "borscht dynamite",
+            "j 360+k": "borscht dynamite",
+            "j360+kk": "od borscht dynamite",
+            "j.360+kk": "od borscht dynamite",
+            "j 360+kk": "od borscht dynamite",
+            "720p": "bolshoi storm buster",
+            "720 p": "bolshoi storm buster",
+            "720+p": "bolshoi storm buster",
+            "720pp": "bolshoi storm buster",
+            "720 pp": "bolshoi storm buster",
+            "storm buster": "bolshoi storm buster",
+            "sa3": "bolshoi storm buster",
         },
         "jp": {
             "236p": "stribog",
@@ -5695,6 +6098,55 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
             "j2mk": "mk drill kick",
             "j2hk": "hk drill kick",
         },
+        "alex": {
+            "stance": "prowler stance",
+            "stance jab": "palm jab",
+            "stance lp": "palm jab",
+            "stance shoulder": "shoulder launcher",
+            "stance mp": "shoulder launcher",
+            "stance lariat": "heavy lariat",
+            "stance hp": "heavy lariat",
+            "stance hop": "tactical hop",
+            "stance lk": "tactical hop",
+            "stance stomp": "air stampede",
+            "stance mk": "air stampede",
+            "stance hk": "sweep combination 1",
+            "stance hk hk": "sweep combination 2",
+            "stance throw": "hyper takedown",
+            "stance lplk": "hyper takedown",
+            "stance 5lplk": "hyper takedown",
+            "stance command grab": "dangerous armbar",
+            "stance 2lplk": "dangerous armbar",
+            "stance 6p": "slashing elbow",
+            "2pp 6p": "slashing elbow",
+            "stance 6": "low rush",
+            "2pp 6": "low rush",
+            "stance 4": "low retreat",
+            "2pp 4": "low retreat",
+            "2pp lp": "palm jab",
+            "2pp 5lp": "palm jab",
+            "2pp mp": "shoulder launcher",
+            "2pp 5mp": "shoulder launcher",
+            "2pp hp": "heavy lariat",
+            "2pp 5hp": "heavy lariat",
+            "2pp lk": "tactical hop",
+            "2pp 5lk": "tactical hop",
+            "2pp mk": "air stampede",
+            "2pp 5mk": "air stampede",
+            "2pp hk": "sweep combination 1",
+            "2pp 5hk": "sweep combination 1",
+            "2pp hk hk": "sweep combination 2",
+            "2pp 5hk 5hk": "sweep combination 2",
+            "2pp lplk": "hyper takedown",
+            "2pp 5lplk": "hyper takedown",
+            "2pp 2lplk": "dangerous armbar",
+            "hold hp": "stand hp (hold)",
+            "held hp": "stand hp (hold)",
+            "charged hp": "stand hp (hold)",
+            "hold hk": "stand hk (hold)",
+            "held hk": "stand hk (hold)",
+            "charged hk": "stand hk (hold)",
+        },
         "e.honda": {
             "j2mk": "flying sumo press",
             "j.2mk": "flying sumo press",
@@ -5762,63 +6214,6 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
         if resolved_candidate != candidate or candidate in char_aliases or candidate in INPUT_ALIASES:
             move_input = resolved_candidate
             break
-
-    def build_lookup_token_vocabulary():
-        vocab = set()
-        sources = [move_input, pre_strength_alias_input]
-        sources.extend(char_aliases.keys())
-        sources.extend(INPUT_ALIASES.keys())
-        for row in data:
-            for field in ("moveName", "cmnName", "plnCmd", "numCmd"):
-                sources.append(row.get(field, ""))
-        for value in sources:
-            for token in re.findall(r"[a-z0-9]+", str(value or "").lower()):
-                if token and not token.isdigit():
-                    vocab.add(token)
-        return vocab
-
-    def fuzzy_correct_lookup_text(raw_input):
-        raw_tokens = re.findall(r"[a-z0-9]+", str(raw_input or "").lower())
-        if not raw_tokens:
-            return None
-
-        lookup_vocab = build_lookup_token_vocabulary()
-        protected_tokens = {
-            "lp", "mp", "hp", "lk", "mk", "hk",
-            "pp", "kk", "od", "ex", "ca",
-            "sa1", "sa2", "sa3",
-            "j", "nj", "st", "cr",
-            "l", "m", "h", "p", "k",
-        }
-        corrected_tokens = []
-        changed = False
-
-        for token in raw_tokens:
-            if (
-                token in protected_tokens
-                or token in lookup_vocab
-                or token.isdigit()
-                or len(token) < 4
-            ):
-                corrected_tokens.append(token)
-                continue
-
-            cutoff = 0.88 if len(token) <= 4 else 0.84
-            close_matches = difflib.get_close_matches(
-                token,
-                list(lookup_vocab),
-                n=1,
-                cutoff=cutoff,
-            )
-            if close_matches:
-                corrected_tokens.append(close_matches[0])
-                changed = True
-            else:
-                corrected_tokens.append(token)
-
-        if not changed:
-            return None
-        return " ".join(corrected_tokens).strip()
 
     def resolve_fuzzy_alias_target(raw_input):
         raw_compact = re.sub(r"[^a-z0-9]", "", str(raw_input or "").lower())
@@ -5910,6 +6305,44 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
         token = re.sub(r"pp$", "p", token)
         token = re.sub(r"kk$", "k", token)
         return token
+
+    def build_strengthless_lookup_variants(raw_input):
+        variants = []
+        normalized = str(raw_input or "").lower().strip()
+        if not normalized:
+            return variants
+
+        collapsed_numcmd = re.sub(r"(\d+)(lp|mp|hp)\b", r"\1p", normalized)
+        collapsed_numcmd = re.sub(r"(\d+)(lk|mk|hk)\b", r"\1k", collapsed_numcmd)
+        collapsed_numcmd = re.sub(r"(\d+)(pp)\b", r"\1p", collapsed_numcmd)
+        collapsed_numcmd = re.sub(r"(\d+)(kk)\b", r"\1k", collapsed_numcmd)
+        collapsed_numcmd = re.sub(r"\s+", " ", collapsed_numcmd).strip()
+        if collapsed_numcmd and collapsed_numcmd != normalized:
+            variants.append(collapsed_numcmd)
+
+        stripped_strength = re.sub(
+            r"\b(?:lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\b",
+            " ",
+            normalized,
+        )
+        stripped_strength = re.sub(r"\s+", " ", stripped_strength).strip()
+        if stripped_strength and stripped_strength != normalized and stripped_strength not in variants:
+            variants.append(stripped_strength)
+
+        stripped_after_collapse = re.sub(
+            r"\b(?:lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\b",
+            " ",
+            collapsed_numcmd,
+        )
+        stripped_after_collapse = re.sub(r"\s+", " ", stripped_after_collapse).strip()
+        if (
+            stripped_after_collapse
+            and stripped_after_collapse != normalized
+            and stripped_after_collapse not in variants
+        ):
+            variants.append(stripped_after_collapse)
+
+        return variants
     move_input_compact = re.sub(r"[^a-z0-9]", "", move_input)
     move_input_num_cmd = normalize_num_cmd_for_lookup(move_input)
     move_input_num_cmd_generic = normalize_num_cmd_generic_for_lookup(move_input)
@@ -6040,12 +6473,6 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
                 ):
                     return row
 
-    fuzzy_corrected_move_input = fuzzy_correct_lookup_text(move_input)
-    if fuzzy_corrected_move_input and fuzzy_corrected_move_input != move_input:
-        corrected_row = lookup_frame_data(character, fuzzy_corrected_move_input, _seen_inputs=_seen_inputs)
-        if corrected_row is not None:
-            return corrected_row
-
     if query_requests_charged:
         base_chargeless_input = re.sub(
             r"\b(?:charged|hold|held)\b",
@@ -6096,6 +6523,11 @@ def lookup_frame_data(character, move_input, _seen_inputs=None):
                             if row_suffix == generic_channel:
                                 return row
                     return generic_charged_candidates[0]
+
+    for strengthless_input in build_strengthless_lookup_variants(move_input):
+        strengthless_row = lookup_frame_data(character, strengthless_input, _seen_inputs=_seen_inputs)
+        if strengthless_row is not None:
+            return strengthless_row
 
     if query_requests_stocked:
         base_stockless_input = re.sub(
@@ -6456,6 +6888,20 @@ def lookup_hitbox_gif_link(row):
         item for item in gif_candidates
         if row_num_cmd and item["num_cmd"] == row_num_cmd
     ]
+    exact_num_cmd_name_matches = [
+        item for item in exact_num_cmd_matches
+        if any(
+            name and (
+                item["name_norm"] == name
+                or name in item["name_norm"]
+                or item["name_norm"] in name
+            )
+            for name in row_names
+        )
+    ]
+    link = pick_first_link(exact_num_cmd_name_matches)
+    if link:
+        return link
     link = pick_first_link(exact_num_cmd_matches)
     if link:
         return link
@@ -6464,6 +6910,20 @@ def lookup_hitbox_gif_link(row):
         item for item in gif_candidates
         if item["num_cmd"] and item["num_cmd"] in num_cmd_candidates
     ]
+    num_cmd_candidate_name_matches = [
+        item for item in num_cmd_candidate_matches
+        if any(
+            name and (
+                item["name_norm"] == name
+                or name in item["name_norm"]
+                or item["name_norm"] in name
+            )
+            for name in row_names
+        )
+    ]
+    link = pick_first_link(num_cmd_candidate_name_matches)
+    if link:
+        return link
     link = pick_first_link(num_cmd_candidate_matches)
     if link:
         return link
@@ -6506,18 +6966,20 @@ def collect_hitbox_gif_links(rows, limit=3):
     links = []
     seen = set()
     for row in rows:
-        move_link = lookup_hitbox_gif_link(row)
-        if not move_link or move_link in seen:
-            continue
-        seen.add(move_link)
-        links.append(move_link)
+        for move_link in get_frame_row_gif_links(row, limit=limit):
+            if not move_link or move_link in seen:
+                continue
+            seen.add(move_link)
+            links.append(move_link)
+            if len(links) >= limit:
+                break
         if len(links) >= limit:
             break
     return links
 
 
 def find_characters_in_text(text):
-    text_lower = fuzzy_normalize_parser_text(strip_discord_mentions(text).lower())
+    text_lower = strip_discord_mentions(text).lower()
     tokens = re.findall(r"[a-z0-9]+", text_lower)
 
     def has_token_sequence(sequence):
@@ -6547,14 +7009,6 @@ def find_characters_in_text(text):
         if has_token_sequence(char_tokens) and char_key not in found:
             found.append(char_key)
 
-    if not found:
-        for seq_len in (2, 1):
-            for idx in range(len(tokens) - seq_len + 1):
-                candidate = " ".join(tokens[idx:idx + seq_len]).strip()
-                resolved_char = resolve_character_key(candidate)
-                if resolved_char and resolved_char not in found:
-                    found.append(resolved_char)
-
     return found
 
 
@@ -6569,8 +7023,7 @@ def remove_first_token_sequence(tokens, sequence):
 
 
 def extract_gif_move_query_text(text, char_key):
-    normalized_text = fuzzy_normalize_parser_text(strip_discord_mentions(text).lower())
-    tokens = re.findall(r"[a-z0-9]+", normalized_text)
+    tokens = re.findall(r"[a-z0-9]+", strip_discord_mentions(text).lower())
 
     alias_forms = {char_key}
     for alias, canonical in CHARACTER_ALIASES.items():
@@ -6586,14 +7039,6 @@ def extract_gif_move_query_text(text, char_key):
 
     for sequence in alias_sequences:
         tokens, _ = remove_first_token_sequence(tokens, list(sequence))
-
-    for prefix_len in (2, 1):
-        if len(tokens) < prefix_len:
-            continue
-        candidate = " ".join(tokens[:prefix_len]).strip()
-        if resolve_character_key(candidate) == char_key:
-            tokens = tokens[prefix_len:]
-            break
 
     filler_tokens = {
         "send", "show", "post", "drop", "give", "get", "share", "link",
@@ -6613,6 +7058,154 @@ def resolve_hitbox_gif_query_alias(char_key, move_query):
 
     query_raw = re.sub(r"\bdivekick\b", "dive kick", query_raw)
     if char_key != "jamie":
+        if char_key == "cammy":
+            cammy_gif_aliases = {
+                "reverse edge": "236k>2k",
+                "od reverse edge": "236kk>2k",
+                "silent step": "236k>p",
+                "od silent step": "236kk>p",
+                "cannon strike": "236k>k",
+                "od cannon strike": "236kk>k",
+                "fatal leg twister": "236k>lplk",
+                "od fatal leg twister": "236kk>lplk",
+                "hooligan combination reverse edge": "236k>2k",
+                "od hooligan combination reverse edge": "236kk>2k",
+                "hooligan combination silent step": "236k>p",
+                "od hooligan combination silent step": "236kk>p",
+                "hooligan combination cannon strike": "236k>k",
+                "od hooligan combination cannon strike": "236kk>k",
+                "hooligan combination fatal leg twister": "236k>lplk",
+                "od hooligan combination fatal leg twister": "236kk>lplk",
+                "hooligan combination > reverse edge": "236k>2k",
+                "od hooligan combination > reverse edge": "236kk>2k",
+                "hooligan combination > silent step": "236k>p",
+                "od hooligan combination > silent step": "236kk>p",
+                "hooligan combination > cannon strike": "236k>k",
+                "od hooligan combination > cannon strike": "236kk>k",
+                "hooligan combination > fatal leg twister": "236k>lplk",
+                "od hooligan combination > fatal leg twister": "236kk>lplk",
+            }
+            return cammy_gif_aliases.get(query_raw, query_raw)
+        if char_key == "dhalsim":
+            dhalsim_gif_aliases = {
+                "fireball": "yoga fire",
+                "yoga fire": "yoga fire",
+                "l yoga fire": "236llp",
+                "m yoga fire": "236lmp",
+                "h yoga fire": "236lhp",
+                "light yoga fire": "236llp",
+                "medium yoga fire": "236lmp",
+                "heavy yoga fire": "236lhp",
+                "light fireball": "236llp",
+                "medium fireball": "236lmp",
+                "heavy fireball": "236lhp",
+                "236lp": "236llp",
+                "236mp": "236lmp",
+                "236hp": "236lhp",
+                "od yoga fire": "236lpmp",
+                "ex yoga fire": "236lpmp",
+                "236pp": "236lpmp",
+                "arch": "yoga arch",
+                "yoga arch": "yoga arch",
+                "l arch": "236lk",
+                "m arch": "236mk",
+                "h arch": "236hk",
+                "light arch": "236lk",
+                "medium arch": "236mk",
+                "heavy arch": "236hk",
+                "l yoga arch": "236lk",
+                "m yoga arch": "236mk",
+                "h yoga arch": "236hk",
+                "light yoga arch": "236lk",
+                "medium yoga arch": "236mk",
+                "heavy yoga arch": "236hk",
+                "236lk": "236lk",
+                "236mk": "236mk",
+                "236hk": "236hk",
+                "comet": "yoga comet",
+                "commet": "yoga comet",
+                "yoga comet": "yoga comet",
+                "yoga commet": "yoga comet",
+                "air comet": "yoga comet",
+                "air commet": "yoga comet",
+                "air yoga comet": "yoga comet",
+                "air yoga commet": "yoga comet",
+                "l yoga comet": "963214lp",
+                "m yoga comet": "963214mp",
+                "h yoga comet": "963214hp",
+                "l yoga commet": "963214lp",
+                "m yoga commet": "963214mp",
+                "h yoga commet": "963214hp",
+                "light yoga comet": "963214lp",
+                "medium yoga comet": "963214mp",
+                "heavy yoga comet": "963214hp",
+                "light yoga commet": "963214lp",
+                "medium yoga commet": "963214mp",
+                "heavy yoga commet": "963214hp",
+            }
+            return dhalsim_gif_aliases.get(query_raw, query_raw)
+        if char_key == "alex":
+            alex_gif_aliases = {
+                "stance jab": "palm jab",
+                "stance lp": "palm jab",
+                "2pp lp": "palm jab",
+                "2pp 5lp": "palm jab",
+                "stance shoulder": "shoulder launcher",
+                "stance mp": "shoulder launcher",
+                "2pp mp": "shoulder launcher",
+                "2pp 5mp": "shoulder launcher",
+                "stance lariat": "heavy lariat",
+                "stance hp": "heavy lariat",
+                "2pp hp": "heavy lariat",
+                "2pp 5hp": "heavy lariat",
+                "stance hop": "tactical hop",
+                "stance lk": "tactical hop",
+                "2pp lk": "tactical hop",
+                "2pp 5lk": "tactical hop",
+                "stance stomp": "air stampede",
+                "stance mk": "air stampede",
+                "2pp mk": "air stampede",
+                "2pp 5mk": "air stampede",
+                "stance hk": "sweep combination",
+                "stance hk hk": "sweep combination",
+                "sweep combination 1": "sweep combination",
+                "sweep combination 2": "sweep combination",
+                "2pp hk": "sweep combination",
+                "2pp 5hk": "sweep combination",
+                "stance throw": "hyper takedown",
+                "stance lplk": "hyper takedown",
+                "stance 5lplk": "hyper takedown",
+                "2pp lplk": "hyper takedown",
+                "2pp 5lplk": "hyper takedown",
+                "stance command grab": "dangerous armbar",
+                "stance 2lplk": "dangerous armbar",
+                "2pp 2lplk": "dangerous armbar",
+                "stance 6p": "slashing elbow",
+                "2pp 6p": "slashing elbow",
+                "stance 6": "low rush",
+                "2pp 6": "low rush",
+                "stance 4": "low retreat",
+                "2pp 4": "low retreat",
+                "hold hp": "stand hp (hold)",
+                "held hp": "stand hp (hold)",
+                "charged hp": "stand hp (hold)",
+                "hold hk": "stand hk (hold)",
+                "held hk": "stand hk (hold)",
+                "charged hk": "stand hk (hold)",
+            }
+            return alex_gif_aliases.get(query_raw, query_raw)
+        if char_key == "rashid":
+            rashid_gif_aliases = {
+                "whirlwind shot (lvl 2)": "whirlwind shot",
+                "whirlwind shot (lvl 3)": "whirlwind shot",
+                "whirlwind shot lvl 2": "whirlwind shot",
+                "whirlwind shot lvl 3": "whirlwind shot",
+                "level 2 whirlwind shot": "whirlwind shot",
+                "level 3 whirlwind shot": "whirlwind shot",
+                "lvl 2 whirlwind shot": "whirlwind shot",
+                "lvl 3 whirlwind shot": "whirlwind shot",
+            }
+            return rashid_gif_aliases.get(query_raw, query_raw)
         return query_raw
 
     jamie_gif_aliases = {
@@ -6884,15 +7477,30 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
         if char_key not in char_candidates:
             char_candidates.append(char_key)
 
+    def frame_rows_require_query_first(rows):
+        unique_rows = iter_unique_frame_rows(rows or [])
+        if len(unique_rows) != 1:
+            return False
+        row = unique_rows[0]
+        row_char = resolve_character_key(str(row.get("char_name", "")).strip())
+        move_name_norm = normalize_move_name_for_gif_text(row.get("moveName", ""))
+        if row_char == "dhalsim":
+            return move_name_norm in {"yoga fire", "yoga arch", "yoga comet air"}
+        if row_char == "alex":
+            row_num_cmd_norm = normalize_num_cmd_token(row.get("numCmd", ""))
+            return row_num_cmd_norm.startswith("2pp>")
+        return False
+
     def add_frame_row_links():
         for row in frame_rows or []:
-            move_link = lookup_hitbox_gif_link(row)
-            if not move_link or move_link in seen:
-                continue
-            seen.add(move_link)
-            links.append(move_link)
-            if len(links) >= limit:
-                return True
+            row_links = get_frame_row_gif_links(row, limit=limit)
+            for move_link in row_links:
+                if not move_link or move_link in seen:
+                    continue
+                seen.add(move_link)
+                links.append(move_link)
+                if len(links) >= limit:
+                    return True
         return False
 
     def add_query_links():
@@ -6900,6 +7508,19 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
             move_query = extract_gif_move_query_text(text, char_key)
             if not move_query:
                 continue
+
+            # Keep gif-mode behavior aligned with framedata parsing. If the
+            # normalized query would trigger a special-strength prompt instead
+            # of resolving to a concrete row, do not guess a gif from fuzzy
+            # token overlap.
+            prompt_probe = find_moves_in_text(f"{char_key} {move_query} framedata")
+            prompt_probe_data = str(prompt_probe.get("data", "") or "")
+            if (
+                "Special Strength Options" in prompt_probe_data
+                or "Target Combo Options" in prompt_probe_data
+            ) and not prompt_probe.get("rows"):
+                continue
+
             raw_move_query = move_query
             move_query = resolve_hitbox_gif_query_alias(char_key, move_query)
             query_links = lookup_hitbox_gif_links_from_query(char_key, move_query, limit=limit)
@@ -6911,7 +7532,7 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
                 if len(links) >= limit:
                     return True
 
-            if move_query != raw_move_query and query_links:
+            if query_links:
                 continue
 
             resolved_row = lookup_frame_data(char_key, move_query)
@@ -6931,6 +7552,11 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
                 return links
             add_frame_row_links()
             return links
+
+        if frame_rows_require_query_first(frame_rows):
+            add_query_links()
+            if links:
+                return links
 
         add_frame_row_links()
         if links:
@@ -7719,16 +8345,31 @@ def get_frame_row_gif_links(row, limit=4):
     links = []
     seen = set()
 
-    direct_link = lookup_hitbox_gif_link(row)
-    if direct_link:
-        seen.add(direct_link)
-        links.append(direct_link)
-        return links
-
     row_char = str(row.get("char_name", "")).strip()
     char_key = resolve_character_key(row_char)
     if not char_key:
         return []
+
+    row_move_name_norm = normalize_move_name_for_gif_text(row.get("moveName", ""))
+    generic_dhalsim_family_queries = {
+        "yoga fire": "yoga fire",
+        "yoga arch": "yoga arch",
+        "yoga comet air": "yoga comet",
+    }
+    if char_key == "dhalsim":
+        for family_name, query_name in generic_dhalsim_family_queries.items():
+            if row_move_name_norm == family_name:
+                return lookup_hitbox_gif_links_from_query(char_key, query_name, limit=limit)
+
+    row_num_cmd_norm = normalize_num_cmd_token(row.get("numCmd", ""))
+    if char_key == "alex" and row_num_cmd_norm.startswith("2pp>"):
+        alex_query_links = lookup_hitbox_gif_links_from_query(
+            char_key,
+            row_move_name_norm,
+            limit=limit,
+        )
+        if alex_query_links:
+            return alex_query_links
 
     candidate_queries = []
 
@@ -7746,15 +8387,35 @@ def get_frame_row_gif_links(row, limit=4):
     for value in (row.get("moveName", ""), row.get("cmnName", ""), row.get("numCmd", "")):
         add_query_variant(value)
 
+    direct_link = lookup_hitbox_gif_link(row)
+    first_query_links = []
     for query in candidate_queries:
         query_links = lookup_hitbox_gif_links_from_query(char_key, query, limit=limit)
+        query_links_deduped = []
+        local_seen = set()
         for move_link in query_links:
-            if move_link in seen:
+            if move_link in local_seen:
                 continue
-            seen.add(move_link)
-            links.append(move_link)
-            if len(links) >= limit:
-                return links
+            local_seen.add(move_link)
+            query_links_deduped.append(move_link)
+            if len(query_links_deduped) >= limit:
+                break
+        if not query_links_deduped:
+            continue
+        first_query_links = query_links_deduped
+        if not direct_link or direct_link not in query_links_deduped:
+            return query_links_deduped[:limit]
+        return [direct_link]
+
+    if direct_link:
+        return [direct_link]
+
+    for move_link in first_query_links:
+        if move_link in links:
+            continue
+        links.append(move_link)
+        if len(links) >= limit:
+            return links
 
     return links
 
@@ -7826,6 +8487,112 @@ async def send_gif_links_response(message, gif_links, wants_comparison=False):
         else:
             print(f"Hitbox gif reply error: {reply_error}", flush=True)
     return False
+
+
+def sanitize_llm_lookup_query(text):
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return ""
+    cleaned = cleaned.strip("`\"' \t\r\n")
+    cleaned = cleaned.splitlines()[0].strip()
+    cleaned = re.sub(r"^(?:corrected\s*query\s*:)\s*", "", cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
+def extract_lookup_strength_hint(text):
+    raw_text = str(text or "").lower()
+    strength_patterns = [
+        r"\bod\b",
+        r"\bex\b",
+        r"\blp\b",
+        r"\bmp\b",
+        r"\bhp\b",
+        r"\blk\b",
+        r"\bmk\b",
+        r"\bhk\b",
+        r"\blight\b",
+        r"\bmedium\b",
+        r"\bheavy\b",
+        r"\bl\b",
+        r"\bm\b",
+        r"\bh\b",
+    ]
+    for pattern in strength_patterns:
+        match = re.search(pattern, raw_text)
+        if match:
+            return match.group(0)
+    return None
+
+
+async def rewrite_sf_lookup_query_with_llm(query_text, guild=None):
+    raw_query = strip_discord_mentions(str(query_text or "")).strip()
+    if not raw_query or not LLM_ENABLED:
+        return None
+
+    output_hints = []
+    if re.search(r"\b(?:gif|gifs|hitbox|hitboxes)\b", raw_query, re.IGNORECASE):
+        output_hints.append("gif")
+    if re.search(r"\b(?:framedata|frame\s*data|frames?)\b", raw_query, re.IGNORECASE):
+        output_hints.append("framedata")
+
+    llm_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You normalize Street Fighter 6 lookup requests for a deterministic parser. "
+                "Fix misspellings, slang, or esoteric syntax only when highly confident. "
+                "Preserve the intended character, move, strength, air/charged/stocked/OD qualifiers, and output intent. "
+                "If the move is clearly unique to one character and the user omitted the character, include that character. "
+                "Do not answer the question. Do not explain anything. "
+                "Return ONLY one corrected query, or NONE if you are not confident."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Rewrite this Street Fighter 6 lookup query so a parser can understand it.\n"
+                f"Query: {raw_query}\n"
+                "Examples:\n"
+                "- adement flame framedata -> akuma adamant flame framedata\n"
+                "- jinra hk gif -> jinrai hk gif\n"
+                "- stocekd air sa2 -> stocked air sa2\n"
+                "Return ONLY the corrected query or NONE."
+            ),
+        },
+    ]
+    try:
+        rewritten = await get_llm_response(llm_messages)
+    except Exception as e:
+        print(f"[parser-llm] rewrite error: {e}", flush=True)
+        return None
+
+    rewritten = sanitize_llm_lookup_query(rewritten)
+    if not rewritten or rewritten.upper() == "NONE":
+        return None
+
+    rewritten_lower = rewritten.lower()
+    original_lower = raw_query.lower()
+    if rewritten_lower == original_lower:
+        return None
+
+    original_strength_hint = extract_lookup_strength_hint(original_lower)
+    rewritten_strength_hint = extract_lookup_strength_hint(rewritten_lower)
+    if original_strength_hint and not rewritten_strength_hint:
+        intent_match = re.search(r"\b(?:gif|gifs|hitbox|hitboxes|framedata|frame\s*data|frames?)\b", rewritten_lower)
+        if intent_match:
+            insert_at = intent_match.start()
+            rewritten = f"{rewritten[:insert_at].rstrip()} {original_strength_hint} {rewritten[insert_at:].lstrip()}".strip()
+        else:
+            rewritten = f"{rewritten} {original_strength_hint}".strip()
+        rewritten_lower = rewritten.lower()
+
+    if "gif" in output_hints and not re.search(r"\b(?:gif|gifs|hitbox|hitboxes)\b", rewritten_lower):
+        rewritten = f"{rewritten} gif"
+        rewritten_lower = rewritten.lower()
+    if "framedata" in output_hints and not re.search(r"\b(?:framedata|frame\s*data|frames?)\b", rewritten_lower):
+        rewritten = f"{rewritten} framedata"
+
+    return rewritten.strip()
 
 
 def get_daily_random_slots(day_start, count, excluded_slots=None):
@@ -8688,6 +9455,14 @@ def _quiz_has_explicit_strength(text):
         "heavy",
     }
     if any(token in explicit_tokens for token in tokens):
+        return True
+
+    # Alex stance follow-ups like "stance 6p" or "2pp 2lplk" are exact
+    # follow-up notations even though they are not regular strength words.
+    if re.search(
+        r"\b(?:stance|2pp)\s+(?:6p|6|4|lplk|5lplk|2lplk)\b",
+        lowered,
+    ):
         return True
 
     compact = re.sub(r"[^a-z0-9>]", "", lowered)
@@ -10628,6 +11403,102 @@ async def on_message(message):
     explicit_move_attempt = bool(fd_context_payload.get("explicit_move_attempt"))
     fallback_reply = fd_context_data if fd_context_data else None
 
+    def row_matches_requested_strength(row, query_text):
+        move_name = str(row.get("moveName", "")).lower().strip()
+        cmn_name = str(row.get("cmnName", "")).lower().strip()
+        num_cmd = str(row.get("numCmd", "")).lower().strip()
+        num_cmd_compact = re.sub(r"[^a-z0-9]", "", num_cmd)
+
+        if re.search(r"\b(?:od|ex)\b", query_text):
+            return (
+                move_name.startswith(("od ", "ex "))
+                or cmn_name.startswith(("od ", "ex "))
+                or num_cmd_compact.endswith(("pp", "kk"))
+            )
+
+        strength_groups = [
+            ({"light", "l", "lp", "lk"}, {"lp", "lk"}),
+            ({"medium", "m", "mp", "mk"}, {"mp", "mk"}),
+            ({"heavy", "h", "hp", "hk"}, {"hp", "hk"}),
+        ]
+        requested_suffixes = set()
+        for token_group, suffixes in strength_groups:
+            if any(re.search(rf"\b{re.escape(token)}\b", query_text) for token in token_group):
+                requested_suffixes.update(suffixes)
+        if not requested_suffixes:
+            return False
+
+        if any(
+            move_name.startswith(f"{suffix} ") or cmn_name.startswith(f"{suffix} ")
+            for suffix in requested_suffixes
+        ):
+            return True
+        return num_cmd_compact.endswith(tuple(requested_suffixes))
+
+    def row_has_explicit_strength(row):
+        move_name = str(row.get("moveName", "")).lower().strip()
+        cmn_name = str(row.get("cmnName", "")).lower().strip()
+        num_cmd_compact = re.sub(r"[^a-z0-9]", "", str(row.get("numCmd", "")).lower())
+        return (
+            move_name.startswith(("lp ", "mp ", "hp ", "lk ", "mk ", "hk ", "od ", "ex "))
+            or cmn_name.startswith(("lp ", "mp ", "hp ", "lk ", "mk ", "hk ", "od ", "ex "))
+            or num_cmd_compact.endswith(("lp", "mp", "hp", "lk", "mk", "hk", "pp", "kk"))
+        )
+
+    query_requests_explicit_strength = bool(
+        re.search(r"\b(?:od|ex|lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\b", content_lower)
+    )
+    payload_strength_mismatch = bool(
+        query_requests_explicit_strength
+        and fd_context_rows
+        and any(row_has_explicit_strength(row) for row in fd_context_rows)
+        and not any(row_matches_requested_strength(row, content_lower) for row in fd_context_rows)
+    )
+
+    should_try_llm_lookup_rewrite = bool(
+        client.user.mentioned_in(message)
+        and (fd_context_payload.get("gif_query") or re.search(r"\b(?:framedata|frame\s*data|frames?)\b", content_lower))
+        and (not fd_context_rows or payload_strength_mismatch)
+        and "Special Strength Options" not in str(fd_context_data)
+        and "Target Combo Options" not in str(fd_context_data)
+        and not startup_alias_query
+        and not hitconfirm_alias_query
+        and not super_gain_alias_query
+        and not range_alias_query
+    )
+    if should_try_llm_lookup_rewrite:
+        rewritten_lookup_query = await rewrite_sf_lookup_query_with_llm(
+            content_no_mentions,
+            guild=message.guild,
+        )
+        if rewritten_lookup_query:
+            rewritten_payload = find_moves_in_text(rewritten_lookup_query.lower())
+            rewritten_data = str(rewritten_payload.get("data", "") or "")
+            rewritten_rows = rewritten_payload.get("rows", []) or []
+            if (
+                rewritten_rows
+                or "Special Strength Options" in rewritten_data
+                or "Target Combo Options" in rewritten_data
+            ):
+                content_no_mentions = rewritten_lookup_query
+                content_lower = rewritten_lookup_query.lower()
+                fd_context_payload = rewritten_payload
+                fd_context_data = rewritten_payload.get("data", "")
+                fd_context_mode = rewritten_payload.get("mode", "none")
+                fd_context_rows = rewritten_rows
+                startup_alias_query = bool(rewritten_payload.get("startup_alias_query"))
+                hitconfirm_alias_query = bool(rewritten_payload.get("hitconfirm_alias_query"))
+                super_gain_alias_query = bool(rewritten_payload.get("super_gain_alias_query"))
+                range_alias_query = bool(rewritten_payload.get("range_alias_query"))
+                wants_comparison = bool(rewritten_payload.get("wants_comparison"))
+                property_only_query = bool(rewritten_payload.get("property_only_query"))
+                target_combo_query = bool(rewritten_payload.get("target_combo_query"))
+                missing_scrolls_query = bool(rewritten_payload.get("missing_scrolls_query"))
+                gif_query = bool(rewritten_payload.get("gif_query"))
+                explicit_move_attempt = bool(rewritten_payload.get("explicit_move_attempt"))
+                fallback_reply = fd_context_data if fd_context_data else None
+                print(f"[parser-llm] rewritten query: {rewritten_lookup_query}", flush=True)
+
     if gif_query and not client.user.mentioned_in(message):
         return
 
@@ -11470,15 +12341,22 @@ async def on_message(message):
         attachments = await get_message_media_items(message)
         if attachments:
             if GEMINI_ENABLED:
-                media_parts, media_notes = await build_message_media_parts(attachments)
+                media_parts, media_notes = await build_gemini_media_parts(attachments)
+            elif MIMO_ENABLED:
+                media_parts, media_notes = build_mimo_media_parts(attachments)
             else:
                 for attachment in attachments:
-                    media_notes.append(f"{attachment.filename}: {attachment.url}")
+                    filename = attachment.get("filename") or "media"
+                    url = attachment.get("url") or ""
+                    media_notes.append(f"{filename}: {url}".strip(": "))
         media_context = get_media_context(attachments, media_parts, media_notes)
         has_prompt_or_media = bool(prompt) or bool(media_parts) or bool(media_notes)
         if has_prompt_or_media and not LLM_ENABLED:
+            offline_reason = LLM_PROVIDER_ERROR or (
+                "Enable one of USE_GEMINI_API, USE_OPENROUTER_API, or USE_MIMO_API and configure its API key."
+            )
             await message.reply(
-                "Aiya! The oracle is offline. GEMINI_API_KEY or OPENROUTER_API_KEY is missing."
+                f"Aiya! The oracle is offline. {offline_reason}"
             )
             return
         if has_prompt_or_media and LLM_ENABLED:
