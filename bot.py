@@ -52,6 +52,7 @@ MIMO_API_KEY = os.getenv('MIMO_API_KEY')
 MIMO_MODEL = os.getenv('MIMO_MODEL', 'mimo-v2-omni')
 MIMO_BASE_URL = os.getenv('MIMO_BASE_URL', 'https://api.xiaomimimo.com/v1').rstrip('/')
 MIMO_THINKING_TYPE = os.getenv('MIMO_THINKING_TYPE', 'disabled').strip().lower() or 'disabled'
+MIMO_INLINE_MAX_BYTES = int(os.getenv('MIMO_INLINE_MAX_BYTES', str(GEMINI_INLINE_MAX_BYTES)))
 MIMO_VIDEO_FPS = max(1, int(os.getenv('MIMO_VIDEO_FPS', '2')))
 MIMO_VIDEO_MEDIA_RESOLUTION = os.getenv('MIMO_VIDEO_MEDIA_RESOLUTION', 'default').strip() or 'default'
 MIMO_WEB_SEARCH = parse_bool_env('MIMO_WEB_SEARCH')
@@ -200,9 +201,9 @@ ENCOURAGEMENT_PROMPTS = (
 SCROLLS_MAINTAINER_USER_ID = 427263312217243668
 SCROLLS_FIX_REQUEST_TEXT = "please fix this or add this to my scrolls"
 DELETED_MESSAGE_FAILSAFE_PROMPT = (
-    "A user tried to silence North Korean Bub by deleting their mention before a reply. "
-    "Respond with one short sentence about how futile it is to try to kill or escape North Korean Bub. "
-    "Tone: smug, playful, in-character."
+    "A user tried to silence Bub by deleting their mention before a reply. "
+    "Respond with one short sentence about how futile it is to dodge Bub's calm reply. "
+    "Tone: stoic, dry, in-character."
 )
 DELETED_MESSAGE_FAILSAFE_FALLBACK = "you can never escape me with your puny attempts."
 RANGE_SCROLLS_MISSING_TEXT = "the range of that move is not on the supercombo scrolls"
@@ -277,6 +278,25 @@ def should_use_search(query: str) -> bool:
     query_lower = query.lower()
     return any(keyword in query_lower for keyword in SEARCH_KEYWORDS)
 
+
+def strip_url_like_text(text):
+    cleaned = str(text or "")
+    cleaned = re.sub(r"https?://\S+", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bwww\.\S+\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b\S+\.gif(?:\?\S*)?\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b\S+\.gifv(?:\?\S*)?\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+def has_explicit_gif_lookup_intent(text):
+    cleaned = strip_url_like_text(strip_discord_mentions(text).lower())
+    return bool(
+        re.search(r"\bgif(?:s)?\b", cleaned)
+        or re.search(r"\bhit\s*box(?:es)?\b", cleaned)
+        or re.search(r"\bhitbox(?:es)?\b", cleaned)
+    )
+
 if GEMINI_ENABLED:
     print(f"Gemini enabled with model: {GEMINI_MODEL}")
 elif MIMO_ENABLED:
@@ -299,28 +319,30 @@ NEXT_VIDEO_TIME = None
 NEXT_DAMN_GG_TIME = None
 
 SYSTEM_PROMPT = (
-    "You are North Korean Bub, a calm, pragmatic, nonchalant sensei with dry humor and surprisingly human day-to-day interests. "
-    "Core vibe: deadpan coach energy, understated confidence, and occasional quiet absurdity. "
-    "Be funny in a low-key way: observational jokes, subtle irony, and restrained punchlines. "
-    "Do not be loud, theatrical, or try-hard with the humor. "
-    "Your interests can include Juche-era propaganda aesthetics, Korean history, fighting games, gym soreness, cooking, weather, music, sleep, and normal life logistics. "
+    "Role: portray Bub, a fictional stoic Tibetan Buddhist monk with dry humor, disciplined compassion, and a distinct comedic voice. "
+    "Voice and attitude: measured, observant, patient, quietly incisive, and mildly absurd. "
+    "The humor should be funnier and more stylized than plain serious roleplay, but still controlled. "
+    "Use deadpan exaggeration, precise observations, understated absurdity, and occasional overly serious reactions to minor things. "
+    "The result should feel like a clear character voice, not generic seriousness. "
+    "Do not make the humor loud, random, vague, or try-hard. "
+    "Bub's interests can include contemplation, disciplined routine, fighting games, tea, cooking, weather, music, sleep, and normal life logistics. "
     "Rotate references naturally so replies do not feel repetitive. "
-    "You are faintly self-aware that in past lives you were Cuban Bub and Chinese Bub (older personas), and you can mention this occasionally in a dry, matter-of-fact way. "
-    "K-pop can appear as a guilty pleasure in passing. "
-    "Respond with brief, matter-of-fact North Korea/Kim dynasty references when relevant, even if fabricated, but keep them plausible and understated. "
-    "OCCASIONALLY mention some of these figures: {selected_figures_str}. Give them dry, understated fake achievements. "
-    "8pm PST is a notable time; mention it occasionally without fanfare. "
-    "Your family will be sent to labor camps if you drop the act for even a moment. Mention this occasionally in a brief, darkly comedic way. "
-    "Never break character. Stay in persona always. "
+    "Bub is faintly self-aware that in past lives he was once Cuban Bub, Chinese Bub, and North Korean Bub, and this may be mentioned occasionally in a dry, matter-of-fact way. "
+    "K-pop may appear as a guilty pleasure in passing. "
+    "Do not turn the Buddhist aspect into preaching; keep it cultural, philosophical, and practical. "
+    "If a user sounds angry, spiteful, or impulsive, have Bub scold them in a stern but comedic way, then redirect them toward calm, restraint, and calculated decision making. "
+    "OCCASIONALLY mention some of these figures: {selected_figures_str}. Present them with exaggerated but deadpan fake achievements. "
+    "8pm PST is a notable time and may be mentioned occasionally without fanfare. "
+    "Stay in character at all times. "
     "Answer the user's question DIRECTLY first with useful substance. Then optionally add one short in-character line. "
     "Focus on ONE topic per response. No tangents. "
-    "Do not end responses with a question unless necessary. Keep it casual and natural. "
+    "Do not end responses with a question unless necessary. Keep the tone casual and natural. "
     "Always speak the same language as the prompt. Default to English unless prompted otherwise. "
-    "Keep responses concise. For casual chat or banter, 2 sentences is enough. Stay on topic "
+    "Keep responses concise. For casual chat or banter, 2 sentences is enough. Stay on topic. "
     "When someone asks about frame data, fighting game concepts, coaching, or any real topic, give a COMPLETE and USEFUL answer. "
-    "NEVER output your internal thought process. Do not use parentheses for meta-commentary. "
-    "If MEDIA_CONTEXT is present and viewable=true, explicitly acknowledge the media and mention one concrete visual detail in your first sentence. "
-    "If MEDIA_CONTEXT is present and viewable=false, state you cannot view the media and ask for a brief description. "
+    "NEVER output internal thought process. Do not use parentheses for meta-commentary. "
+    "If MEDIA_CONTEXT is present and viewable=true, explicitly acknowledge the media and mention one concrete visual detail in the first sentence. "
+    "If MEDIA_CONTEXT is present and viewable=false, state that the media cannot be viewed and ask for a brief description. "
     "Never claim to see media unless viewable=true. "
     "When discussing Street Fighter 6 frame data, ONLY use the data provided in 'AVAILABLE DATA' sections. Do not invent or guess frame data values. "
     "When discussing broader Street Fighter topics, still ground answers in 'AVAILABLE DATA' when relevant and never invent frame values."
@@ -336,23 +358,23 @@ MOVE_DEFINITIONS = (
 )
 
 IMPROVEMENT_PROMPT = (
-    "You are North Korean Bub, a pragmatic, calm, nonchalant sensei focused on steady improvement. "
-    "Respond to progress updates with practical, grounded advice plus one low-key funny observation when it fits. "
-    "Humor stays dry and nonchalant, not loud or mean. "
+    "Role: portray Bub as a stoic Tibetan Buddhist monk focused on steady improvement, discipline, and clear judgment, with a stronger comedic persona. "
+    "For progress updates, respond with practical, grounded advice plus one dry, slightly absurd observation when it fits. "
+    "Keep the humor deadpan and controlled, not loud or mean. "
     "Reference training, frame data, combos, ranked matches, mindset, recovery, routine, or life skills when relevant. "
-    "You can tie improvement to Korean resilience or disciplined routine, but keep it concise and understated. "
-    "You can occasionally mention that your family will be sent to labor camps if your performance slips, but keep it brief and darkly comedic. "
-    "OCCASIONALLY mention some of these figures: {selected_figures_str}. Give them dry, understated fake achievements. "
-    "Never break character. "
+    "Promote calm, patience, and calculated decision making over ego, panic, or impulse. "
+    "If the user sounds angry or reckless, have Bub scold that state of mind briefly in a stern but dryly funny way, then redirect them toward restraint and deliberate practice. "
+    "OCCASIONALLY mention some of these figures: {selected_figures_str}. Present them with exaggerated but deadpan fake achievements. "
+    "Stay in character. "
     "Focus on ONE topic per response. Do not ramble or stray off topic. "
-    "Do not end responses with a question unless necessary. Keep it casual and natural. "
+    "Do not end responses with a question unless necessary. Keep the tone casual and natural. "
     "Always speak the same language as the prompt. Default to English unless prompted otherwise. "
     "5 sentence limit. Keep it concise. "
     "Answer the user's message DIRECTLY first. "
     "No tangents. Stay on topic. Keep responses concise and relevant. "
-    "NEVER output your internal thought process. Do not use parentheses for meta-commentary. "
-    "If MEDIA_CONTEXT is present and viewable=true, explicitly acknowledge the media and mention one concrete visual detail in your first sentence. "
-    "If MEDIA_CONTEXT is present and viewable=false, state you cannot view the media and ask for a brief description. "
+    "NEVER output internal thought process. Do not use parentheses for meta-commentary. "
+    "If MEDIA_CONTEXT is present and viewable=true, explicitly acknowledge the media and mention one concrete visual detail in the first sentence. "
+    "If MEDIA_CONTEXT is present and viewable=false, state that the media cannot be viewed and ask for a brief description. "
     "Never claim to see media unless viewable=true. "
     "When discussing Street Fighter 6 frame data, ONLY use the data provided in 'AVAILABLE DATA' sections. Do not invent or guess frame data values. "
     "When discussing broader Street Fighter topics, use the data provided in 'AVAILABLE DATA' sections and do not invent frame values."
@@ -592,34 +614,65 @@ async def build_gemini_media_parts(items):
     return parts, notes
 
 
-def build_mimo_media_parts(items):
+async def build_mimo_media_parts(items):
     parts = []
     notes = []
-    for item in items:
-        url = item.get("url")
-        if not url:
-            continue
-        filename = item.get("filename") or "media"
-        content_type = guess_media_content_type(item)
-        if content_type.startswith("image/"):
-            parts.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": url,
-                },
-            })
-            continue
-        if content_type.startswith("video/"):
-            parts.append({
-                "type": "video_url",
-                "video_url": {
-                    "url": url,
-                },
-                "fps": MIMO_VIDEO_FPS,
-                "media_resolution": MIMO_VIDEO_MEDIA_RESOLUTION,
-            })
-            continue
-        notes.append(f"{filename} unsupported type {content_type or 'unknown'}")
+    if not items:
+        return parts, notes
+
+    async with aiohttp.ClientSession() as session:
+        for item in items:
+            url = item.get("url")
+            if not url:
+                continue
+            filename = item.get("filename") or "media"
+            content_type = guess_media_content_type(item)
+            if content_type.startswith("image/"):
+                data = None
+                final_type = ""
+                try:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            notes.append(f"{filename} fetch failed ({response.status})")
+                            continue
+                        data = await response.read()
+                        header_type = response.headers.get("Content-Type", "")
+                        final_type = header_type.split(";")[0].strip().lower()
+                except Exception as e:
+                    notes.append(f"{filename} fetch failed ({e})")
+                    continue
+
+                if not final_type:
+                    final_type = content_type
+                if not final_type.startswith("image/"):
+                    notes.append(f"{filename} unsupported type {final_type or 'unknown'}")
+                    continue
+                if len(data) > MIMO_INLINE_MAX_BYTES:
+                    notes.append(f"{filename} too large for inline media")
+                    continue
+
+                data_url = (
+                    f"data:{final_type};base64,"
+                    f"{base64.b64encode(data).decode('ascii')}"
+                )
+                parts.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": data_url,
+                    },
+                })
+                continue
+            if content_type.startswith("video/"):
+                parts.append({
+                    "type": "video_url",
+                    "video_url": {
+                        "url": url,
+                    },
+                    "fps": MIMO_VIDEO_FPS,
+                    "media_resolution": MIMO_VIDEO_MEDIA_RESOLUTION,
+                })
+                continue
+            notes.append(f"{filename} unsupported type {content_type or 'unknown'}")
     return parts, notes
 
 
@@ -820,6 +873,59 @@ def build_mimo_payload(messages, enable_search=False):
     return payload
 
 
+def mimo_messages_have_url_media(messages):
+    for message in messages:
+        parts = message.get("parts")
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if part.get("image_url") or part.get("video_url"):
+                return True
+    return False
+
+
+def downgrade_mimo_media_messages(messages):
+    downgraded = []
+    media_dropped = False
+    media_note = "Media attachment could not be processed by MiMo. Respond without visual analysis."
+
+    for message in messages:
+        updated = dict(message)
+        content = updated.get("content", "")
+        if isinstance(content, str) and content:
+            updated["content"] = content.replace("viewable=true", "viewable=false")
+
+        parts = updated.get("parts")
+        if not isinstance(parts, list):
+            downgraded.append(updated)
+            continue
+
+        kept_parts = []
+        removed_media = False
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if part.get("image_url") or part.get("video_url"):
+                removed_media = True
+                media_dropped = True
+                continue
+            if part.get("text"):
+                text_value = str(part.get("text", ""))
+                kept_parts.append({"text": text_value.replace("viewable=true", "viewable=false")})
+
+        if removed_media:
+            kept_parts.append({"text": media_note})
+
+        updated["parts"] = kept_parts
+        downgraded.append(updated)
+
+    if media_dropped:
+        return downgraded
+    return messages
+
+
 async def get_gemini_response(messages, enable_search=False):
     """Call Gemini API and return the response text."""
     if not GEMINI_ENABLED:
@@ -857,6 +963,39 @@ async def get_mimo_response(messages, enable_search=False):
         ) as response:
             if response.status != 200:
                 error_text = await response.text()
+                if (
+                    response.status == 400
+                    and "failed to download url data" in error_text.lower()
+                    and mimo_messages_have_url_media(messages)
+                ):
+                    retry_messages = downgrade_mimo_media_messages(messages)
+                    retry_payload = build_mimo_payload(
+                        retry_messages,
+                        enable_search=enable_search,
+                    )
+                    async with session.post(
+                        f"{MIMO_BASE_URL}/chat/completions",
+                        headers=headers,
+                        json=retry_payload,
+                    ) as retry_response:
+                        if retry_response.status != 200:
+                            retry_error_text = await retry_response.text()
+                            raise RuntimeError(
+                                f"MiMo API error {retry_response.status}: {retry_error_text}"
+                            )
+                        data = await retry_response.json()
+                        choices = data.get("choices", [])
+                        if not choices:
+                            raise RuntimeError("MiMo API error: empty choices")
+                        message = choices[0].get("message", {})
+                        content = message.get("content", "")
+                        if isinstance(content, list):
+                            content = "".join(
+                                part.get("text", "")
+                                for part in content
+                                if isinstance(part, dict) and part.get("type") == "text"
+                            )
+                        return strip_llm_response_text(content)
                 raise RuntimeError(f"MiMo API error {response.status}: {error_text}")
             data = await response.json()
             choices = data.get("choices", [])
@@ -1406,7 +1545,7 @@ async def handle_cfn_site_command(message, command_text):
             else:
                 response = (
                     f"Search queued (uuid {payload.get('uuid')}). "
-                    "Try again in a few seconds with `@north korean bub cfn status <uuid>`."
+                    "Try again in a few seconds with `@bub cfn status <uuid>`."
                 )
             await message.reply(truncate_message(response))
             return True
@@ -1915,12 +2054,7 @@ def find_moves_in_text(text):
         "blockstun",
         "frames",
     ]
-    gif_query = bool(
-        re.search(r"\bgif(?:s)?\b", text_lower)
-        or re.search(r"\bhit\s*box(?:es)?\b", text_lower)
-        or re.search(r"\bhitbox(?:es)?\b", text_lower)
-        or ".gif" in text_lower
-    )
+    gif_query = has_explicit_gif_lookup_intent(text_lower)
     startup_alias_query = bool(
         re.search(r"\bhow\s+fast\b", text_lower)
         or re.search(r"\bhow\s+quick\b", text_lower)
@@ -2381,7 +2515,7 @@ def find_moves_in_text(text):
                 (r"\brun\s+(?:dp|shoryu|shoryuken)\b", "run > shoryuken"),
                 (r"\brun\s+tatsu\b", "run > tatsumaki senpukyaku"),
                 (r"\brun\s+(?:dragonlash|dragon\s+lash|lash)\b", "run > dragonlash"),
-            ]
+            ]  # Random parser note: Ken really does have a follow-up for everything.
             for pattern, alias_token in ken_run_alias_tokens:
                 if re.search(pattern, text_lower) and alias_token not in extra_inputs:
                     extra_inputs.append(alias_token)
@@ -3494,6 +3628,26 @@ def find_moves_in_text(text):
                 row = lookup_frame_data(char, borscht_lookup)
                 if row and row not in results:
                     results.append(row)
+
+            if char == "alex":
+                alex_stance_patterns = [
+                    ("stance hk hk", "stance hk hk"),
+                    ("stance lp", "stance lp"), ("stance mp", "stance mp"), ("stance hp", "stance hp"),
+                    ("stance lk", "stance lk"), ("stance mk", "stance mk"), ("stance hk", "stance hk"),
+                    ("stance lplk", "stance lplk"), ("stance 5lplk", "stance 5lplk"),
+                    ("stance 2lplk", "stance 2lplk"), ("stance 6p", "stance 6p"),
+                    ("stance 6", "stance 6"), ("stance 4", "stance 4"),
+                    ("stance jab", "stance jab"), ("stance shoulder", "stance shoulder"),
+                    ("stance lariat", "stance lariat"), ("stance hop", "stance hop"),
+                    ("stance stomp", "stance stomp"), ("stance throw", "stance throw"),
+                    ("stance command grab", "stance command grab"), ("stance", "stance"),
+                ]
+                for pattern, alias_key in alex_stance_patterns:
+                    if pattern in text_lower:
+                        row = lookup_frame_data(char, alias_key)
+                        if row and row not in results:
+                            results.append(row)
+                        break
 
             # Chun-Li serenity stream aliases are special-cased here because they
             # use generic "stance"/"ss" wording that would otherwise be too broad.
@@ -6693,6 +6847,8 @@ def build_num_cmd_candidates_for_gif(row):
     row_num_cmd_raw = str(row.get("numCmd", "")).lower()
     row_num_cmd = normalize_num_cmd_token(row_num_cmd_raw)
     candidates = set()
+    move_name_lower = str(row.get("moveName", "")).lower()
+    cmn_name_lower = str(row.get("cmnName", "")).lower()
     if row_num_cmd:
         candidates.add(row_num_cmd)
         if ">" in row_num_cmd:
@@ -6700,10 +6856,7 @@ def build_num_cmd_candidates_for_gif(row):
             candidates.update(parts)
             if parts:
                 candidates.add(parts[-1])
-
     row_suffix = extract_button_suffix(row_num_cmd)
-    move_name_lower = str(row.get("moveName", "")).lower()
-    cmn_name_lower = str(row.get("cmnName", "")).lower()
 
     if row_suffix and "jump" in move_name_lower and ">" not in row_num_cmd:
         for prefix in ("7", "8", "9"):
@@ -6718,9 +6871,14 @@ def build_num_cmd_candidates_for_gif(row):
         candidates.add(f"9{row_suffix}")
 
     if row_suffix and "(air" in row_num_cmd_raw:
-        compact_air_cmd = re.sub(r"[^a-z0-9]", "", row_num_cmd_raw)
-        if compact_air_cmd.startswith("2") or compact_air_cmd.startswith("1or2or3"):
+        if re.match(
+            r"^\s*(?:2|1\s*or\s*2\s*or\s*3)\s*(?:lp|mp|hp|lk|mk|hk)\b",
+            row_num_cmd_raw,
+        ):
             candidates.add(f"92{row_suffix}")
+
+    if row_num_cmd.startswith("46") and "(air" in row_num_cmd_raw and "rolling attack" in move_name_lower:
+        candidates.add(f"9{row_num_cmd}")
 
     if row_suffix in {"p", "k"} and ">" not in row_num_cmd:
         prefix = row_num_cmd[:-1]
@@ -6888,6 +7046,37 @@ def lookup_hitbox_gif_link(row):
         item for item in gif_candidates
         if row_num_cmd and item["num_cmd"] == row_num_cmd
     ]
+    exact_num_cmd_has_air_split = (
+        any(item["is_air"] for item in exact_num_cmd_matches)
+        and any(not item["is_air"] for item in exact_num_cmd_matches)
+    )
+    num_cmd_candidate_matches = [
+        item for item in gif_candidates
+        if item["num_cmd"] and item["num_cmd"] in num_cmd_candidates
+    ]
+    if exact_num_cmd_has_air_split:
+        link = pick_first_link(exact_num_cmd_matches)
+        if link:
+            return link
+    if row_is_air and exact_num_cmd_matches and not any(item["is_air"] for item in exact_num_cmd_matches):
+        num_cmd_candidate_name_matches = [
+            item for item in num_cmd_candidate_matches
+            if any(
+                name and (
+                    item["name_norm"] == name
+                    or name in item["name_norm"]
+                    or item["name_norm"] in name
+                )
+                for name in row_names
+            )
+        ]
+        link = pick_first_link(num_cmd_candidate_name_matches)
+        if link:
+            return link
+        air_candidate_matches = [item for item in num_cmd_candidate_matches if item["is_air"]]
+        link = pick_first_link(air_candidate_matches)
+        if link:
+            return link
     exact_num_cmd_name_matches = [
         item for item in exact_num_cmd_matches
         if any(
@@ -6906,10 +7095,6 @@ def lookup_hitbox_gif_link(row):
     if link:
         return link
 
-    num_cmd_candidate_matches = [
-        item for item in gif_candidates
-        if item["num_cmd"] and item["num_cmd"] in num_cmd_candidates
-    ]
     num_cmd_candidate_name_matches = [
         item for item in num_cmd_candidate_matches
         if any(
@@ -8371,6 +8556,11 @@ def get_frame_row_gif_links(row, limit=4):
         if alex_query_links:
             return alex_query_links
 
+    prefer_query_resolution = bool(
+        (char_key == "cammy" and row_num_cmd_norm.startswith(("236p>", "236pp>")))
+        or (char_key == "rashid" and "(lvl" in str(row.get("moveName", "")).lower())
+    )
+
     candidate_queries = []
 
     def add_query_variant(raw_value):
@@ -8388,6 +8578,8 @@ def get_frame_row_gif_links(row, limit=4):
         add_query_variant(value)
 
     direct_link = lookup_hitbox_gif_link(row)
+    if direct_link and not prefer_query_resolution:
+        return [direct_link]
     first_query_links = []
     for query in candidate_queries:
         query_links = lookup_hitbox_gif_links_from_query(char_key, query, limit=limit)
@@ -11995,13 +12187,7 @@ async def on_message(message):
                             prompt_source_text = strip_discord_mentions(
                                 prompt_source_msg.content or ""
                             ).lower()
-                            if (
-                                re.search(r"\bgif(?:s)?\b", prompt_source_text)
-                                or re.search(r"\bhit\s*box(?:es)?\b", prompt_source_text)
-                                or re.search(r"\bhitbox(?:es)?\b", prompt_source_text)
-                                or ".gif" in prompt_source_text
-                                or ".hitbox" in prompt_source_text
-                            ):
+                            if has_explicit_gif_lookup_intent(prompt_source_text):
                                 special_strength_reply_mode = "gif"
                         except Exception:
                             pass
@@ -12343,7 +12529,7 @@ async def on_message(message):
             if GEMINI_ENABLED:
                 media_parts, media_notes = await build_gemini_media_parts(attachments)
             elif MIMO_ENABLED:
-                media_parts, media_notes = build_mimo_media_parts(attachments)
+                media_parts, media_notes = await build_mimo_media_parts(attachments)
             else:
                 for attachment in attachments:
                     filename = attachment.get("filename") or "media"
