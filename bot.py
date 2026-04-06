@@ -17,6 +17,7 @@ from aiohttp import web
 import sfbuff_integration
 
 load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOKEN = os.getenv('DISCORD_TOKEN')
 try:
     CHANNEL_ID = int(os.getenv('CHANNEL_ID'))
@@ -133,8 +134,12 @@ LLM_CONTEXT_HISTORY_CHAR_BUDGET = max(
 DAILY_VIDEO_URL = (
     "https://cdn.discordapp.com/attachments/1345474577316319265/1467924199996915918/l3.mp4?ex=69822671&is=6980d4f1&hm=7e1208fa08199a25f9cac3dc8132696f2a9374fac61bfb2b5ae75e31f6695bea&"
 )
+STREETFIGHTERDLE_URL = "https://www.streetfighterdle.net/"
+STREETFIGHTERDLE_SCORE_SOURCE_CHANNEL_ID = 1439264736494489761
+STREETFIGHTERDLE_SCORES_FILE = os.getenv('STREETFIGHTERDLE_SCORES_FILE', 'streetfighterdle_scores.json')
 DAILY_ENCOURAGEMENT_MESSAGES = 5
 DAILY_DAMN_GG_MESSAGES = 1
+DAILY_STREETFIGHTERDLE_MESSAGES = 1
 DAILY_DAMN_GG_TEXT = "damn gg"
 MEMORY_FILE = os.getenv('MEMORY_FILE', 'memory.md')
 MEMORY_MAX_ENTRIES = max(10, int(os.getenv('MEMORY_MAX_ENTRIES', '200')))
@@ -317,6 +322,9 @@ NEXT_RUN_TIME = None
 NEXT_ENCOURAGEMENT_TIME = None
 NEXT_VIDEO_TIME = None
 NEXT_DAMN_GG_TIME = None
+NEXT_STREETFIGHTERDLE_TIME = None
+LAST_STREETFIGHTERDLE_SENT_DATE_UTC = None
+LAST_STREETFIGHTERDLE_LEADERBOARD_DATE_UTC = None
 
 SYSTEM_PROMPT = (
     "Role: portray Bub, a fictional stoic Tibetan Buddhist monk with dry humor, disciplined compassion, and a distinct comedic voice. "
@@ -1345,6 +1353,145 @@ def format_score(score):
     return f"{wins}-{losses}-{draws}"
 
 
+def _streetfighterdle_scores_file_path():
+    path_text = str(STREETFIGHTERDLE_SCORES_FILE or "streetfighterdle_scores.json").strip()
+    if os.path.isabs(path_text):
+        return path_text
+    return os.path.join(os.path.dirname(__file__), path_text)
+
+
+def load_streetfighterdle_score_history():
+    file_path = _streetfighterdle_scores_file_path()
+    if not os.path.exists(file_path):
+        return {}
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception as e:
+        print(f"[streetfighterdle] score history load error: {e}", flush=True)
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    days = payload.get("days") or {}
+    return dict(days) if isinstance(days, dict) else {}
+
+
+def save_streetfighterdle_score_snapshot(snapshot_date_utc, entries, source_channel_id=None):
+    history = load_streetfighterdle_score_history()
+    normalized_entries = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        normalized_entries.append(
+            {
+                "user_id": int(entry.get("user_id", 0) or 0),
+                "display_name": str(entry.get("display_name", "Unknown")).strip() or "Unknown",
+                "score_text": str(entry.get("score_text", "")).strip(),
+                "total_points": int(entry.get("total_points", 0) or 0),
+                "per_game": [int(value) for value in list(entry.get("per_game") or [])[:4]],
+                "message_id": int(entry.get("message_id", 0) or 0),
+                "created_at_utc": str(entry.get("created_at_utc", "")).strip(),
+            }
+        )
+
+    snapshot_key = str(snapshot_date_utc)
+    history[snapshot_key] = {
+        "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "source_channel_id": int(source_channel_id or STREETFIGHTERDLE_SCORE_SOURCE_CHANNEL_ID),
+        "entries": normalized_entries,
+    }
+
+    file_path = _streetfighterdle_scores_file_path()
+    payload = {
+        "version": 1,
+        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "days": history,
+    }
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=True, indent=2)
+    except Exception as e:
+        print(f"[streetfighterdle] score history save error: {e}", flush=True)
+
+
+def parse_streetfighterdle_score_text(text):
+    match = re.search(
+        r"(?<![\d/])(\d{1,3})\s*/\s*(\d{1,3})\s*/\s*(\d{1,3})\s*/\s*(\d{1,3})(?![\d/])",
+        str(text or ""),
+    )
+    if not match:
+        return None
+    per_game = [int(match.group(index)) for index in range(1, 5)]
+    return {
+        "score_text": "/".join(str(value) for value in per_game),
+        "per_game": per_game,
+        "total_points": sum(per_game),
+    }
+
+
+def build_streetfighterdle_leaderboard_text(entries, snapshot_date_utc):
+    if not entries:
+        return (
+            "By decree of Bub, no Streetfighterdle scores were posted in the last 24 hours.\n"
+            f"Window ending {snapshot_date_utc} UTC."
+        )
+
+    lines = [
+        "By decree of Bub, the Streetfighterdle ledger for the last 24 hours stands thus.",
+        f"Window ending {snapshot_date_utc} UTC. Lowest total wins.",
+        "",
+    ]
+    for index, entry in enumerate(entries, start=1):
+        lines.append(
+            f"{index}. {entry['display_name']} - {entry['total_points']} points ({entry['score_text']})"
+        )
+    return truncate_message("\n".join(lines), limit=1800)
+
+
+async def collect_streetfighterdle_daily_scores(channel, window_end_utc=None, lookback_hours=24):
+    end_utc = window_end_utc or datetime.datetime.now(datetime.timezone.utc)
+    cutoff_utc = end_utc - datetime.timedelta(hours=lookback_hours)
+    latest_scores = {}
+
+    async for msg in channel.history(limit=None, after=cutoff_utc):
+        if msg.author == client.user or getattr(msg.author, "bot", False):
+            continue
+        parsed_score = parse_streetfighterdle_score_text(msg.content or "")
+        if not parsed_score:
+            continue
+
+        user_id = int(getattr(msg.author, "id", 0) or 0)
+        if user_id <= 0:
+            continue
+
+        created_at = getattr(msg, "created_at", None) or end_utc
+        existing = latest_scores.get(user_id)
+        if existing and existing.get("created_at") and existing["created_at"] >= created_at:
+            continue
+
+        display_name = getattr(msg.author, "display_name", None) or getattr(msg.author, "name", None) or f"User {user_id}"
+        latest_scores[user_id] = {
+            "user_id": user_id,
+            "display_name": str(display_name).strip() or f"User {user_id}",
+            "score_text": parsed_score["score_text"],
+            "per_game": parsed_score["per_game"],
+            "total_points": parsed_score["total_points"],
+            "message_id": int(getattr(msg, "id", 0) or 0),
+            "created_at": created_at,
+            "created_at_utc": created_at.astimezone(datetime.timezone.utc).isoformat(),
+        }
+
+    entries = list(latest_scores.values())
+    entries.sort(
+        key=lambda entry: (
+            int(entry.get("total_points", 0)),
+            list(entry.get("per_game") or []),
+            str(entry.get("display_name", "")).lower(),
+        )
+    )
+    return entries
+
+
 def format_date(date_text):
     if not date_text:
         return "-"
@@ -1637,6 +1784,8 @@ OKI_DATA = {}
 CHARACTER_INFO = {}
 HITBOX_GIF_DATA = {}
 RANGE_DATA = {}
+LOCAL_HITBOX_GIF_ROOT = os.path.join(BASE_DIR, "sf6frames", "files")
+LOCAL_HITBOX_GIF_EXTENSIONS = {".webp", ".gif", ".png", ".jpg", ".jpeg"}
 
 CHARACTER_ALIASES = {
     "kim": "kimberly",
@@ -1888,27 +2037,7 @@ def load_frame_data():
                             break
                     row["atkRange"] = selected_range
 
-            gif_sheet_name = next(
-                (name for name in xls.sheet_names if name.lower() == "hitboxgiflinks"),
-                None,
-            )
-            if gif_sheet_name:
-                gif_df = pd.read_excel(xls, sheet_name=gif_sheet_name, dtype=str).fillna("")
-                for gif_row in gif_df.to_dict("records"):
-                    move_link = str(gif_row.get("moveLink", "")).strip()
-                    if not move_link:
-                        continue
-                    char_raw = str(gif_row.get("character", "")).strip()
-                    char_key = character_lookup.get(normalize_char_name(char_raw))
-                    if not char_key:
-                        continue
-                    HITBOX_GIF_DATA.setdefault(char_key, []).append({
-                        "moveName": str(gif_row.get("moveName", "")).strip(),
-                        "numCmd": str(gif_row.get("numCmd", "")).strip(),
-                        "moveLink": move_link,
-                    })
-            else:
-                print("Hitbox gif sheet not found: hitboxgiflinks")
+            HITBOX_GIF_DATA = load_local_hitbox_gif_data(character_lookup)
 
             combo_sheets = [
                 name for name in xls.sheet_names
@@ -6755,6 +6884,93 @@ def extract_button_suffix(num_cmd_token):
     return match.group(1) if match else ""
 
 
+def is_local_gif_num_cmd_part(value):
+    token = normalize_num_cmd_token(value)
+    return bool(token and re.match(r"^j?\d", token))
+
+
+def parse_local_hitbox_gif_filename(filename):
+    stem, ext = os.path.splitext(os.path.basename(str(filename or "")))
+    if ext.lower() not in LOCAL_HITBOX_GIF_EXTENSIONS:
+        return None
+
+    parts = [part for part in stem.split("_") if part]
+    if not parts:
+        return None
+
+    primary_num_cmd = parts[0]
+    move_name_parts = parts[1:]
+    num_cmd = primary_num_cmd
+
+    if len(parts) > 1 and is_local_gif_num_cmd_part(parts[1]):
+        num_cmd = f"{primary_num_cmd}>{parts[1]}"
+        move_name_parts = parts[2:]
+
+    move_name = " ".join(move_name_parts).replace("-", " ").strip()
+    if not move_name:
+        move_name = primary_num_cmd
+
+    return {
+        "moveName": move_name,
+        "numCmd": num_cmd,
+    }
+
+
+def load_local_hitbox_gif_data(character_lookup):
+    gif_data = {}
+    if not os.path.isdir(LOCAL_HITBOX_GIF_ROOT):
+        print(f"Local hitbox gif folder not found: {LOCAL_HITBOX_GIF_ROOT}")
+        return gif_data
+
+    for char_entry in sorted(os.scandir(LOCAL_HITBOX_GIF_ROOT), key=lambda entry: entry.name.lower()):
+        if not char_entry.is_dir():
+            continue
+
+        char_key = character_lookup.get(normalize_char_name(char_entry.name))
+        if not char_key:
+            continue
+
+        for file_entry in sorted(os.scandir(char_entry.path), key=lambda entry: entry.name.lower()):
+            if not file_entry.is_file():
+                continue
+
+            parsed = parse_local_hitbox_gif_filename(file_entry.name)
+            if not parsed:
+                continue
+
+            gif_data.setdefault(char_key, []).append(
+                {
+                    "moveName": parsed["moveName"],
+                    "numCmd": parsed["numCmd"],
+                    "moveLink": file_entry.path,
+                    "sourceFile": file_entry.name,
+                }
+            )
+
+    if not gif_data:
+        print(f"No local hitbox gifs loaded from: {LOCAL_HITBOX_GIF_ROOT}")
+    return gif_data
+
+
+def get_existing_local_gif_asset_paths(gif_links, limit=4):
+    paths = []
+    seen = set()
+    for move_link in gif_links or []:
+        path = str(move_link or "").strip()
+        if not path:
+            continue
+        normalized_path = os.path.normpath(path)
+        if not os.path.isfile(normalized_path):
+            continue
+        if normalized_path in seen:
+            continue
+        seen.add(normalized_path)
+        paths.append(normalized_path)
+        if len(paths) >= limit:
+            break
+    return paths
+
+
 def normalize_move_name_for_gif_text(value):
     text = str(value or "").lower()
     text = text.replace("aerial", "air")
@@ -7453,6 +7669,7 @@ def resolve_hitbox_gif_query_alias(char_key, move_query):
         "hp hermit punch": "freeflow strikes (2) (drink 4)",
         "palm followup": "freeflow strikes (2) (drink 4)",
         "palm follow-up": "freeflow strikes (2) (drink 4)",
+        "palm follow up": "freeflow strikes (2) (drink 4)",
         "od swagger hermit punch": "od drink level 4 freeflow strikes (2)",
         "ex swagger hermit punch": "od drink level 4 freeflow strikes (2)",
         "od hermit punch": "od drink level 4 freeflow strikes (2)",
@@ -7694,20 +7911,26 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
             if not move_query:
                 continue
 
+            raw_move_query = move_query
+            move_query = resolve_hitbox_gif_query_alias(char_key, move_query)
+
             # Keep gif-mode behavior aligned with framedata parsing. If the
             # normalized query would trigger a special-strength prompt instead
             # of resolving to a concrete row, do not guess a gif from fuzzy
-            # token overlap.
-            prompt_probe = find_moves_in_text(f"{char_key} {move_query} framedata")
+            # token overlap unless the gif alias map already resolved the
+            # request to a concrete gif query.
+            prompt_probe = find_moves_in_text(f"{char_key} {raw_move_query} framedata")
             prompt_probe_data = str(prompt_probe.get("data", "") or "")
             if (
-                "Special Strength Options" in prompt_probe_data
-                or "Target Combo Options" in prompt_probe_data
-            ) and not prompt_probe.get("rows"):
+                move_query == raw_move_query
+                and (
+                    "Special Strength Options" in prompt_probe_data
+                    or "Target Combo Options" in prompt_probe_data
+                )
+                and not prompt_probe.get("rows")
+            ):
                 continue
 
-            raw_move_query = move_query
-            move_query = resolve_hitbox_gif_query_alias(char_key, move_query)
             query_links = lookup_hitbox_gif_links_from_query(char_key, move_query, limit=limit)
             for move_link in query_links:
                 if move_link in seen:
@@ -7877,6 +8100,13 @@ def format_frame_data(row):
     )
 
 
+def format_property_only_lines(lines, limit=1800):
+    cleaned_lines = [str(line).strip() for line in (lines or []) if str(line).strip()]
+    if not cleaned_lines:
+        return ""
+    return truncate_message("\n".join(cleaned_lines), limit=limit)
+
+
 def format_startup_only_reply(rows):
     lines = []
     seen = set()
@@ -7896,7 +8126,7 @@ def format_startup_only_reply(rows):
         move_name = row.get("moveName", "Unknown")
         num_cmd = row.get("numCmd", "?")
         lines.append(f"{char_name}'s {move_name} ({num_cmd}) startup is {startup}{startup_suffix}.")
-    return "\n".join(lines[:4])
+    return format_property_only_lines(lines)
 
 
 def format_hitconfirm_only_reply(rows):
@@ -7920,7 +8150,7 @@ def format_hitconfirm_only_reply(rows):
         lines.append(
             f"{char_name}'s {move_name} ({num_cmd}) hit confirm window is Sp/Su: {hc_sp}, TC: {hc_tc}. Notes: {hc_notes}"
         )
-    return "\n".join(lines[:4])
+    return format_property_only_lines(lines)
 
 
 def format_super_gain_only_reply(rows):
@@ -7943,7 +8173,7 @@ def format_super_gain_only_reply(rows):
         lines.append(
             f"{char_name}'s {move_name} ({num_cmd}) super gain is Hit: {super_hit}, Block: {super_block}."
         )
-    return "\n".join(lines[:4])
+    return format_property_only_lines(lines)
 
 
 def format_range_only_reply(rows):
@@ -7974,7 +8204,7 @@ def format_range_only_reply(rows):
         return f"{char_name}'s {move_name} ({num_cmd}) range is {range_value}."
 
     lines = []
-    for row in unique_rows[:4]:
+    for row in unique_rows:
         char_name = row.get("char_name", "Unknown")
         move_name = row.get("moveName", "Unknown")
         num_cmd = row.get("numCmd", "?")
@@ -7985,7 +8215,7 @@ def format_range_only_reply(rows):
             lines.append(
                 f"{char_name}'s {move_name} ({num_cmd}): {RANGE_SCROLLS_MISSING_TEXT}"
             )
-    return "\n".join(lines)
+    return format_property_only_lines(lines)
 
 
 def truncate_embed_value(value, limit):
@@ -8523,6 +8753,92 @@ async def send_daily_damn_gg(channel, source_label="scheduled"):
         print(f"{source_label.capitalize()} literal message error: {e}", flush=True)
 
 
+async def build_streetfighterdle_reminder_text(channel):
+    fallback = "By decree of Bub, do Streetfighterdle today before your discipline turns to dust."
+
+    def clean_reminder_text(text):
+        cleaned = _sanitize_quiz_ascii_line(text)
+        cleaned = re.sub(r"https?://\S+", "", cleaned).strip()
+        cleaned = re.sub(r"\b(?:www\.)?streetfighterdle\.net/?\b", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = cleaned.replace(STREETFIGHTERDLE_URL, "").strip()
+        sentence_match = re.match(r"(.+?[.!?])(?:\s|$)", cleaned)
+        if sentence_match:
+            cleaned = sentence_match.group(1).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -")
+        return cleaned
+
+    if not LLM_ENABLED:
+        return fallback
+
+    try:
+        selected_figures_str = get_selected_figures_str(getattr(channel, "guild", None))
+        llm_messages = [
+            {
+                "role": "system",
+                "content": IMPROVEMENT_PROMPT.format(selected_figures_str=selected_figures_str),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Write one short in-character reminder telling the group to do Streetfighterdle today. "
+                    "The exact URL will be appended separately, so do not include a URL in your sentence. "
+                    "One sentence only. No emojis. No em dash. ASCII only."
+                ),
+            },
+        ]
+        reply_text = await get_llm_response(llm_messages)
+        reply_text = clean_reminder_text(reply_text)
+        return reply_text or fallback
+    except Exception as e:
+        print(f"[streetfighterdle] llm error: {e}", flush=True)
+        return fallback
+
+
+async def send_daily_streetfighterdle(channel, source_label="scheduled"):
+    reminder_text = await build_streetfighterdle_reminder_text(channel)
+    payload = f"{reminder_text}\n{STREETFIGHTERDLE_URL}"
+    try:
+        await channel.send(payload)
+        print(
+            f"[streetfighterdle] {source_label} reminder sent at {datetime.datetime.now().isoformat()}",
+            flush=True,
+        )
+        return True
+    except Exception as e:
+        print(f"[streetfighterdle] {source_label} error: {e}", flush=True)
+        return False
+
+
+async def send_daily_streetfighterdle_score_leaderboard(output_channel, source_label="scheduled", window_end_utc=None):
+    source_channel = client.get_channel(STREETFIGHTERDLE_SCORE_SOURCE_CHANNEL_ID)
+    if not source_channel:
+        try:
+            source_channel = await client.fetch_channel(STREETFIGHTERDLE_SCORE_SOURCE_CHANNEL_ID)
+        except Exception as e:
+            print(f"[streetfighterdle] leaderboard source channel error: {e}", flush=True)
+            return False
+
+    snapshot_end_utc = window_end_utc or datetime.datetime.now(datetime.timezone.utc)
+    snapshot_date_utc = snapshot_end_utc.date().isoformat()
+    try:
+        entries = await collect_streetfighterdle_daily_scores(source_channel, window_end_utc=snapshot_end_utc)
+        save_streetfighterdle_score_snapshot(
+            snapshot_date_utc,
+            entries,
+            source_channel_id=STREETFIGHTERDLE_SCORE_SOURCE_CHANNEL_ID,
+        )
+        leaderboard_text = build_streetfighterdle_leaderboard_text(entries, snapshot_date_utc)
+        await output_channel.send(leaderboard_text)
+        print(
+            f"[streetfighterdle] {source_label} leaderboard sent at {datetime.datetime.now(datetime.timezone.utc).isoformat()} entries={len(entries)}",
+            flush=True,
+        )
+        return True
+    except Exception as e:
+        print(f"[streetfighterdle] {source_label} leaderboard error: {e}", flush=True)
+        return False
+
+
 def get_frame_row_gif_links(row, limit=4):
     if not isinstance(row, dict):
         return []
@@ -8627,6 +8943,19 @@ class FrameDataGifButton(discord.ui.Button):
             )
             return
 
+        asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=4)
+        if asset_paths:
+            if len(asset_paths) == 1:
+                await interaction.response.send_message(
+                    file=discord.File(asset_paths[0], filename=os.path.basename(asset_paths[0]))
+                )
+                return
+
+            await interaction.response.send_message(
+                files=[discord.File(path, filename=os.path.basename(path)) for path in asset_paths[:4]]
+            )
+            return
+
         if len(self.gif_links) == 1:
             await interaction.response.send_message(self.gif_links[0])
             return
@@ -8667,6 +8996,19 @@ async def send_gif_links_response(message, gif_links, wants_comparison=False):
     if not gif_links:
         return False
     try:
+        asset_limit = 6 if wants_comparison else 1
+        asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=asset_limit)
+        if asset_paths:
+            if wants_comparison and len(asset_paths) > 1:
+                await message.reply(
+                    files=[discord.File(path, filename=os.path.basename(path)) for path in asset_paths]
+                )
+            else:
+                await message.reply(
+                    file=discord.File(asset_paths[0], filename=os.path.basename(asset_paths[0]))
+                )
+            return True
+
         if wants_comparison and len(gif_links) > 1:
             await message.reply("\n".join(gif_links))
         else:
@@ -8931,6 +9273,167 @@ async def background_damn_gg_task():
 
 
 
+async def background_streetfighterdle_task():
+    global NEXT_STREETFIGHTERDLE_TIME
+    global LAST_STREETFIGHTERDLE_SENT_DATE_UTC
+    await client.wait_until_ready()
+    if DAILY_STREETFIGHTERDLE_MESSAGES <= 0:
+        print("[streetfighterdle] Disabled: DAILY_STREETFIGHTERDLE_MESSAGES <= 0", flush=True)
+        return
+
+    print(
+        "[streetfighterdle] Scheduling started. Target=1 reminder per day at 00:00 UTC.",
+        flush=True,
+    )
+
+    while not client.is_closed():
+        channel = client.get_channel(CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await client.fetch_channel(CHANNEL_ID)
+            except Exception as e:
+                print(
+                    f"[streetfighterdle] Could not find channel with ID {CHANNEL_ID}; retrying in 5 minutes. error={e}",
+                    flush=True,
+                )
+                NEXT_STREETFIGHTERDLE_TIME = None
+                await asyncio.sleep(300)
+                continue
+
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        next_midnight_utc = (now_utc + datetime.timedelta(days=1)).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        NEXT_STREETFIGHTERDLE_TIME = next_midnight_utc
+        print(
+            f"[streetfighterdle] Next reminder scheduled for {next_midnight_utc.isoformat()}",
+            flush=True,
+        )
+
+        wait_seconds = (next_midnight_utc - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
+        if client.is_closed():
+            return
+
+        target_date_utc = next_midnight_utc.date()
+        if LAST_STREETFIGHTERDLE_SENT_DATE_UTC == target_date_utc:
+            print(
+                f"[streetfighterdle] Skipping duplicate reminder for {target_date_utc.isoformat()}.",
+                flush=True,
+            )
+            continue
+
+        reminder_sent = False
+        retry_attempt = 0
+        while not reminder_sent and not client.is_closed():
+            retry_attempt += 1
+            reminder_sent = await send_daily_streetfighterdle(
+                channel,
+                source_label="scheduled" if retry_attempt == 1 else f"scheduled-retry-{retry_attempt}",
+            )
+            if reminder_sent:
+                LAST_STREETFIGHTERDLE_SENT_DATE_UTC = target_date_utc
+                break
+            if client.is_closed():
+                return
+            retry_delay_seconds = min(900, 300 * retry_attempt)
+            print(
+                f"[streetfighterdle] send failed for midnight UTC slot; retrying in {retry_delay_seconds} seconds.",
+                flush=True,
+            )
+            await asyncio.sleep(retry_delay_seconds)
+
+        NEXT_STREETFIGHTERDLE_TIME = None
+
+
+async def background_streetfighterdle_leaderboard_task():
+    global LAST_STREETFIGHTERDLE_LEADERBOARD_DATE_UTC
+    await client.wait_until_ready()
+    if DAILY_STREETFIGHTERDLE_MESSAGES <= 0:
+        print("[streetfighterdle] leaderboard disabled: DAILY_STREETFIGHTERDLE_MESSAGES <= 0", flush=True)
+        return
+
+    print(
+        "[streetfighterdle] Leaderboard scheduling started. Target=1 leaderboard per day at 23:00 UTC.",
+        flush=True,
+    )
+
+    while not client.is_closed():
+        output_channel = client.get_channel(CHANNEL_ID)
+        if not output_channel:
+            try:
+                output_channel = await client.fetch_channel(CHANNEL_ID)
+            except Exception as e:
+                print(
+                    f"[streetfighterdle] leaderboard output channel error; retrying in 5 minutes. error={e}",
+                    flush=True,
+                )
+                await asyncio.sleep(300)
+                continue
+
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        today_leaderboard_utc = now_utc.replace(hour=23, minute=0, second=0, microsecond=0)
+
+        if now_utc < today_leaderboard_utc:
+            target_time_utc = today_leaderboard_utc
+            target_date_utc = target_time_utc.date()
+        elif (
+            LAST_STREETFIGHTERDLE_LEADERBOARD_DATE_UTC != now_utc.date()
+            and now_utc < today_leaderboard_utc + datetime.timedelta(hours=1)
+        ):
+            target_time_utc = now_utc
+            target_date_utc = now_utc.date()
+        else:
+            target_time_utc = today_leaderboard_utc + datetime.timedelta(days=1)
+            target_date_utc = target_time_utc.date()
+
+        wait_seconds = (target_time_utc - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+        if wait_seconds > 0:
+            print(
+                f"[streetfighterdle] Next leaderboard scheduled for {target_time_utc.isoformat()}",
+                flush=True,
+            )
+            await asyncio.sleep(wait_seconds)
+        if client.is_closed():
+            return
+
+        if LAST_STREETFIGHTERDLE_LEADERBOARD_DATE_UTC == target_date_utc:
+            print(
+                f"[streetfighterdle] Skipping duplicate leaderboard for {target_date_utc.isoformat()}.",
+                flush=True,
+            )
+            continue
+
+        window_end_utc = datetime.datetime.combine(
+            target_date_utc,
+            datetime.time(hour=23, minute=0, tzinfo=datetime.timezone.utc),
+        )
+        leaderboard_sent = False
+        retry_attempt = 0
+        while not leaderboard_sent and not client.is_closed():
+            retry_attempt += 1
+            leaderboard_sent = await send_daily_streetfighterdle_score_leaderboard(
+                output_channel,
+                source_label="scheduled-leaderboard" if retry_attempt == 1 else f"scheduled-leaderboard-retry-{retry_attempt}",
+                window_end_utc=window_end_utc,
+            )
+            if leaderboard_sent:
+                LAST_STREETFIGHTERDLE_LEADERBOARD_DATE_UTC = target_date_utc
+                break
+            if client.is_closed():
+                return
+            retry_delay_seconds = min(900, 300 * retry_attempt)
+            print(
+                f"[streetfighterdle] leaderboard send failed; retrying in {retry_delay_seconds} seconds.",
+                flush=True,
+            )
+            await asyncio.sleep(retry_delay_seconds)
+
+
 async def time_handler(request):
     data = {
         "target_time": str(NEXT_RUN_TIME) if NEXT_RUN_TIME else None,
@@ -8957,6 +9460,8 @@ worker_task = None
 background_task_handle = None
 background_encouragement_task_handle = None
 background_damn_gg_task_handle = None
+background_streetfighterdle_task_handle = None
+background_streetfighterdle_leaderboard_task_handle = None
 background_video_task_handle = None
 reminder_task_handle = None
 web_server_task = None
@@ -11105,6 +11610,8 @@ async def on_ready():
     global background_task_handle
     global background_encouragement_task_handle
     global background_damn_gg_task_handle
+    global background_streetfighterdle_task_handle
+    global background_streetfighterdle_leaderboard_task_handle
     global background_video_task_handle
     global reminder_task_handle
     global web_server_task
@@ -11121,6 +11628,12 @@ async def on_ready():
     # start damn gg task
     if background_damn_gg_task_handle is None or background_damn_gg_task_handle.done():
         background_damn_gg_task_handle = client.loop.create_task(background_damn_gg_task())
+    # start streetfighterdle reminder task
+    if background_streetfighterdle_task_handle is None or background_streetfighterdle_task_handle.done():
+        background_streetfighterdle_task_handle = client.loop.create_task(background_streetfighterdle_task())
+    # start streetfighterdle leaderboard task
+    if background_streetfighterdle_leaderboard_task_handle is None or background_streetfighterdle_leaderboard_task_handle.done():
+        background_streetfighterdle_leaderboard_task_handle = client.loop.create_task(background_streetfighterdle_leaderboard_task())
     # start worker
     if worker_task is None or worker_task.done():
         worker_task = client.loop.create_task(worker())
@@ -11133,7 +11646,8 @@ async def on_ready():
         print("Reminder loop task created.", flush=True)
     print(
         "[scheduler] Expected behavior active: 1 random daily 'do the thing' batch (no startup dispatch); "
-        f"{DAILY_ENCOURAGEMENT_MESSAGES} scheduled LLM encouragements per day.",
+        f"{DAILY_ENCOURAGEMENT_MESSAGES} scheduled LLM encouragements per day; "
+        "1 Streetfighterdle leaderboard at 23:00 UTC and 1 reminder at 00:00 UTC per day.",
         flush=True,
     )
     ensure_memory_file_exists()

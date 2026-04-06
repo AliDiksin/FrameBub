@@ -50,3 +50,5 @@ lltest.py
 memory.md
 skills-lock.json
 shared_air_ground_gif_regressions.py
+~/
+local_gif_alias_regressions.py
