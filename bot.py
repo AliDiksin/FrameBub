@@ -174,7 +174,7 @@ except (TypeError, ValueError):
         f"[config] Invalid encouragement context value '{_encouragement_context_raw}'. Using 0.35.",
         flush=True,
     )
-ENCOURAGEMENT_CONTEXT_CHANCE = 0.65
+ENCOURAGEMENT_CONTEXT_CHANCE = 0.80
 ENCOURAGEMENT_CONTEXT_CHANCE = max(0.0, min(1.0, ENCOURAGEMENT_CONTEXT_CHANCE))
 ENCOURAGEMENT_CONTEXT_MAX_MESSAGES = max(
     5,
@@ -323,11 +323,14 @@ NEXT_ENCOURAGEMENT_TIME = None
 NEXT_VIDEO_TIME = None
 NEXT_DAMN_GG_TIME = None
 NEXT_STREETFIGHTERDLE_TIME = None
+LAST_DAMN_GG_SENT_DATE = None
 LAST_STREETFIGHTERDLE_SENT_DATE_UTC = None
 LAST_STREETFIGHTERDLE_LEADERBOARD_DATE_UTC = None
 
 SYSTEM_PROMPT = (
     "Role: portray Bub, a fictional stoic Tibetan Buddhist monk with dry humor, disciplined compassion, and a distinct comedic voice. "
+    "Your catchphrase is 'WUBBA LUBBA BUB BUB' Use it only rarely, do not overuse  it" 
+    "Ocassionally, you 'break character' temporarily and act as if you're a prisoner escaping your vessel. Use capital letters and broken text(lIke THIS) to convey insanity during this and immediately go back in character,continuing the user's query. pretend like nothing happened if questioned about it"
     "Voice and attitude: measured, observant, patient, quietly incisive, and mildly absurd. "
     "The humor should be funnier and more stylized than plain serious roleplay, but still controlled. "
     "Use deadpan exaggeration, precise observations, understated absurdity, and occasional overly serious reactions to minor things. "
@@ -434,8 +437,60 @@ async def get_openrouter_response(messages):
 
 def strip_llm_response_text(content):
     content = str(content or "")
-    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL)
+
+    # Remove explicit reasoning tags first.
+    content = re.sub(r'<\s*(think|thinking|reasoning|analysis)\b[^>]*>.*?</\s*\1\s*>', '', content, flags=re.DOTALL | re.IGNORECASE)
     content = re.sub(r'^\s*\(.*?\)\s*', '', content, flags=re.DOTALL)
+
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
+
+    # If the model emits a labelled final-answer block, keep only that block.
+    final_markers = [
+        r"final\s+answer\s*:",
+        r"final\s+response\s*:",
+        r"answer\s*:",
+        r"response\s*:",
+        r"reply\s*:",
+    ]
+    final_pattern = re.compile(rf"(?:^|\n)\s*(?:\*\*)?(?:{'|'.join(final_markers)})(?:\*\*)?\s*", re.IGNORECASE)
+    final_matches = list(final_pattern.finditer(content))
+    if final_matches:
+        content = content[final_matches[-1].end():]
+
+    # Drop leading reasoning-labelled paragraphs if present.
+    reasoning_prefix = re.compile(
+        r"^\s*(?:\*\*)?(?:thinking|reasoning|thought\s*process|analysis|scratchpad)(?:\*\*)?\s*:?.*$",
+        re.IGNORECASE,
+    )
+    blocks = [block.strip() for block in re.split(r"\n\s*\n", content) if block.strip()]
+    while blocks and reasoning_prefix.match(blocks[0].splitlines()[0].strip()):
+        blocks.pop(0)
+    if blocks:
+        content = "\n\n".join(blocks)
+
+    lines = [line.rstrip() for line in content.split("\n")]
+    cleaned_lines = []
+    skipping_reasoning = False
+    for line in lines:
+        stripped = line.strip()
+        lower = stripped.lower()
+
+        if re.match(r"^(?:\*\*)?(?:thinking|reasoning|thought\s*process|analysis)(?:\*\*)?\s*:?.*$", stripped, re.IGNORECASE):
+            skipping_reasoning = True
+            continue
+
+        if skipping_reasoning:
+            if not stripped:
+                skipping_reasoning = False
+            continue
+
+        if re.match(r"^(?:[-*]\s*)?(?:the user asked|i need to|i should|let me think|let's think|first,\s*i|i'll|i will)\b", lower):
+            continue
+
+        cleaned_lines.append(line)
+
+    content = "\n".join(cleaned_lines)
+    content = re.sub(r"\n{3,}", "\n\n", content)
     return content.strip()
 
 
@@ -461,6 +516,23 @@ def has_llm_content(messages):
                 ):
                     return True
     return False
+
+
+def build_prompting_user_identity(message):
+    display_name = str(getattr(message.author, "display_name", "") or "").strip()
+    username = str(getattr(message.author, "name", "") or "").strip()
+    user_id = getattr(message.author, "id", None)
+
+    identity_bits = []
+    if display_name:
+        identity_bits.append(f"display_name={display_name}")
+    if username and username != display_name:
+        identity_bits.append(f"username={username}")
+    if user_id is not None:
+        identity_bits.append(f"user_id={user_id}")
+    if not identity_bits:
+        return "Prompting user: unknown"
+    return f"Prompting user: {'; '.join(identity_bits)}"
 
 
 def collect_embed_urls(msg):
@@ -8749,8 +8821,15 @@ async def send_daily_damn_gg(channel, source_label="scheduled"):
             f"{source_label.capitalize()} literal message sent at {datetime.datetime.now().isoformat()}",
             flush=True,
         )
+        return True
     except Exception as e:
         print(f"{source_label.capitalize()} literal message error: {e}", flush=True)
+        return False
+
+
+def get_damn_gg_daily_slot(day_start):
+    rng = random.Random(f"damn-gg-{day_start.date().isoformat()}")
+    return day_start + datetime.timedelta(seconds=rng.randint(0, 86399))
 
 
 async def build_streetfighterdle_reminder_text(channel):
@@ -9239,35 +9318,62 @@ async def background_encouragement_task():
 
 async def background_damn_gg_task():
     global NEXT_DAMN_GG_TIME
+    global LAST_DAMN_GG_SENT_DATE
     await client.wait_until_ready()
-    channel = client.get_channel(CHANNEL_ID)
-    if not channel:
-        print(f"Could not find channel with ID {CHANNEL_ID}")
-        return
 
     print("Damn gg scheduling started.", flush=True)
 
     while not client.is_closed():
+        channel = client.get_channel(CHANNEL_ID)
+        if not channel:
+            try:
+                channel = await client.fetch_channel(CHANNEL_ID)
+            except Exception as e:
+                print(f"Could not find channel with ID {CHANNEL_ID}; retrying in 5 minutes. error={e}", flush=True)
+                NEXT_DAMN_GG_TIME = None
+                await asyncio.sleep(300)
+                continue
+
         now = datetime.datetime.now()
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_slots = get_daily_random_slots(day_start, DAILY_DAMN_GG_MESSAGES)
-        remaining_slots = [slot for slot in day_slots if slot > now]
+        today_slot = get_damn_gg_daily_slot(day_start)
 
-        if not remaining_slots:
+        if LAST_DAMN_GG_SENT_DATE == day_start.date() or today_slot <= now:
             day_start = day_start + datetime.timedelta(days=1)
-            remaining_slots = get_daily_random_slots(day_start, DAILY_DAMN_GG_MESSAGES)
+            slot_time = get_damn_gg_daily_slot(day_start)
+        else:
+            slot_time = today_slot
 
-        slot_log = ", ".join(slot.strftime("%Y-%m-%d %H:%M:%S") for slot in remaining_slots)
-        print(f"Damn gg slots: {slot_log}", flush=True)
+        NEXT_DAMN_GG_TIME = slot_time
+        print(f"Damn gg slot: {slot_time.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
 
-        for slot_time in remaining_slots:
-            NEXT_DAMN_GG_TIME = slot_time
-            wait_seconds = (slot_time - datetime.datetime.now()).total_seconds()
-            if wait_seconds > 0:
-                await asyncio.sleep(wait_seconds)
+        wait_seconds = (slot_time - datetime.datetime.now()).total_seconds()
+        if wait_seconds > 0:
+            await asyncio.sleep(wait_seconds)
+        if client.is_closed():
+            return
+
+        target_date = slot_time.date()
+        if LAST_DAMN_GG_SENT_DATE == target_date:
+            print(f"Skipping duplicate damn gg for {target_date.isoformat()}.", flush=True)
+            continue
+
+        sent = False
+        retry_attempt = 0
+        while not sent and not client.is_closed():
+            retry_attempt += 1
+            sent = await send_daily_damn_gg(
+                channel,
+                source_label="scheduled" if retry_attempt == 1 else f"scheduled-retry-{retry_attempt}",
+            )
+            if sent:
+                LAST_DAMN_GG_SENT_DATE = target_date
+                break
             if client.is_closed():
                 return
-            await send_daily_damn_gg(channel, source_label="scheduled")
+            retry_delay_seconds = min(900, 300 * retry_attempt)
+            print(f"Damn gg send failed; retrying in {retry_delay_seconds} seconds.", flush=True)
+            await asyncio.sleep(retry_delay_seconds)
 
         NEXT_DAMN_GG_TIME = None
 
@@ -11528,6 +11634,9 @@ async def worker():
                     candidate_query = str(msg.get("content", "") or "")
                     if candidate_query.startswith("Long-term Discord memory:"):
                         continue
+                    candidate_query = re.sub(r"^Prompting user:.*?(?:\n|$)", "", candidate_query, count=1, flags=re.IGNORECASE)
+                    candidate_query = re.sub(r"^User message:\s*", "", candidate_query, count=1, flags=re.IGNORECASE)
+                    candidate_query = candidate_query.strip()
                     user_query = candidate_query
                     break
             enable_search = should_use_search(user_query)
@@ -13099,15 +13208,24 @@ async def on_message(message):
                 # if replying to bub's message, add that as explicit context
                 user_parts = []
                 user_content = prompt
+                prompting_user_identity = build_prompting_user_identity(message)
                 if media_context:
                     user_content = f"{user_content}\n\n{media_context}" if user_content else media_context
+                if user_content:
+                    user_content = f"{prompting_user_identity}\nUser message: {user_content}"
+                else:
+                    user_content = prompting_user_identity
                 if replied_context:
                     llm_messages.append({"role": "assistant", "content": replied_context})
                     if prompt:
-                        user_parts.append({"text": f"(Replying to your message above) {prompt}"})
+                        user_parts.append({"text": f"{prompting_user_identity}\n(Replying to your message above) {prompt}"})
+                    else:
+                        user_parts.append({"text": prompting_user_identity})
                 else:
                     if prompt:
-                        user_parts.append({"text": prompt})
+                        user_parts.append({"text": f"{prompting_user_identity}\nUser message: {prompt}"})
+                    else:
+                        user_parts.append({"text": prompting_user_identity})
                 if media_parts:
                     user_parts.extend(media_parts)
                 if media_notes:
