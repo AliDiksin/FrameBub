@@ -55,3 +55,5 @@ local_gif_alias_regressions.py
 GGST - Dustloop Frame Data test.ods
 scrape_ggst_dustloop.py
 GGST - Dustloop Frame Data.ods
+/sf6frames
+bub_llm.py

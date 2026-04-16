@@ -1,0 +1,388 @@
+import datetime
+import os
+import re
+from datetime import date
+from zoneinfo import ZoneInfo
+
+
+REMINDER_POLL_SECONDS = int(os.getenv("REMINDER_POLL_SECONDS", "10"))
+REMINDER_PENDING_TTL_SECONDS = int(os.getenv("REMINDER_PENDING_TTL_SECONDS", "600"))
+TZ_ALIASES = {
+    "utc": "UTC",
+    "gmt": "UTC",
+    "est": "America/New_York",
+    "edt": "America/New_York",
+    "cst": "America/Chicago",
+    "cdt": "America/Chicago",
+    "mst": "America/Denver",
+    "mdt": "America/Denver",
+    "pst": "America/Los_Angeles",
+    "pdt": "America/Los_Angeles",
+    "cet": "Europe/Paris",
+    "cest": "Europe/Paris",
+    "bst": "Europe/London",
+    "ist": "Asia/Kolkata",
+}
+TZ_ABBREV_PATTERN = "|".join(
+    sorted((re.escape(key) for key in TZ_ALIASES.keys()), key=len, reverse=True)
+)
+if TZ_ABBREV_PATTERN:
+    tz_pattern = (
+        rf"(?:utc(?:[+-]\d{{1,2}}(?::?\d{{2}})?)?"
+        rf"|gmt(?:[+-]\d{{1,2}}(?::?\d{{2}})?)?"
+        rf"|[A-Za-z]+/[A-Za-z_]+"
+        rf"|{TZ_ABBREV_PATTERN}"
+        rf"|[+-]\d{{1,2}}(?::?\d{{2}})?)"
+    )
+else:
+    tz_pattern = (
+        r"(?:utc(?:[+-]\d{1,2}(?::?\d{2})?)?"
+        r"|gmt(?:[+-]\d{1,2}(?::?\d{2})?)?"
+        r"|[A-Za-z]+/[A-Za-z_]+"
+        r"|[+-]\d{1,2}(?::?\d{2})?)"
+    )
+TZ_REGEX = re.compile(rf"(?<!\w){tz_pattern}(?!\w)", re.IGNORECASE)
+
+
+class ReminderManager:
+    def __init__(self, client, truncate_message_func, build_reminder_ack_text, build_reminder_fire_text):
+        self.client = client
+        self.truncate_message = truncate_message_func
+        self.build_reminder_ack_text = build_reminder_ack_text
+        self.build_reminder_fire_text = build_reminder_fire_text
+        self.reminders = []
+        self.pending_reminders = {}
+
+    def parse_timezone(self, tz_str):
+        tz = tz_str.strip().lower()
+        if not tz:
+            return None, None
+        if tz in TZ_ALIASES:
+            tz = TZ_ALIASES[tz]
+        raw_offset_match = re.match(r"^([+-])(\d{1,2})(?::?(\d{2}))?$", tz)
+        if raw_offset_match:
+            sign = 1 if raw_offset_match.group(1) == "+" else -1
+            hours = int(raw_offset_match.group(2))
+            minutes = int(raw_offset_match.group(3) or 0)
+            offset = datetime.timedelta(hours=hours, minutes=minutes) * sign
+            return datetime.timezone(offset), f"UTC{raw_offset_match.group(1)}{hours:02d}:{minutes:02d}"
+        offset_match = re.match(r"^(utc|gmt)([+-])(\d{1,2})(?::?(\d{2}))?$", tz)
+        if offset_match:
+            sign = 1 if offset_match.group(2) == "+" else -1
+            hours = int(offset_match.group(3))
+            minutes = int(offset_match.group(4) or 0)
+            offset = datetime.timedelta(hours=hours, minutes=minutes) * sign
+            return datetime.timezone(offset), f"UTC{offset_match.group(2)}{hours:02d}:{minutes:02d}"
+        try:
+            return ZoneInfo(tz), tz
+        except Exception:
+            return None, None
+
+    def is_reminder_request_text(self, text):
+        return bool(re.search(r"\bremind(?:\s+me)?\b", text or "", re.IGNORECASE))
+
+    def get_reminder_target_user_ids(self, message, existing_ids=None):
+        targets = []
+        if existing_ids:
+            for user_id in existing_ids:
+                try:
+                    normalized = int(user_id)
+                except (TypeError, ValueError):
+                    continue
+                if normalized not in targets:
+                    targets.append(normalized)
+
+        for member in message.mentions:
+            if self.client.user and member.id == self.client.user.id:
+                continue
+            if member.id not in targets:
+                targets.append(member.id)
+
+        if not targets:
+            targets.append(message.author.id)
+        return targets
+
+    def parse_reminder_request(self, text, allow_missing_tz=False):
+        text = text.strip()
+        if not text:
+            return None, None, None, None, "I couldn't parse that. Try: 'remind me to <task> tomorrow at 2:30pm GMT'.", None
+
+        time_match = re.search(r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", text, re.IGNORECASE)
+        if not time_match:
+            return None, None, None, None, "I couldn't parse the time. Use: 'at 2:30pm' or 'at 14:30'.", None
+
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2) or 0)
+        ampm = (time_match.group(3) or "").lower()
+        if ampm:
+            if hour == 12:
+                hour = 0
+            if ampm == "pm":
+                hour += 12
+        if hour > 23 or minute > 59:
+            return None, None, None, None, "Time is invalid. Use formats like 2:30pm or 14:30.", None
+
+        rel_match = re.search(r"\b(today|tomorrow)\b", text, re.IGNORECASE)
+        rel = rel_match.group(1).lower() if rel_match else None
+        date_match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", text)
+        date_str = date_match.group(1) if date_match else None
+
+        task = ""
+        after_time = text[time_match.end():]
+        to_after_time = re.search(r"\bto\s+(.+)$", after_time, re.IGNORECASE)
+        if to_after_time:
+            task = to_after_time.group(1).strip()
+        if not task:
+            task = re.sub(r"^\s*remind(?:\s+me)?\s+(?:to\s+)?", "", text, flags=re.IGNORECASE).strip()
+            task = re.sub(r"\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b.*$", "", task, flags=re.IGNORECASE).strip()
+        task = re.sub(r"\b(?:today|tomorrow)\b\s*$", "", task, flags=re.IGNORECASE).strip(" ,.-")
+        task = re.sub(r"\b\d{4}-\d{2}-\d{2}\b\s*$", "", task).strip(" ,.-")
+        if not task:
+            return None, None, None, None, "I couldn't find the task. Try: 'remind me to <task> at 2:30pm GMT'.", None
+
+        tz_match = TZ_REGEX.search(text)
+        if not tz_match:
+            if allow_missing_tz:
+                pending = {
+                    "task": task,
+                    "hour": hour,
+                    "minute": minute,
+                    "rel": rel,
+                    "date_str": date_str,
+                }
+                return None, None, None, None, None, pending
+            return None, None, None, None, "Please include a timezone (e.g., GMT, UTC+2, America/New_York).", None
+        tz_str = tz_match.group(0)
+        tzinfo, tz_label = self.parse_timezone(tz_str)
+        if not tzinfo:
+            return None, None, None, None, "Unknown timezone. Use GMT/UTC, UTC+2, or IANA like America/New_York.", None
+
+        now_tz = datetime.datetime.now(tzinfo)
+        if date_str:
+            reminder_date = date.fromisoformat(date_str)
+        elif rel == "tomorrow":
+            reminder_date = (now_tz + datetime.timedelta(days=1)).date()
+        else:
+            reminder_date = now_tz.date()
+
+        reminder_dt = datetime.datetime(
+            reminder_date.year,
+            reminder_date.month,
+            reminder_date.day,
+            hour,
+            minute,
+            tzinfo=tzinfo,
+        )
+        if reminder_dt < now_tz:
+            if not date_str and rel is None:
+                reminder_dt = reminder_dt + datetime.timedelta(days=1)
+            else:
+                return None, None, None, None, "That time has already passed. Please choose a future time.", None
+
+        return task, reminder_dt, reminder_dt.astimezone(datetime.timezone.utc), tz_label, None, None
+
+    async def reminder_loop(self):
+        print(f"Reminder loop started. Polling every {REMINDER_POLL_SECONDS}s", flush=True)
+        last_count = None
+        last_next = None
+        while not self.client.is_closed():
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            reminder_count = len(self.reminders)
+            next_due = None
+            if self.reminders:
+                next_due = min(r["when_utc"] for r in self.reminders)
+            if reminder_count != last_count or next_due != last_next:
+                next_due_str = next_due.isoformat() if next_due else "None"
+                print(f"Reminder state: count={reminder_count}, next_due={next_due_str}", flush=True)
+                last_count = reminder_count
+                last_next = next_due
+            due = [r for r in self.reminders if r["when_utc"] <= now_utc]
+            if due:
+                print(f"Reminder due: count={len(due)} now={now_utc.isoformat()}", flush=True)
+                for reminder in due:
+                    channel = self.client.get_channel(reminder["channel_id"])
+                    if not channel:
+                        try:
+                            channel = await self.client.fetch_channel(reminder["channel_id"])
+                        except Exception as e:
+                            print(
+                                "Reminder fetch channel error: channel_id="
+                                f"{reminder['channel_id']} error={e}",
+                                flush=True,
+                            )
+                            channel = None
+                    reminder_text = await self.build_reminder_fire_text(
+                        reminder["task"],
+                        getattr(channel, "guild", None),
+                        self.truncate_message,
+                    )
+                    target_ids = reminder.get("notify_user_ids") or [reminder["user_id"]]
+                    target_ids = [int(uid) for uid in target_ids if str(uid).isdigit()]
+                    if not target_ids:
+                        target_ids = [reminder["user_id"]]
+                    if channel:
+                        try:
+                            mention_prefix = " ".join(f"<@{uid}>" for uid in target_ids)
+                            channel_text = f"{mention_prefix} {reminder_text}".strip()
+                            await channel.send(channel_text)
+                        except Exception as e:
+                            print(
+                                "Reminder send error: channel_id="
+                                f"{reminder['channel_id']} error={e}",
+                                flush=True,
+                            )
+                    else:
+                        for target_id in target_ids:
+                            try:
+                                user = await self.client.fetch_user(target_id)
+                                await user.send(reminder_text)
+                                print(
+                                    "Reminder DM fallback sent: user_id="
+                                    f"{target_id}",
+                                    flush=True,
+                                )
+                            except Exception as e:
+                                print(
+                                    "Reminder DM fallback error: user_id="
+                                    f"{target_id} error={e}",
+                                    flush=True,
+                                )
+                    print(
+                        "Reminder fired: user_id="
+                        f"{reminder['user_id']} channel_id={reminder['channel_id']} "
+                        f"when_utc={reminder['when_utc'].isoformat()} targets={target_ids}",
+                        flush=True,
+                    )
+                self.reminders[:] = [r for r in self.reminders if r not in due]
+            await datetime_async_sleep(REMINDER_POLL_SECONDS)
+
+    async def handle_message(self, message, content_no_mentions, content_lower):
+        pending_key = (message.author.id, message.channel.id)
+        if pending_key in self.pending_reminders:
+            pending = self.pending_reminders[pending_key]
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            if (now_utc - pending["created_at"]).total_seconds() > REMINDER_PENDING_TTL_SECONDS:
+                del self.pending_reminders[pending_key]
+                print(
+                    "Pending reminder expired: user_id="
+                    f"{message.author.id} channel_id={message.channel.id}",
+                    flush=True,
+                )
+            else:
+                if self.is_reminder_request_text(content_lower):
+                    del self.pending_reminders[pending_key]
+                else:
+                    tz_match = TZ_REGEX.search(content_no_mentions)
+                    if tz_match:
+                        tz_str = tz_match.group(0)
+                        tzinfo, tz_label = self.parse_timezone(tz_str)
+                        if not tzinfo:
+                            await message.reply("Unknown timezone. Use GMT/UTC, UTC+2, or IANA like America/New_York.")
+                            return True
+                        now_tz = datetime.datetime.now(tzinfo)
+                        if pending["date_str"]:
+                            reminder_date = date.fromisoformat(pending["date_str"])
+                        elif pending["rel"] == "tomorrow":
+                            reminder_date = (now_tz + datetime.timedelta(days=1)).date()
+                        else:
+                            reminder_date = now_tz.date()
+                        reminder_dt = datetime.datetime(
+                            reminder_date.year,
+                            reminder_date.month,
+                            reminder_date.day,
+                            pending["hour"],
+                            pending["minute"],
+                            tzinfo=tzinfo,
+                        )
+                        if reminder_dt < now_tz and pending["rel"] is None and pending["date_str"] is None:
+                            reminder_dt = reminder_dt + datetime.timedelta(days=1)
+                        elif reminder_dt < now_tz:
+                            await message.reply("That time has already passed. Please choose a future time.")
+                            return True
+                        reminder_utc = reminder_dt.astimezone(datetime.timezone.utc)
+                        notify_user_ids = self.get_reminder_target_user_ids(
+                            message,
+                            existing_ids=pending.get("notify_user_ids"),
+                        )
+                        self.reminders.append(
+                            {
+                                "user_id": message.author.id,
+                                "channel_id": message.channel.id,
+                                "task": pending["task"],
+                                "when_utc": reminder_utc,
+                                "notify_user_ids": notify_user_ids,
+                            }
+                        )
+                        print(
+                            "Pending reminder scheduled: user_id="
+                            f"{message.author.id} channel_id={message.channel.id} "
+                            f"when_utc={reminder_utc.isoformat()} tz={tz_label} targets={notify_user_ids}",
+                            flush=True,
+                        )
+                        del self.pending_reminders[pending_key]
+                        reply_text = await self.build_reminder_ack_text(
+                            pending["task"],
+                            reminder_dt,
+                            tz_label,
+                            message.guild,
+                            self.truncate_message,
+                        )
+                        await message.reply(reply_text)
+                        return True
+
+        if self.client.user.mentioned_in(message) and self.is_reminder_request_text(content_lower):
+            notify_user_ids = self.get_reminder_target_user_ids(message)
+            task, reminder_dt, reminder_utc, tz_label, error, pending = self.parse_reminder_request(
+                content_no_mentions,
+                allow_missing_tz=True,
+            )
+            if pending:
+                self.pending_reminders[pending_key] = {
+                    **pending,
+                    "notify_user_ids": notify_user_ids,
+                    "created_at": datetime.datetime.now(datetime.timezone.utc),
+                }
+                print(
+                    "Pending reminder created: user_id="
+                    f"{message.author.id} channel_id={message.channel.id} "
+                    f"task={pending['task']} time={pending['hour']:02d}:{pending['minute']:02d} "
+                    f"rel={pending['rel']} date={pending['date_str']} targets={notify_user_ids}",
+                    flush=True,
+                )
+                await message.reply("Please include a timezone (e.g., GMT, UTC+2, America/New_York).")
+                return True
+            if error:
+                await message.reply(error)
+                return True
+            self.reminders.append(
+                {
+                    "user_id": message.author.id,
+                    "channel_id": message.channel.id,
+                    "task": task,
+                    "when_utc": reminder_utc,
+                    "notify_user_ids": notify_user_ids,
+                }
+            )
+            print(
+                "Reminder scheduled: user_id="
+                f"{message.author.id} channel_id={message.channel.id} "
+                f"when_utc={reminder_utc.isoformat()} tz={tz_label} targets={notify_user_ids}",
+                flush=True,
+            )
+            reply_text = await self.build_reminder_ack_text(
+                task,
+                reminder_dt,
+                tz_label,
+                message.guild,
+                self.truncate_message,
+            )
+            await message.reply(reply_text)
+            return True
+
+        return False
+
+
+async def datetime_async_sleep(seconds):
+    import asyncio
+
+    await asyncio.sleep(seconds)
