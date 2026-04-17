@@ -53,6 +53,27 @@ class SchedulerManager:
         self.last_damn_gg_sent_date = None
         self.last_streetfighterdle_sent_date_utc = None
         self.last_streetfighterdle_leaderboard_date_utc = None
+        self.last_scheduled_encouragement_sent_at = None
+
+    async def channel_has_human_messages_since(self, channel, since_dt):
+        if since_dt is None:
+            return True
+
+        try:
+            async for prev_msg in channel.history(after=since_dt, oldest_first=False):
+                author = getattr(prev_msg, "author", None)
+                if author is None:
+                    continue
+                if self.client.user is not None and getattr(author, "id", None) == getattr(self.client.user, "id", None):
+                    continue
+                if getattr(author, "bot", False):
+                    continue
+                return True
+        except Exception as e:
+            print(f"[encouragement] human-message scan error: {e}", flush=True)
+            return True
+
+        return False
 
     async def send_daily_messages(self, channel):
         print("[daily-message] Dispatching 4-line batch.", flush=True)
@@ -230,7 +251,25 @@ class SchedulerManager:
                     f"[encouragement] Dispatching scheduled encouragement {index}/{len(remaining_slots)}.",
                     flush=True,
                 )
-                await self.send_generated_encouragement(
+                if self.last_scheduled_encouragement_sent_at is not None:
+                    has_human_messages = await self.channel_has_human_messages_since(
+                        channel,
+                        self.last_scheduled_encouragement_sent_at,
+                    )
+                    if not has_human_messages:
+                        sent_message = await channel.send("dead server")
+                        self.last_scheduled_encouragement_sent_at = getattr(
+                            sent_message,
+                            "created_at",
+                            datetime.datetime.now(datetime.timezone.utc),
+                        )
+                        print(
+                            f"[encouragement] scheduled dead-server sent at {datetime.datetime.now().isoformat()}",
+                            flush=True,
+                        )
+                        continue
+
+                sent_message = await self.send_generated_encouragement(
                     channel,
                     self.strip_discord_mentions,
                     self.client.user,
@@ -239,6 +278,12 @@ class SchedulerManager:
                     self.memory_context_max_messages,
                     source_label="scheduled",
                 )
+                if sent_message is not None:
+                    self.last_scheduled_encouragement_sent_at = getattr(
+                        sent_message,
+                        "created_at",
+                        datetime.datetime.now(datetime.timezone.utc),
+                    )
 
             self.next_encouragement_time = None
 
