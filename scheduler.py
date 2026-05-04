@@ -271,11 +271,11 @@ class SchedulerManager:
                     f"[encouragement] Dispatching scheduled encouragement {index}/{len(remaining_slots)}.",
                     flush=True,
                 )
-                recent_cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=5)
-                recent_human_count = await self.count_recent_human_messages(channel, recent_cutoff, limit=3)
-                if recent_human_count > 2:
+                recent_cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=2)
+                recent_human_count = await self.count_recent_human_messages(channel, recent_cutoff, limit=5)
+                if recent_human_count >= 5:
                     print(
-                        f"[encouragement] Skipping scheduled encouragement: active conversation detected ({recent_human_count} human messages in the last 5 minutes).",
+                        f"[encouragement] Skipping scheduled encouragement: active conversation detected ({recent_human_count} human messages in the last 2 minutes).",
                         flush=True,
                     )
                     continue

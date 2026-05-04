@@ -5,204 +5,85 @@ import re
 import discord
 import pandas as pd
 
+from ggst_aliases import (
+    GGST_CHARACTER_ALIASES,
+    GGST_CHARACTER_MOVE_ALIASES,
+    GGST_CHARACTER_STATE_SHEETS,
+    GGST_CHARACTER_SUPPLEMENTAL_SHEETS,
+    GGST_LOOKUP_WORDS,
+    GGST_MOVE_ALIASES,
+    GOLDLEWIS_SECURITY_STATE_SHEETS,
+    NAGORIYUKI_BLOOD_STATE_SHEETS,
+)
+
 
 GGST_FRAME_DATA_FILE = "GGST Frame Data.ods"
 GGST_FRAME_DATA_FILE_CANDIDATES = [
     GGST_FRAME_DATA_FILE,
     "ggst-framedata.ods",
-    "GGST - Dustloop Frame Data.ods",
 ]
 GGST_FRAME_DATA = {}
 GGST_STATE_FRAME_DATA = {}
 GGST_SUPPLEMENTAL_FRAME_DATA = {}
 GGST_HITBOX_DATA = {}
-
-GGST_CHARACTER_ALIASES = {
-    "aba": "aba",
-    "a.b.a": "aba",
-    "a.b.a.": "aba",
-    "anji": "anji",
-    "anji mito": "anji",
-    "asuka": "asuka",
-    "asuka r": "asuka",
-    "asuka r#": "asuka",
-    "axl": "axl",
-    "axl low": "axl",
-    "baiken": "baiken",
-    "bedman": "bedman",
-    "bedman?": "bedman",
-    "bridget": "bridget",
-    "chipp": "chipp",
-    "dizzy": "dizzy",
-    "elphelt": "elphelt",
-    "faust": "faust",
-    "gio": "giovanna",
-    "giovanna": "giovanna",
-    "goldlewis": "goldlewis",
-    "goldlewis dickinson": "goldlewis",
-    "chaos": "h. chaos",
-    "happy chaos": "h. chaos",
-    "h chaos": "h. chaos",
-    "h. chaos": "h. chaos",
-    "ino": "i-no",
-    "i-no": "i-no",
-    "i no": "i-no",
-    "jacko": "jack-o",
-    "jack-o": "jack-o",
-    "jack o": "jack-o",
-    "jam": "jam",
-    "johnny": "johnny",
-    "ky": "ky",
-    "ky kiske": "ky",
-    "leo": "leo",
-    "leo whitefang": "leo",
-    "lucy": "lucy",
-    "may": "may",
-    "millia": "millia",
-    "millia rage": "millia",
-    "nago": "nagoriyuki",
-    "nagoriyuki": "nagoriyuki",
-    "pot": "potemkin",
-    "potemkin": "potemkin",
-    "ram": "ramlethal",
-    "ramlethal": "ramlethal",
-    "ramlethal valentine": "ramlethal",
-    "sin": "sin",
-    "sin kiske": "sin",
-    "slayer": "slayer",
-    "sol": "sol",
-    "sol badguy": "sol",
-    "test": "testament",
-    "testament": "testament",
-    "unika": "unika",
-    "venom": "venom",
-    "zato": "zato-1",
-    "zato1": "zato-1",
-    "zato-1": "zato-1",
-    "zato 1": "zato-1",
+FRAME_IMAGE_THUMB_WIDTH = 220
+GGST_MOVE_IMAGE_URLS = {
+    ("ky", "jd"): "https://www.dustloop.com/wiki/images/thumb/2/2c/GGST_Ky_Kiske_jD.png/315px-GGST_Ky_Kiske_jD.png",
 }
-
-GGST_MOVE_ALIASES = {
-    "p": "5P",
-    "k": "5K",
-    "s": "f.S",
-    "slash": "f.S",
-    "fs": "f.S",
-    "f s": "f.S",
-    "f.s": "f.S",
-    "far s": "f.S",
-    "far slash": "f.S",
-    "cs": "c.S",
-    "c s": "c.S",
-    "c.s": "c.S",
-    "close s": "c.S",
-    "close slash": "c.S",
-    "h": "5H",
-    "hs": "5H",
-    "heavy": "5H",
-    "heavy slash": "5H",
-    "d": "5D",
-    "dust": "5D",
-    "2p": "2P",
-    "2k": "2K",
-    "2s": "2S",
-    "2h": "2H",
-    "2hs": "2H",
-    "2d": "2D",
-    "6p": "6P",
-    "6k": "6K",
-    "6s": "6S",
-    "6h": "6H",
-    "6hs": "6H",
-    "jp": "j.P",
-    "j p": "j.P",
-    "j.p": "j.P",
-    "jk": "j.K",
-    "j k": "j.K",
-    "j.k": "j.K",
-    "js": "j.S",
-    "j s": "j.S",
-    "j.s": "j.S",
-    "jh": "j.H",
-    "j h": "j.H",
-    "j.h": "j.H",
-    "jhs": "j.H",
-    "jd": "j.D",
-    "j d": "j.D",
-    "j.d": "j.D",
-    "air throw": "4D or 6D (air)",
-    "throw": "4D or 6D",
-}
-
-GGST_CHARACTER_MOVE_ALIASES = {
-    "sol": {
-        "svv": "623S",
-        "hvv": "623H",
-    },
-    "h. chaos": {
-        "h": "H",
-    },
-}
-
-GGST_LOOKUP_WORDS = {
-    "ggst",
-    "guilty",
-    "gear",
-    "strive",
-    "framedata",
-    "frame",
-    "frames",
-    "data",
-    "gif",
-    "gifs",
-    "hitbox",
-    "hitboxes",
-    "blood",
-    "level",
-    "levels",
-    "bl",
-    "br",
-    "followup",
-    "followups",
-    "follow",
-    "up",
-    "item",
-    "items",
-    "spell",
-    "spells",
-    "install",
-    "di",
-}
-
-NAGORIYUKI_BLOOD_STATE_SHEETS = {
-    "NagoriyukiL2": ("blood_l2", "Blood Lv2"),
-    "NagoriyukiL3": ("blood_l3", "Blood Lv3"),
-    "NagoriyukiBR": ("blood_rage", "Blood Rage"),
-}
-GOLDLEWIS_SECURITY_STATE_SHEETS = {
-    "GoldlewisL2": ("security_l2", "Security Lv2"),
-    "GoldlewisL3": ("security_l3", "Security Lv3"),
-}
-GGST_CHARACTER_STATE_SHEETS = {
-    "bedman": {
-        "BedmanInstall": ("install", "Error 6E"),
-    },
-    "ky": {
-        "KyDragon Install": ("dragon_install", "Dragon Install"),
-    },
-}
-GGST_CHARACTER_SUPPLEMENTAL_SHEETS = {
-    "asuka": {
-        "AsukaSpells": "Spells",
-    },
-    "faust": {
-        "FaustItems": "Items",
-    },
-}
-
+GGST_MOVE_IMAGES_MODULE = "ggst_move_images"
 
 def normalize_key(value):
     return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def resize_mediawiki_thumb_url(url, thumb_width=FRAME_IMAGE_THUMB_WIDTH):
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    return re.sub(r"/\d+px-([^/]+)$", rf"/{thumb_width}px-\1", text)
+
+
+def load_move_image_urls(module_name=GGST_MOVE_IMAGES_MODULE):
+    try:
+        image_module = __import__(module_name)
+        data = {
+            "normal": getattr(image_module, "GGST_MOVE_IMAGE_URLS", {}),
+            "hitbox": getattr(image_module, "GGST_HITBOX_DATA", {}),
+        }
+    except Exception as exc:
+        if not isinstance(exc, ModuleNotFoundError):
+            print(f"[ggst-images] failed to load {module_name}: {exc}", flush=True)
+        return False
+
+    normal_loaded = 0
+    for char_key, moves in ((data or {}).get("normal") or {}).items():
+        if not isinstance(moves, dict):
+            continue
+        normalized_char = str(char_key or "").strip().lower()
+        for move_key, url in moves.items():
+            if not isinstance(url, str) or not url.strip():
+                continue
+            GGST_MOVE_IMAGE_URLS[(normalized_char, normalize_move_token(move_key))] = resize_mediawiki_thumb_url(url)
+            normal_loaded += 1
+
+    hitbox_loaded = 0
+    GGST_HITBOX_DATA.clear()
+    for char_key, moves in ((data or {}).get("hitbox") or {}).items():
+        if not isinstance(moves, dict):
+            continue
+        normalized_char = str(char_key or "").strip().lower()
+        char_links = GGST_HITBOX_DATA.setdefault(normalized_char, {})
+        for move_key, links in moves.items():
+            if isinstance(links, str):
+                links = [links]
+            clean_links = [resize_mediawiki_thumb_url(link) for link in (links or []) if str(link).strip()]
+            if not clean_links:
+                continue
+            char_links[normalize_move_token(move_key)] = clean_links
+            hitbox_loaded += len(clean_links)
+
+    print(f"[ggst-images] loaded {normal_loaded} move image links and {hitbox_loaded} hitbox links", flush=True)
+    return True
 
 
 def canonical_char_key(value):
@@ -456,6 +337,9 @@ def normalize_move_token(value):
     text = text.replace("hs", "h")
     text = text.replace(".", "")
     return re.sub(r"[^a-z0-9>~+/-]", "", text)
+
+
+load_move_image_urls()
 
 
 def expand_or_command_alternatives(value):
@@ -854,6 +738,14 @@ def format_frame_data(row):
     )
 
 
+def get_move_image_url(row):
+    return resize_mediawiki_thumb_url(
+        GGST_MOVE_IMAGE_URLS.get(
+            (str(row.get("char_key", "")).strip().lower(), normalize_move_token(row.get("numCmd", "")))
+        )
+    )
+
+
 def build_frame_embed(row):
     char_name = clean_value(row.get("char_name"), "Unknown")
     move_name = clean_value(row.get("moveName"), "Unknown")
@@ -871,15 +763,16 @@ def build_frame_embed(row):
     add_embed_field(embed, "On Block", row.get("onBlock"), inline=True)
     add_embed_field(embed, "Damage", row.get("dmg"), inline=True)
     add_embed_field(embed, "RISC Gain", row.get("riscGain"), inline=True)
-    add_embed_field(embed, "Proration", row.get("prorate"), inline=True)
     add_embed_field(embed, "Knockdown Adv", row.get("kda"), inline=True)
     add_embed_field(embed, "Counter Hit Adv", row.get("chAdv"), inline=True)
     add_embed_field(embed, "Guard", row.get("guardLevel"), inline=True)
     add_embed_field(embed, "Attack Level", row.get("atkLvl"), inline=True)
     add_embed_field(embed, "Cancel", format_jsonish_list(row.get("xx")), inline=True)
-    add_embed_field(embed, "Gatling", format_jsonish_list(row.get("gatling")), inline=False)
-    add_embed_field(embed, "Move Type", row.get("moveType"), inline=True)
+    add_embed_field(embed, "Gatling", format_jsonish_list(row.get("gatling")), inline=True)
     add_embed_field(embed, "Notes", format_jsonish_list(row.get("extraInfo")), inline=False)
+    image_url = get_move_image_url(row)
+    if image_url:
+        embed.set_image(url=image_url)
     return embed
 
 
@@ -890,13 +783,15 @@ def get_hitbox_links(row, limit=4):
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
     char_links = GGST_HITBOX_DATA.get(char_key, {})
     links = char_links.get(num_cmd_key, []) if isinstance(char_links, dict) else []
-    return list(links or [])[:limit]
+    return [resize_mediawiki_thumb_url(link) for link in list(links or [])[:limit]]
 
 
 class GGSTHitboxButton(discord.ui.Button):
     def __init__(self, row):
         self.frame_row = row
         self.hitbox_links = get_hitbox_links(row)
+        self.original_image_url = get_move_image_url(row)
+        self.showing_hitbox = False
         super().__init__(label="Show Hitbox", style=discord.ButtonStyle.primary, disabled=not self.hitbox_links)
 
     async def callback(self, interaction: discord.Interaction):
@@ -906,7 +801,19 @@ class GGSTHitboxButton(discord.ui.Button):
                 ephemeral=True,
             )
             return
-        await interaction.response.send_message("\n".join(self.hitbox_links[:4]))
+        if interaction.message and interaction.message.embeds:
+            embed = discord.Embed.from_dict(interaction.message.embeds[0].to_dict())
+        else:
+            embed = build_frame_embed(self.frame_row)
+        if self.showing_hitbox:
+            embed.set_image(url=self.original_image_url)
+            self.label = "Show Hitbox"
+            self.showing_hitbox = False
+        else:
+            embed.set_image(url=self.hitbox_links[0])
+            self.label = "Show Image"
+            self.showing_hitbox = True
+        await interaction.response.edit_message(embed=embed, view=self.view)
 
 
 class ReturnToMenuButton(discord.ui.Button):

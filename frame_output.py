@@ -1,5 +1,7 @@
 import os
 import re
+import urllib.parse
+import hashlib
 
 import discord
 
@@ -10,10 +12,39 @@ get_frame_row_gif_links = None
 get_existing_local_gif_asset_paths = None
 is_deleted_message_reference_error = None
 RANGE_SCROLLS_MISSING_TEXT = "the range of that move is not on the supercombo scrolls"
+FRAME_IMAGE_THUMB_WIDTH = 286
+SF6_BOTTOM_IMAGE_WIDTH = 262
+SF6_MOVE_IMAGE_URLS = {
+    ("ken", "5hp"): "https://wiki.supercombo.gg/images/thumb/6/6c/SF6_Ken_5hp.png/262px-SF6_Ken_5hp.png",
+}
+SF6_MOVE_IMAGES_MODULE = "sf6_move_images"
 
 
 def configure(**deps):
     globals().update(deps)
+
+
+def load_move_image_urls(module_name=SF6_MOVE_IMAGES_MODULE):
+    try:
+        image_module = __import__(module_name)
+        data = getattr(image_module, "SF6_MOVE_IMAGE_URLS", {})
+    except Exception as exc:
+        if not isinstance(exc, ModuleNotFoundError):
+            print(f"[sf6-images] failed to load {module_name}: {exc}", flush=True)
+        return False
+
+    loaded = 0
+    for char_key, moves in (data or {}).items():
+        if not isinstance(moves, dict):
+            continue
+        normalized_char = normalize_image_key(char_key)
+        for move_key, url in moves.items():
+            if not isinstance(url, str) or not url.strip():
+                continue
+            SF6_MOVE_IMAGE_URLS[(normalized_char, normalize_image_key(move_key))] = url.strip()
+            loaded += 1
+    print(f"[sf6-images] loaded {loaded} move image links", flush=True)
+    return True
 
 
 def get_attack_range_details(row):
@@ -40,6 +71,44 @@ def format_frame_data(row):
         f"Damage: {row['dmg']} | Attack Type: {row['atkLvl']}\n"
         f"Notes: {row.get('extraInfo', '')}"
     )
+
+
+def normalize_image_key(value):
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def mediawiki_thumb_url(base_url, filename, thumb_width=FRAME_IMAGE_THUMB_WIDTH):
+    normalized_name = str(filename or "").strip().replace(" ", "_")
+    if not normalized_name:
+        return ""
+    digest = hashlib.md5(normalized_name.encode("utf-8")).hexdigest()
+    encoded_name = urllib.parse.quote(normalized_name, safe="._()-")
+    return f"{base_url}/images/thumb/{digest[0]}/{digest[:2]}/{encoded_name}/{thumb_width}px-{encoded_name}"
+
+
+def resize_mediawiki_thumb_url(url, thumb_width=FRAME_IMAGE_THUMB_WIDTH):
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    return re.sub(r"/\d+px-([^/]+)$", rf"/{thumb_width}px-\1", text)
+
+
+def get_sf6_move_image_url(row):
+    char_key = normalize_image_key(row.get("char_name", ""))
+    num_cmd_key = normalize_image_key(row.get("numCmd", ""))
+    image_url = SF6_MOVE_IMAGE_URLS.get((char_key, num_cmd_key))
+    if image_url:
+        return resize_mediawiki_thumb_url(image_url, thumb_width=SF6_BOTTOM_IMAGE_WIDTH)
+
+    num_cmd = str(row.get("numCmd", "")).strip()
+    char_name = str(row.get("char_name", "")).strip()
+    if not char_name or not num_cmd:
+        return ""
+    filename = f"SF6_{char_name}_{num_cmd.lower()}.png"
+    return mediawiki_thumb_url("https://wiki.supercombo.gg", filename, thumb_width=SF6_BOTTOM_IMAGE_WIDTH)
+
+
+load_move_image_urls()
 
 
 def format_property_only_lines(lines, limit=1800):
@@ -263,6 +332,10 @@ def build_frame_embed(row):
     if extra_info:
         embed.set_footer(text=truncate_embed_value(extra_info, 2048))
 
+    image_url = get_sf6_move_image_url(row)
+    if image_url:
+        embed.set_image(url=image_url)
+
     return embed
 
 
@@ -334,6 +407,8 @@ class FrameDataGifButton(discord.ui.Button):
         super().__init__(label="Show GIF", style=discord.ButtonStyle.primary, disabled=not gif_links)
         self.frame_row = row
         self.gif_links = list(gif_links or [])
+        self.original_image_url = get_sf6_move_image_url(row)
+        self.showing_gif = False
 
     async def callback(self, interaction: discord.Interaction):
         move_name = str((self.frame_row or {}).get("moveName", "This move")).strip() or "This move"
@@ -346,14 +421,29 @@ class FrameDataGifButton(discord.ui.Button):
 
         asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=4)
         if asset_paths:
-            if len(asset_paths) == 1:
-                await interaction.response.send_message(
-                    file=discord.File(asset_paths[0], filename=os.path.basename(asset_paths[0]))
-                )
+            if interaction.message and interaction.message.embeds:
+                embed = discord.Embed.from_dict(interaction.message.embeds[0].to_dict())
+            else:
+                embed = build_frame_embed(self.frame_row)
+
+            if self.showing_gif:
+                embed.set_image(url=self.original_image_url)
+                embed.set_thumbnail(url=None)
+                self.label = "Show GIF"
+                self.showing_gif = False
+                await interaction.response.edit_message(embed=embed, attachments=[], view=self.view)
                 return
 
-            await interaction.response.send_message(
-                files=[discord.File(path, filename=os.path.basename(path)) for path in asset_paths[:4]]
+            asset_path = asset_paths[0]
+            filename = os.path.basename(asset_path)
+            embed.set_thumbnail(url=None)
+            embed.set_image(url=f"attachment://{filename}")
+            self.label = "Show Image"
+            self.showing_gif = True
+            await interaction.response.edit_message(
+                embed=embed,
+                attachments=[discord.File(asset_path, filename=filename)],
+                view=self.view,
             )
             return
 

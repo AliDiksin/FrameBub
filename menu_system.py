@@ -493,3 +493,20 @@ async def send_main_menu(destination, owner_id=None):
         embed=_main_menu_embed(),
         view=MainMenuView(owner_id),
     )
+
+
+async def send_character_moves_menu(destination, game, char_key, owner_id=None):
+    moves = _sf6_move_list(char_key) if game == "sf6" else _ggst_move_list(char_key)
+    if not moves:
+        await destination.send("No moves found for that character.")
+        return False
+    if game == "sf6":
+        chars = dict(_sf6_character_list())
+    else:
+        chars = dict(_ggst_character_list())
+    display = chars.get(char_key, str(char_key).title())
+    await destination.send(
+        embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
+        view=MoveSelectView(game, char_key, moves, owner_id, page=0),
+    )
+    return True

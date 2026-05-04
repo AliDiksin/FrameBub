@@ -691,6 +691,35 @@ def text_mentions_character_from_aliases(text, aliases, valid_keys):
     return False
 
 
+def resolve_character_from_aliases_in_text(text, aliases, valid_keys):
+    text_tokens = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    if not text_tokens:
+        return None
+    valid_key_set = set(valid_keys or [])
+
+    def has_tokens(needle_tokens):
+        if not needle_tokens:
+            return False
+        if len(needle_tokens) == 1:
+            return needle_tokens[0] in text_tokens
+        for index in range(0, len(text_tokens) - len(needle_tokens) + 1):
+            if text_tokens[index:index + len(needle_tokens)] == needle_tokens:
+                return True
+        return False
+
+    alias_candidates = []
+    for char_key in valid_key_set:
+        alias_candidates.append((str(char_key), char_key))
+    for alias, canonical in (aliases or {}).items():
+        if canonical in valid_key_set:
+            alias_candidates.append((str(alias), canonical))
+    alias_candidates.sort(key=lambda item: len(re.findall(r"[a-z0-9]+", item[0].lower())), reverse=True)
+    for alias, canonical in alias_candidates:
+        if has_tokens(re.findall(r"[a-z0-9]+", alias.lower())):
+            return canonical
+    return None
+
+
 def format_sheet_text(df: pd.DataFrame) -> str:
     """Convert DataFrame rows to pipe-separated text lines."""
     df = df.fillna("")
@@ -4639,6 +4668,28 @@ async def on_message(message):
     if client.user.mentioned_in(message) and content_lower.strip() == "menu":
         await menu_system.send_main_menu(message.channel, owner_id=message.author.id)
         return
+
+    if client.user.mentioned_in(message) and re.fullmatch(r"\s*(?:.+\s+)?moves\s*", content_lower):
+        sf6_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            CHARACTER_ALIASES,
+            FRAME_DATA.keys(),
+        )
+        ggst_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            ggst_module.GGST_CHARACTER_ALIASES,
+            ggst_module.GGST_FRAME_DATA.keys(),
+        )
+        explicit_ggst_moves_query = bool(re.search(r"\b(?:ggst|strive|guilty\s+gear|guilty)\b", content_lower))
+        if explicit_ggst_moves_query and ggst_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "ggst", ggst_char_key, owner_id=message.author.id)
+            return
+        if sf6_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "sf6", sf6_char_key, owner_id=message.author.id)
+            return
+        if ggst_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "ggst", ggst_char_key, owner_id=message.author.id)
+            return
 
     if await reminder_manager.handle_message(message, content_no_mentions, content_lower):
         return
