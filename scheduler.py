@@ -75,6 +75,26 @@ class SchedulerManager:
 
         return False
 
+    async def count_recent_human_messages(self, channel, since_dt, limit=3):
+        count = 0
+        try:
+            async for prev_msg in channel.history(after=since_dt, oldest_first=False):
+                author = getattr(prev_msg, "author", None)
+                if author is None:
+                    continue
+                if self.client.user is not None and getattr(author, "id", None) == getattr(self.client.user, "id", None):
+                    continue
+                if getattr(author, "bot", False):
+                    continue
+                count += 1
+                if count >= limit:
+                    return count
+        except Exception as e:
+            print(f"[encouragement] recent-human-message scan error: {e}", flush=True)
+            return 0
+
+        return count
+
     async def send_daily_messages(self, channel):
         print("[daily-message] Dispatching 4-line batch.", flush=True)
         messages = [
@@ -251,6 +271,15 @@ class SchedulerManager:
                     f"[encouragement] Dispatching scheduled encouragement {index}/{len(remaining_slots)}.",
                     flush=True,
                 )
+                recent_cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=5)
+                recent_human_count = await self.count_recent_human_messages(channel, recent_cutoff, limit=3)
+                if recent_human_count > 2:
+                    print(
+                        f"[encouragement] Skipping scheduled encouragement: active conversation detected ({recent_human_count} human messages in the last 5 minutes).",
+                        flush=True,
+                    )
+                    continue
+
                 if self.last_scheduled_encouragement_sent_at is not None:
                     has_human_messages = await self.channel_has_human_messages_since(
                         channel,

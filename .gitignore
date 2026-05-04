@@ -57,3 +57,5 @@ scrape_ggst_dustloop.py
 GGST - Dustloop Frame Data.ods
 /sf6frames
 bub_llm.py
+send_bub_message_gui.py
+scheduler.py

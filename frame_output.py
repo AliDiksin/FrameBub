@@ -364,10 +364,24 @@ class FrameDataGifButton(discord.ui.Button):
         await interaction.response.send_message("\n".join(self.gif_links[:4]))
 
 
+class ReturnToMenuButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="frame_return_menu", row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        import menu_system
+        await interaction.response.send_message(
+            embed=menu_system._main_menu_embed(),
+            view=menu_system.MainMenuView(interaction.user.id),
+        )
+
+
 class FrameDataGifView(discord.ui.View):
-    def __init__(self, row):
+    def __init__(self, row, include_menu_button=True):
         super().__init__(timeout=3600)
         self.add_item(FrameDataGifButton(row, get_frame_row_gif_links(row)))
+        if include_menu_button:
+            self.add_item(ReturnToMenuButton())
 
 
 async def send_frame_embeds_with_views(channel, rows, embeds=None):

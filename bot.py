@@ -46,6 +46,7 @@ from bub_llm import (
     get_selected_figures_str,
     load_memory_entries,
     log_llm_provider_status,
+    rewrite_ggst_lookup_query_with_llm,
     rewrite_sf_lookup_query_with_llm,
     send_deleted_message_failsafe,
     send_generated_encouragement,
@@ -56,6 +57,8 @@ from scheduler import SchedulerManager
 import quiz as quiz_module
 import gif_lookup as gif_lookup_module
 import frame_output as frame_output_module
+import ggst_frame_data as ggst_module
+import menu_system
 from frame_output import send_frame_embeds_with_views, send_frame_table_response, send_gif_links_response
 from gif_lookup import get_frame_row_gif_links
 
@@ -122,6 +125,214 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 client = discord.Client(intents=intents)
+tree = discord.app_commands.CommandTree(client)
+
+
+def _slash_choices(values):
+    return [discord.app_commands.Choice(name=str(value)[:100], value=str(value)[:100]) for value in values[:25]]
+
+
+def _autocomplete_values(current, values):
+    current_norm = str(current or "").lower().strip()
+    values = [str(value) for value in values if str(value or "").strip()]
+    if not current_norm:
+        return values[:25]
+    starts = [value for value in values if value.lower().startswith(current_norm)]
+    contains = [value for value in values if current_norm in value.lower() and value not in starts]
+    fuzzy = [
+        value for value in values
+        if value not in starts
+        and value not in contains
+        and difflib.SequenceMatcher(None, current_norm, value.lower()).ratio() >= 0.55
+    ]
+    return (starts + contains + fuzzy)[:25]
+
+
+def _sf6_character_choice_values():
+    return sorted({str(rows[0].get("char_name", char_key)).strip() or char_key.title() for char_key, rows in FRAME_DATA.items() if rows})
+
+
+def _ggst_character_choice_values():
+    return sorted({str(rows[0].get("char_name", char_key)).strip() or char_key.title() for char_key, rows in ggst_module.GGST_FRAME_DATA.items() if rows})
+
+
+def _sf6_move_choice_values(char_name):
+    char_key = resolve_character_key(char_name)
+    if not char_key:
+        return []
+    values = []
+    seen = set()
+    for row in FRAME_DATA.get(char_key, []):
+        move_name = str(row.get("moveName", "")).strip()
+        num_cmd = str(row.get("numCmd", "")).strip()
+        label = f"{move_name} ({num_cmd})" if move_name and num_cmd else move_name or num_cmd
+        if label and label not in seen:
+            seen.add(label)
+            values.append(label)
+    return values
+
+
+def _ggst_move_choice_values(char_name):
+    char_key = ggst_module.resolve_character_key(char_name)
+    if not char_key:
+        return []
+    values = []
+    seen = set()
+    rows = []
+    rows.extend(ggst_module.GGST_FRAME_DATA.get(char_key, []))
+    rows.extend(ggst_module.GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, []))
+    for state_rows in ggst_module.GGST_STATE_FRAME_DATA.get(char_key, {}).values():
+        rows.extend(state_rows)
+    for row in rows:
+        move_name = str(row.get("moveName", "")).strip()
+        num_cmd = str(row.get("numCmd", "")).strip()
+        label = f"{move_name} ({num_cmd})" if move_name and num_cmd else move_name or num_cmd
+        if label and label not in seen:
+            seen.add(label)
+            values.append(label)
+    return values
+
+
+def _ggst_char_state_choice_values(char_name):
+    char_key = ggst_module.resolve_character_key(char_name)
+    if not char_key:
+        return []
+    values = []
+    seen = set()
+    for row_map in ggst_module.GGST_STATE_FRAME_DATA.get(char_key, {}).values():
+        for row in row_map:
+            state_label = str(row.get("state_label", "")).strip()
+            state_key = str(row.get("state_key", "")).strip()
+            for value in (state_label, state_key):
+                if value and value not in seen:
+                    seen.add(value)
+                    values.append(value)
+    for row in ggst_module.GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, []):
+        state_label = str(row.get("state_label", "")).strip()
+        state_key = str(row.get("state_key", "")).strip()
+        for value in (state_label, state_key):
+            if value and value not in seen:
+                seen.add(value)
+                values.append(value)
+    return values
+
+
+def _strip_autocomplete_label(value):
+    text = str(value or "").strip()
+    match = re.match(r"^(.+?)\s+\(([^()]*)\)$", text)
+    if match:
+        return match.group(2).strip() or match.group(1).strip()
+    return text
+
+
+async def _send_sf6_slash_frame(interaction, char_name, move_name, char_state=None):
+    query = f"{char_name} {char_state or ''} {_strip_autocomplete_label(move_name)} framedata".strip().lower()
+    payload = find_moves_in_text(query)
+    rows = payload.get("rows", []) or []
+    data = str(payload.get("data", "") or "")
+    if "Special Strength Options" in data or "Target Combo Options" in data:
+        await interaction.response.send_message(data[:2000])
+        return
+    if not rows:
+        await interaction.response.send_message(f"{char_name} with {move_name} is not a valid character/move combination for SF6")
+        return
+    row = rows[0]
+    await interaction.response.send_message(
+        embed=build_frame_embed(row),
+        view=frame_output_module.FrameDataGifView(row),
+    )
+
+
+async def _send_ggst_slash_frame(interaction, char_name, move_name, char_state=None):
+    query = f"ggst {char_name} {char_state or ''} {_strip_autocomplete_label(move_name)} framedata".strip().lower()
+    payload = ggst_module.find_moves_in_text(query)
+    rows = payload.get("rows", []) or []
+    if payload.get("needs_disambiguation"):
+        await interaction.response.send_message(str(payload.get("data", "Please specify which GGST move you mean."))[:2000])
+        return
+    if not rows:
+        await interaction.response.send_message(f"{char_name} with {move_name} is not a valid character/move combination for GGST")
+        return
+    row = rows[0]
+    await interaction.response.send_message(
+        embed=ggst_module.build_frame_embed(row),
+        view=ggst_module.GGSTFrameDataView(row),
+    )
+
+
+@tree.command(name="bub", description="Open Bub's menu")
+async def bub_slash_command(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        embed=menu_system._main_menu_embed(),
+        view=menu_system.MainMenuView(interaction.user.id),
+    )
+
+
+@tree.command(name="ggst")
+@discord.app_commands.describe(
+    char_name="The characters name",
+    move_name="The move name",
+    char_state="Optional char specific states like Installs.",
+)
+async def ggst(interaction: discord.Interaction, char_name: str, move_name: str, char_state: str = None):
+    """Get Guilty Gear Strive frame data for the specific char and move.
+
+    Also works with stats of the char like fdash, bdash, throw range etc."""
+    return await _send_ggst_slash_frame(interaction, char_name, move_name, char_state)
+
+
+@tree.command(name="sf6")
+@discord.app_commands.describe(
+    char_name="The characters name",
+    move_name="The move name",
+    char_state="Optional char specific states like Installs.",
+)
+async def sf6(
+    interaction: discord.Interaction,
+    char_name: str,
+    move_name: str,
+    char_state: str = None,
+):
+    """Get SF6 frame data for the specific char and move.
+
+    Also works with stats of the char like fdash, bdash, throw range etc."""
+    return await _send_sf6_slash_frame(interaction, char_name, move_name, char_state)
+
+
+@sf6.autocomplete("char_state")
+async def sf6_char_state_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, ["denjin", "drink 1", "drink 2", "drink 3", "drink 4", "stocked"]))
+
+
+@sf6.autocomplete("char_name")
+async def sf6_char_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, _sf6_character_choice_values()))
+
+
+@sf6.autocomplete("move_name")
+async def sf6_move_autocomplete(interaction: discord.Interaction, current: str):
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _sf6_move_choice_values(interaction.namespace.char_name)))
+
+
+@ggst.autocomplete("char_name")
+async def ggst_char_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, _ggst_character_choice_values()))
+
+
+@ggst.autocomplete("char_state")
+async def ggst_char_state_autocomplete(interaction: discord.Interaction, current: str):
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _ggst_char_state_choice_values(interaction.namespace.char_name)))
+
+
+@ggst.autocomplete("move_name")
+async def ggst_move_autocomplete(interaction: discord.Interaction, current: str):
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _ggst_move_choice_values(interaction.namespace.char_name)))
 
 
 def truncate_message(text, limit=1800):
@@ -370,6 +581,33 @@ def resolve_character_key(name: str):
     return None
 
 
+def text_mentions_character_from_aliases(text, aliases, valid_keys):
+    text_tokens = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    if not text_tokens:
+        return False
+    valid_key_set = set(valid_keys or [])
+
+    def has_tokens(needle_tokens):
+        if not needle_tokens:
+            return False
+        if len(needle_tokens) == 1:
+            return needle_tokens[0] in text_tokens
+        for index in range(0, len(text_tokens) - len(needle_tokens) + 1):
+            if text_tokens[index:index + len(needle_tokens)] == needle_tokens:
+                return True
+        return False
+
+    for char_key in valid_key_set:
+        if has_tokens(re.findall(r"[a-z0-9]+", str(char_key).lower())):
+            return True
+    for alias, canonical in (aliases or {}).items():
+        if canonical not in valid_key_set:
+            continue
+        if has_tokens(re.findall(r"[a-z0-9]+", str(alias).lower())):
+            return True
+    return False
+
+
 def format_sheet_text(df: pd.DataFrame) -> str:
     """Convert DataFrame rows to pipe-separated text lines."""
     df = df.fillna("")
@@ -579,6 +817,7 @@ def load_frame_data():
 
             configure_extracted_modules()
             HITBOX_GIF_DATA = load_local_hitbox_gif_data(character_lookup)
+            configure_extracted_modules()
 
             combo_sheets = [
                 name for name in xls.sheet_names
@@ -4211,18 +4450,34 @@ async def on_ready():
     global reminder_task_handle
     global web_server_task
     print(f'Logged in as {client.user}')
+    for guild in client.guilds:
+        try:
+            tree.clear_commands(guild=guild)
+            tree.copy_global_to(guild=guild)
+            await tree.sync(guild=guild)
+            print(f"[menu] Slash commands synced to guild: {guild.name} ({guild.id})", flush=True)
+        except Exception as e:
+            print(f"[menu] Guild sync error for {guild.name}: {e}", flush=True)
+    try:
+        tree.clear_commands(guild=None)
+        await tree.sync()
+        print("[menu] Global slash commands cleared; using guild-scoped commands only.", flush=True)
+    except Exception as e:
+        print(f"[menu] Global slash command clear error: {e}", flush=True)
     # create queue in the correct event loop
     if message_queue is None:
         message_queue = asyncio.Queue()
-    # start bg task
-    if background_task_handle is None or background_task_handle.done():
-        background_task_handle = client.loop.create_task(scheduler_manager.background_task())
+    # Disabled by request: daily "Hello everyone / How are you today? / Has anyone improved?" batch.
+    # Re-enable by uncommenting this block.
+    # if background_task_handle is None or background_task_handle.done():
+    #     background_task_handle = client.loop.create_task(scheduler_manager.background_task())
     # start encouragement task
     if background_encouragement_task_handle is None or background_encouragement_task_handle.done():
         background_encouragement_task_handle = client.loop.create_task(scheduler_manager.background_encouragement_task())
-    # start damn gg task
-    if background_damn_gg_task_handle is None or background_damn_gg_task_handle.done():
-        background_damn_gg_task_handle = client.loop.create_task(scheduler_manager.background_damn_gg_task())
+    # Disabled by request: scheduled "damn gg" message.
+    # Re-enable by uncommenting this block.
+    # if background_damn_gg_task_handle is None or background_damn_gg_task_handle.done():
+    #     background_damn_gg_task_handle = client.loop.create_task(scheduler_manager.background_damn_gg_task())
     # start streetfighterdle reminder task
     if background_streetfighterdle_task_handle is None or background_streetfighterdle_task_handle.done():
         background_streetfighterdle_task_handle = client.loop.create_task(scheduler_manager.background_streetfighterdle_task())
@@ -4240,7 +4495,8 @@ async def on_ready():
         reminder_task_handle = client.loop.create_task(reminder_manager.reminder_loop())
         print("Reminder loop task created.", flush=True)
     print(
-        "[scheduler] Expected behavior active: 1 random daily 'do the thing' batch (no startup dispatch); "
+        "[scheduler] Expected behavior active: daily 'do the thing' batch disabled; "
+        "scheduled 'damn gg' disabled; "
         f"{DAILY_ENCOURAGEMENT_MESSAGES} scheduled LLM encouragements per day; "
         "1 Streetfighterdle leaderboard at 23:00 UTC and 1 reminder at 00:00 UTC per day.",
         flush=True,
@@ -4248,6 +4504,7 @@ async def on_ready():
     ensure_memory_file_exists(MEMORY_FILE)
     print(f"[memory] loaded entries={len(load_memory_entries(MEMORY_FILE))}", flush=True)
     load_frame_data()
+    ggst_module.load_frame_data()
     configure_extracted_modules()
     quiz_module.configure(
         FRAME_DATA=FRAME_DATA,
@@ -4267,6 +4524,17 @@ async def on_ready():
         f"[quiz] global leaderboard loaded entries={len(quiz_module.QUIZ_GLOBAL_LEADERBOARD)}",
         flush=True,
     )
+    menu_system.configure(
+        frame_data=FRAME_DATA,
+        character_aliases=CHARACTER_ALIASES,
+        ggst_frame_data=ggst_module.GGST_FRAME_DATA,
+        ggst_character_aliases=ggst_module.GGST_CHARACTER_ALIASES,
+        quiz_module_ref=quiz_module,
+        build_sf6_frame_embed_fn=build_frame_embed,
+        build_ggst_frame_embed_fn=ggst_module.build_frame_embed,
+        send_frame_embeds_with_views_fn=send_frame_embeds_with_views,
+    )
+    print("[menu] Menu system configured.", flush=True)
 
 @client.event
 async def on_message(message):
@@ -4278,10 +4546,15 @@ async def on_message(message):
     content_no_mentions = strip_discord_mentions(content_raw)
     content_lower = content_no_mentions.lower()
 
-    # check mention + phrase
-    if client.user.mentioned_in(message) and "do the thing" in content_lower:
-        print(f"[daily-message] Manual trigger received from user_id={message.author.id}", flush=True)
-        await scheduler_manager.send_daily_messages(message.channel)
+    # Disabled by request: manual trigger for the old daily "Hello everyone" batch.
+    # Re-enable by uncommenting this block.
+    # if client.user.mentioned_in(message) and "do the thing" in content_lower:
+    #     print(f"[daily-message] Manual trigger received from user_id={message.author.id}", flush=True)
+    #     await scheduler_manager.send_daily_messages(message.channel)
+    #     return
+
+    if client.user.mentioned_in(message) and content_lower.strip() == "menu":
+        await menu_system.send_main_menu(message.channel, owner_id=message.author.id)
         return
 
     if await reminder_manager.handle_message(message, content_no_mentions, content_lower):
@@ -4289,6 +4562,169 @@ async def on_message(message):
 
     quiz_result = await quiz_module.route_message(client, message, content_lower)
     if quiz_result is not False:
+        return
+
+    if message.reference:
+        try:
+            if message.reference.cached_message:
+                ggst_replied_msg = message.reference.cached_message
+            else:
+                ggst_replied_msg = await message.channel.fetch_message(message.reference.message_id)
+
+            ggst_replied_content = ggst_replied_msg.content or ""
+            if (
+                ggst_replied_msg.author == client.user
+                and (
+                    "Multiple GGST moves match" in ggst_replied_content
+                    or "GGST Follow-up Options" in ggst_replied_content
+                )
+            ):
+                ggst_char_match = re.search(r"Multiple GGST moves match ([^.]+)\. Please specify one:", ggst_replied_content)
+                if not ggst_char_match:
+                    ggst_char_match = re.search(r"GGST Follow-up Options \(([^)]+)\)", ggst_replied_content)
+                ggst_char_hint = ggst_char_match.group(1).strip() if ggst_char_match else ""
+                ggst_reply_query = (content_no_mentions or "").strip()
+
+                if "GGST Follow-up Options" in ggst_replied_content:
+                    reply_compact = re.sub(r"[^a-z0-9]", "", ggst_reply_query.lower())
+                    followup_options = []
+                    for raw_line in ggst_replied_content.splitlines():
+                        line = raw_line.strip()
+                        option_match = re.match(r"^[\-•·]\s*(.+?):\s*`([^`]+)`", line)
+                        if option_match:
+                            followup_options.append((option_match.group(1).strip(), option_match.group(2).strip()))
+                    selected_followup_cmd = None
+                    if reply_compact and followup_options:
+                        suffix_matches = []
+                        for option_name, option_cmd in followup_options:
+                            option_name_compact = re.sub(r"[^a-z0-9]", "", option_name.lower())
+                            option_cmd_compact = re.sub(r"[^a-z0-9]", "", option_cmd.lower())
+                            command_parts = [
+                                part for part in re.split(r"(?:>|~|during|after)", option_cmd.lower())
+                                if part.strip()
+                            ]
+                            suffix_compacts = {
+                                re.sub(r"[^a-z0-9]", "", part)
+                                for part in command_parts[1:]
+                                if re.sub(r"[^a-z0-9]", "", part)
+                            }
+                            if re.search(r"\b(?:during|after)\b", option_cmd.lower()) and command_parts:
+                                first_part_compact = re.sub(r"[^a-z0-9]", "", command_parts[0])
+                                if first_part_compact:
+                                    suffix_compacts.add(first_part_compact)
+                            if reply_compact in {option_name_compact, option_cmd_compact}:
+                                selected_followup_cmd = option_cmd
+                                break
+                            if reply_compact in suffix_compacts:
+                                suffix_matches.append(option_cmd)
+                        if selected_followup_cmd is None and len(suffix_matches) == 1:
+                            selected_followup_cmd = suffix_matches[0]
+                    if selected_followup_cmd:
+                        ggst_reply_query = selected_followup_cmd
+
+                if ggst_char_hint and ggst_char_hint.lower() not in ggst_reply_query.lower():
+                    ggst_reply_query = f"{ggst_char_hint} {ggst_reply_query}".strip()
+
+                ggst_reply_mode = "frame"
+                if ggst_replied_msg.reference and ggst_replied_msg.reference.message_id:
+                    try:
+                        if ggst_replied_msg.reference.cached_message:
+                            ggst_prompt_source = ggst_replied_msg.reference.cached_message
+                        else:
+                            ggst_prompt_source = await message.channel.fetch_message(ggst_replied_msg.reference.message_id)
+                        ggst_prompt_source_text = strip_discord_mentions(ggst_prompt_source.content or "").lower()
+                        ggst_source_wants_hitbox = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes)\b", ggst_prompt_source_text))
+                        ggst_source_wants_frames = bool(re.search(r"\b(?:framedata|frame\s*data|frames?)\b", ggst_prompt_source_text))
+                        if ggst_source_wants_hitbox and ggst_source_wants_frames:
+                            ggst_reply_mode = "both"
+                        elif ggst_source_wants_hitbox:
+                            ggst_reply_mode = "gif"
+                    except Exception:
+                        pass
+
+                if ggst_reply_mode == "gif":
+                    ggst_reply_query = f"{ggst_reply_query} hitbox".strip()
+                elif ggst_reply_mode == "both":
+                    ggst_reply_query = f"{ggst_reply_query} hitbox framedata".strip()
+                elif not re.search(r"\b(?:framedata|frame\s*data|frames?)\b", ggst_reply_query.lower()):
+                    ggst_reply_query = f"{ggst_reply_query} framedata".strip()
+
+                ggst_reply_payload = ggst_module.find_moves_in_text(ggst_reply_query.lower())
+                ggst_reply_rows = ggst_reply_payload.get("rows", []) or []
+                if ggst_reply_payload.get("needs_disambiguation"):
+                    await message.reply(ggst_reply_payload.get("data", "Please specify which GGST move you mean."))
+                elif ggst_reply_rows and ggst_reply_mode == "gif":
+                    await ggst_module.send_hitbox_response(message, ggst_reply_rows)
+                elif ggst_reply_rows and ggst_reply_mode == "both":
+                    await ggst_module.send_frame_response(message, ggst_reply_rows)
+                    await ggst_module.send_hitbox_response(message, ggst_reply_rows)
+                elif ggst_reply_rows:
+                    await ggst_module.send_frame_response(message, ggst_reply_rows)
+                else:
+                    await message.reply(ggst_replied_msg.content)
+                return
+        except discord.NotFound:
+            pass
+        except discord.Forbidden:
+            pass
+        except Exception as e:
+            print(f"GGST reply logic error: {e}", flush=True)
+
+    sf6_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        CHARACTER_ALIASES,
+        FRAME_DATA.keys(),
+    )
+    ggst_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        ggst_module.GGST_CHARACTER_ALIASES,
+        ggst_module.GGST_FRAME_DATA.keys(),
+    )
+    fd_context_payload = find_moves_in_text(content_lower)
+
+    ggst_payload = ggst_module.find_moves_in_text(content_lower)
+    ggst_rows = ggst_payload.get("rows", [])
+    ggst_lookup_intent = bool(
+        ggst_payload.get("frame_query")
+        or ggst_payload.get("gif_query")
+        or ggst_payload.get("game_query")
+    )
+    explicit_ggst_query = bool(ggst_payload.get("game_query"))
+    ggst_route_allowed = bool(
+        explicit_ggst_query
+        or (ggst_exact_character_query and not sf6_exact_character_query)
+    )
+    if client.user.mentioned_in(message) and ggst_route_allowed and ggst_lookup_intent and not ggst_rows:
+        rewritten_ggst_query = await rewrite_ggst_lookup_query_with_llm(
+            content_no_mentions,
+            strip_discord_mentions,
+        )
+        if rewritten_ggst_query:
+            rewritten_ggst_payload = ggst_module.find_moves_in_text(rewritten_ggst_query.lower())
+            rewritten_ggst_rows = rewritten_ggst_payload.get("rows", []) or []
+            if rewritten_ggst_rows or rewritten_ggst_payload.get("needs_disambiguation"):
+                ggst_payload = rewritten_ggst_payload
+                ggst_rows = rewritten_ggst_rows
+                ggst_lookup_intent = bool(
+                    ggst_payload.get("frame_query")
+                    or ggst_payload.get("gif_query")
+                    or ggst_payload.get("game_query")
+                )
+                print(f"[ggst-parser-llm] rewritten query: {rewritten_ggst_query}", flush=True)
+
+    if client.user.mentioned_in(message) and ggst_route_allowed and ggst_lookup_intent and ggst_rows:
+        if ggst_payload.get("needs_disambiguation"):
+            await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
+        elif ggst_payload.get("gif_query") and ggst_payload.get("frame_query"):
+            await ggst_module.send_frame_response(message, ggst_rows)
+            await ggst_module.send_hitbox_response(message, ggst_rows)
+        elif ggst_payload.get("gif_query"):
+            await ggst_module.send_hitbox_response(message, ggst_rows)
+        else:
+            await ggst_module.send_frame_response(message, ggst_rows)
+        return
+    elif client.user.mentioned_in(message) and ggst_route_allowed and ggst_lookup_intent and ggst_payload.get("needs_disambiguation"):
+        await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
         return
 
 
@@ -4326,7 +4762,6 @@ async def on_message(message):
     is_coach_mode = "coach" in content_lower
     
 
-    fd_context_payload = find_moves_in_text(content_lower)
     fd_context_data = fd_context_payload.get("data", "")
     fd_context_mode = fd_context_payload.get("mode", "none")
     fd_context_rows = fd_context_payload.get("rows", [])
@@ -4493,6 +4928,8 @@ async def on_message(message):
     )
 
     vague_move_query_without_output_intent = False
+    implied_rows = []
+    implied_data = ""
     if (
         client.user.mentioned_in(message)
         and not message.reference
@@ -4543,10 +4980,11 @@ async def on_message(message):
 
     if should_handle_direct_frame:
         if vague_move_query_without_output_intent:
-            await message.reply(
-                "While Yimbo is an awesome and handsome programmer, I cannot read minds. Please specify whether you want a GIF, frame data, "
-                "or a specific value. For example: \"chun l sbk framedata\"."
-            )
+            default_rows = implied_rows or fd_context_rows
+            default_data = implied_data or fd_context_data
+            frame_sent = await send_frame_table_response(message, default_rows, default_data)
+            if not frame_sent and default_data:
+                await message.reply(default_data)
             return
 
         if combined_frame_gif_request and client.user.mentioned_in(message):
