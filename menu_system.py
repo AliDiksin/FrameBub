@@ -138,6 +138,8 @@ class GameMenuView(OwnedView):
     def __init__(self, game, owner_id):
         super().__init__(owner_id=owner_id, timeout=300)
         self.game = game
+        if self.game == "ggst":
+            self.remove_item(self.quiz_button)
 
     @discord.ui.button(label="Frame Data", style=discord.ButtonStyle.primary, custom_id="game_framedata")
     async def framedata_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -146,7 +148,7 @@ class GameMenuView(OwnedView):
             await interaction.response.send_message("No character data loaded.", ephemeral=True)
             return
         await interaction.response.edit_message(
-            embed=_character_select_embed(self.game),
+            embed=_character_select_embed(self.game, page=0, total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))),
             view=CharacterSelectView(self.game, chars, self.owner_id, page=0),
         )
 
@@ -184,6 +186,17 @@ class CharacterSelectView(OwnedView):
         self.chars = chars
         self.page = page
         self._add_select()
+        self._update_page_buttons()
+
+    def _page_count(self):
+        return max(1, math.ceil(len(self.chars) / MENU_SELECT_LIMIT))
+
+    def _update_page_buttons(self):
+        page_count = self._page_count()
+        previous_page = self.page - 1 if self.page > 0 else page_count - 1
+        next_page = self.page + 1 if self.page < page_count - 1 else 0
+        self.previous_button.label = f"Previous ({previous_page + 1}/{page_count})"
+        self.next_button.label = f"Next ({next_page + 1}/{page_count})"
 
     def _add_select(self):
         start = self.page * MENU_SELECT_LIMIT
@@ -192,8 +205,26 @@ class CharacterSelectView(OwnedView):
             discord.SelectOption(label=display, value=char_key)
             for char_key, display in page_chars
         ]
-        select = CharacterSelect(self.game, self.chars, self.page, options)
+        select = CharacterSelect(self.game, self.chars, self.page, self.owner_id, options)
         self.add_item(select)
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, row=4)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
+        new_page = self.page - 1 if self.page > 0 else max_page
+        await interaction.response.edit_message(
+            embed=_character_select_embed(self.game, page=new_page, total_pages=max_page + 1),
+            view=CharacterSelectView(self.game, self.chars, self.owner_id, page=new_page),
+        )
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=4)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
+        new_page = self.page + 1 if self.page < max_page else 0
+        await interaction.response.edit_message(
+            embed=_character_select_embed(self.game, page=new_page, total_pages=max_page + 1),
+            view=CharacterSelectView(self.game, self.chars, self.owner_id, page=new_page),
+        )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -206,12 +237,12 @@ class CharacterSelectView(OwnedView):
 
 
 class CharacterSelect(discord.ui.Select):
-    def __init__(self, game, chars, page, options):
+    def __init__(self, game, chars, page, owner_id, options):
         self.game = game
         self.chars = chars
         self.page = page
         placeholder = "Select a character"
-        super().__init__(placeholder=placeholder, options=options, custom_id="char_select")
+        super().__init__(placeholder=placeholder, options=options, custom_id=f"char_select:{game}:{page}:{owner_id}")
 
     async def callback(self, interaction: discord.Interaction):
         char_key = self.values[0]
@@ -225,7 +256,7 @@ class CharacterSelect(discord.ui.Select):
                 display = opt.label
                 break
         await interaction.response.edit_message(
-            embed=_move_select_embed(display),
+            embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
             view=MoveSelectView(self.game, char_key, moves, self.view.owner_id, page=0),
         )
 
@@ -238,6 +269,17 @@ class MoveSelectView(OwnedView):
         self.moves = moves
         self.page = page
         self._add_select()
+        self._update_page_buttons()
+
+    def _page_count(self):
+        return max(1, math.ceil(len(self.moves) / MENU_SELECT_LIMIT))
+
+    def _update_page_buttons(self):
+        page_count = self._page_count()
+        previous_page = self.page - 1 if self.page > 0 else page_count - 1
+        next_page = self.page + 1 if self.page < page_count - 1 else 0
+        self.previous_button.label = f"Previous ({previous_page + 1}/{page_count})"
+        self.next_button.label = f"Next ({next_page + 1}/{page_count})"
 
     def _add_select(self):
         start = self.page * MENU_SELECT_LIMIT
@@ -245,15 +287,33 @@ class MoveSelectView(OwnedView):
         options = []
         for i, (row, label) in enumerate(page_moves):
             truncated = label[:100] if len(label) > 100 else label
-            options.append(discord.SelectOption(label=truncated, value=str(start + i)))
+            options.append(discord.SelectOption(label=truncated, value=f"{self.char_key}|{start + i}"))
         select = MoveSelect(self.game, self.char_key, self.moves, self.page, options)
         self.add_item(select)
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, row=4)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        max_page = max(0, math.ceil(len(self.moves) / MENU_SELECT_LIMIT) - 1)
+        new_page = self.page - 1 if self.page > 0 else max_page
+        await interaction.response.edit_message(
+            embed=_move_select_embed(self.char_key.title(), page=new_page, total_pages=max_page + 1),
+            view=MoveSelectView(self.game, self.char_key, self.moves, self.owner_id, page=new_page),
+        )
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=4)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        max_page = max(0, math.ceil(len(self.moves) / MENU_SELECT_LIMIT) - 1)
+        new_page = self.page + 1 if self.page < max_page else 0
+        await interaction.response.edit_message(
+            embed=_move_select_embed(self.char_key.title(), page=new_page, total_pages=max_page + 1),
+            view=MoveSelectView(self.game, self.char_key, self.moves, self.owner_id, page=new_page),
+        )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         chars = _sf6_character_list() if self.game == "sf6" else _ggst_character_list()
         await interaction.response.edit_message(
-            embed=_character_select_embed(self.game),
+            embed=_character_select_embed(self.game, page=0, total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))),
             view=CharacterSelectView(self.game, chars, self.owner_id, page=0),
         )
 
@@ -265,10 +325,15 @@ class MoveSelect(discord.ui.Select):
         self.moves = moves
         self.page = page
         placeholder = "Select a move"
-        super().__init__(placeholder=placeholder, options=options, custom_id="move_select")
+        safe_char_key = re.sub(r"[^a-z0-9_.-]", "", str(char_key).lower())[:32]
+        super().__init__(placeholder=placeholder, options=options, custom_id=f"move_select:{game}:{safe_char_key}:{page}")
 
     async def callback(self, interaction: discord.Interaction):
-        idx = int(self.values[0])
+        selected_char, raw_idx = self.values[0].split("|", 1)
+        if selected_char != self.char_key:
+            await interaction.response.send_message("That move list is stale. Pick the character again.", ephemeral=True)
+            return
+        idx = int(raw_idx)
         row, label = self.moves[idx]
         embed = build_sf6_frame_embed(row) if self.game == "sf6" else build_ggst_frame_embed(row)
         view = FrameResultView(self.game, self.char_key, row, self.view.owner_id)
@@ -300,7 +365,7 @@ class FrameResultView(OwnedView):
         moves = _sf6_move_list(self.char_key) if self.game == "sf6" else _ggst_move_list(self.char_key)
         display = self.char_key.title()
         await interaction.response.edit_message(
-            embed=_move_select_embed(display),
+            embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
             view=MoveSelectView(self.game, self.char_key, moves, self.owner_id, page=0),
         )
 
@@ -396,19 +461,21 @@ def _game_menu_embed(game_label, colour):
     )
 
 
-def _character_select_embed(game):
+def _character_select_embed(game, page=None, total_pages=None):
     label = "Street Fighter 6" if game == "sf6" else "Guilty Gear Strive"
+    page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
     return discord.Embed(
         title=f"{label} - Frame Data",
-        description="Select a character from the dropdown below.",
+        description=f"Select a character from the dropdown below.{page_text}",
         colour=0x3998C6 if game == "sf6" else 0x7A2BFF,
     )
 
 
-def _move_select_embed(char_display):
+def _move_select_embed(char_display, page=None, total_pages=None):
+    page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
     return discord.Embed(
         title=f"{char_display} - Moves",
-        description="Select a move from the dropdown below.",
+        description=f"Select a move from the dropdown below.{page_text}",
         colour=0x3998C6,
     )
 

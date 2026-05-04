@@ -14,44 +14,86 @@ from aliases import (
     DP_PREFIX_EXCEPTIONS,
     INPUT_ALIASES,
 )
-from bub_llm import (
-    ENCOURAGEMENT_ANECDOTE_PROMPT,
-    ENCOURAGEMENT_CONTEXT_CHANCE,
-    ENCOURAGEMENT_CONTEXT_SOURCE,
-    ENCOURAGEMENT_PROMPTS,
-    GEMINI_ENABLED,
-    IMPROVEMENT_PROMPT,
-    LLM_ENABLED,
-    LLM_PROVIDER_ERROR,
-    MEMORY_PROMPT,
-    MIMO_ENABLED,
-    MOVE_DEFINITIONS,
-    OPENROUTER_ENABLED,
-    SYSTEM_PROMPT,
-    build_memory_context,
-    build_reminder_ack_text,
-    build_reminder_fire_text,
-    build_streetfighterdle_reminder_text,
-    build_gemini_media_parts,
-    build_llm_context_history,
-    build_mimo_media_parts,
-    build_prompting_user_identity,
-    capture_discord_memory,
-    capture_message_exchange_memory,
-    estimate_llm_context_history_char_budget,
-    ensure_memory_file_exists,
-    get_llm_response,
-    get_media_context,
-    get_message_media_items,
-    get_selected_figures_str,
-    load_memory_entries,
-    log_llm_provider_status,
-    rewrite_ggst_lookup_query_with_llm,
-    rewrite_sf_lookup_query_with_llm,
-    send_deleted_message_failsafe,
-    send_generated_encouragement,
-    should_use_search,
-)
+try:
+    from bub_llm import (
+        ENCOURAGEMENT_ANECDOTE_PROMPT,
+        ENCOURAGEMENT_CONTEXT_CHANCE,
+        ENCOURAGEMENT_CONTEXT_SOURCE,
+        ENCOURAGEMENT_PROMPTS,
+        GEMINI_ENABLED,
+        IMPROVEMENT_PROMPT,
+        LLM_ENABLED,
+        LLM_PROVIDER_ERROR,
+        MEMORY_PROMPT,
+        MIMO_ENABLED,
+        MOVE_DEFINITIONS,
+        OPENROUTER_ENABLED,
+        SYSTEM_PROMPT,
+        build_memory_context,
+        build_reminder_ack_text,
+        build_reminder_fire_text,
+        build_streetfighterdle_reminder_text,
+        build_gemini_media_parts,
+        build_llm_context_history,
+        build_mimo_media_parts,
+        build_prompting_user_identity,
+        capture_discord_memory,
+        capture_message_exchange_memory,
+        estimate_llm_context_history_char_budget,
+        ensure_memory_file_exists,
+        get_llm_response,
+        get_media_context,
+        get_message_media_items,
+        get_selected_figures_str,
+        load_memory_entries,
+        log_llm_provider_status,
+        rewrite_ggst_lookup_query_with_llm,
+        rewrite_sf_lookup_query_with_llm,
+        send_deleted_message_failsafe,
+        send_generated_encouragement,
+        should_use_search,
+    )
+except ModuleNotFoundError as import_error:
+    if import_error.name != "bub_llm":
+        raise
+    from bub_llm_fallback import (
+        ENCOURAGEMENT_ANECDOTE_PROMPT,
+        ENCOURAGEMENT_CONTEXT_CHANCE,
+        ENCOURAGEMENT_CONTEXT_SOURCE,
+        ENCOURAGEMENT_PROMPTS,
+        GEMINI_ENABLED,
+        IMPROVEMENT_PROMPT,
+        LLM_ENABLED,
+        LLM_PROVIDER_ERROR,
+        MEMORY_PROMPT,
+        MIMO_ENABLED,
+        MOVE_DEFINITIONS,
+        OPENROUTER_ENABLED,
+        SYSTEM_PROMPT,
+        build_memory_context,
+        build_reminder_ack_text,
+        build_reminder_fire_text,
+        build_streetfighterdle_reminder_text,
+        build_gemini_media_parts,
+        build_llm_context_history,
+        build_mimo_media_parts,
+        build_prompting_user_identity,
+        capture_discord_memory,
+        capture_message_exchange_memory,
+        estimate_llm_context_history_char_budget,
+        ensure_memory_file_exists,
+        get_llm_response,
+        get_media_context,
+        get_message_media_items,
+        get_selected_figures_str,
+        load_memory_entries,
+        log_llm_provider_status,
+        rewrite_ggst_lookup_query_with_llm,
+        rewrite_sf_lookup_query_with_llm,
+        send_deleted_message_failsafe,
+        send_generated_encouragement,
+        should_use_search,
+    )
 from reminders import ReminderManager
 from scheduler import SchedulerManager
 import quiz as quiz_module
@@ -132,6 +174,33 @@ def _slash_choices(values):
     return [discord.app_commands.Choice(name=str(value)[:100], value=str(value)[:100]) for value in values[:25]]
 
 
+def _move_type_sort_key(row):
+    move_type = str(row.get("moveType", "")).strip().lower()
+    move_name = str(row.get("moveName", "")).strip().lower()
+    num_cmd = str(row.get("numCmd", "")).strip().lower()
+    if "super" in move_type or "super" in move_name or re.search(r"\bsa[123]\b", num_cmd):
+        bucket = 0
+    elif "special" in move_type:
+        bucket = 1
+    elif "unique" in move_type or "target" in move_type:
+        bucket = 2
+    elif "throw" in move_type:
+        bucket = 3
+    else:
+        bucket = 4
+    return (bucket, move_name, num_cmd)
+
+
+def _move_choice_label(row):
+    move_name = str(row.get("moveName", "")).strip()
+    num_cmd = str(row.get("numCmd", "")).strip()
+    move_type = str(row.get("moveType", "")).strip().lower()
+    label = f"{move_name} ({num_cmd})" if move_name and num_cmd else move_name or num_cmd
+    if move_type and move_type not in {"normal", ""}:
+        label = f"{label} [{move_type}]"
+    return label
+
+
 def _autocomplete_values(current, values):
     current_norm = str(current or "").lower().strip()
     values = [str(value) for value in values if str(value or "").strip()]
@@ -163,13 +232,23 @@ def _sf6_move_choice_values(char_name):
     values = []
     seen = set()
     for row in FRAME_DATA.get(char_key, []):
-        move_name = str(row.get("moveName", "")).strip()
-        num_cmd = str(row.get("numCmd", "")).strip()
-        label = f"{move_name} ({num_cmd})" if move_name and num_cmd else move_name or num_cmd
+        label = _move_choice_label(row)
         if label and label not in seen:
             seen.add(label)
             values.append(label)
     return values
+
+
+def _sf6_char_state_choice_values(char_name):
+    char_key = resolve_character_key(char_name)
+    state_map = {
+        "ryu": ["denjin"],
+        "jamie": ["drink 1", "drink 2", "drink 3", "drink 4"],
+        "lily": ["stocked"],
+        "mai": ["stocked"],
+        "juri": ["stocked"],
+    }
+    return state_map.get(char_key, [])
 
 
 def _ggst_move_choice_values(char_name):
@@ -184,9 +263,7 @@ def _ggst_move_choice_values(char_name):
     for state_rows in ggst_module.GGST_STATE_FRAME_DATA.get(char_key, {}).values():
         rows.extend(state_rows)
     for row in rows:
-        move_name = str(row.get("moveName", "")).strip()
-        num_cmd = str(row.get("numCmd", "")).strip()
-        label = f"{move_name} ({num_cmd})" if move_name and num_cmd else move_name or num_cmd
+        label = _move_choice_label(row)
         if label and label not in seen:
             seen.add(label)
             values.append(label)
@@ -219,13 +296,17 @@ def _ggst_char_state_choice_values(char_name):
 
 def _strip_autocomplete_label(value):
     text = str(value or "").strip()
-    match = re.match(r"^(.+?)\s+\(([^()]*)\)$", text)
+    text = re.sub(r"\s+\[[^\]]+\]$", "", text).strip()
+    match = re.match(r"^(.+)\s+\(([^()]*)\)$", text)
     if match:
         return match.group(2).strip() or match.group(1).strip()
     return text
 
 
 async def _send_sf6_slash_frame(interaction, char_name, move_name, char_state=None):
+    if char_state and char_state not in _sf6_char_state_choice_values(char_name):
+        await interaction.response.send_message(f"{char_name} does not use the `{char_state}` state for SF6 lookups.")
+        return
     query = f"{char_name} {char_state or ''} {_strip_autocomplete_label(move_name)} framedata".strip().lower()
     payload = find_moves_in_text(query)
     rows = payload.get("rows", []) or []
@@ -301,7 +382,9 @@ async def sf6(
 
 @sf6.autocomplete("char_state")
 async def sf6_char_state_autocomplete(interaction: discord.Interaction, current: str):
-    return _slash_choices(_autocomplete_values(current, ["denjin", "drink 1", "drink 2", "drink 3", "drink 4", "stocked"]))
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _sf6_char_state_choice_values(interaction.namespace.char_name)))
 
 
 @sf6.autocomplete("char_name")
