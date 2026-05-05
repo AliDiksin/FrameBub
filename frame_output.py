@@ -12,8 +12,9 @@ get_frame_row_gif_links = None
 get_existing_local_gif_asset_paths = None
 is_deleted_message_reference_error = None
 RANGE_SCROLLS_MISSING_TEXT = "the range of that move is not on the supercombo scrolls"
+RANGE_SCROLLS_MISSING_TABLE_TEXT = "missing"
 FRAME_IMAGE_THUMB_WIDTH = 286
-SF6_BOTTOM_IMAGE_WIDTH = 262
+SF6_BOTTOM_IMAGE_WIDTH = 315
 SF6_MOVE_IMAGE_URLS = {
     ("ken", "5hp"): "https://wiki.supercombo.gg/images/thumb/6/6c/SF6_Ken_5hp.png/262px-SF6_Ken_5hp.png",
 }
@@ -58,7 +59,7 @@ def format_attack_range_for_table(row):
     range_value, has_numeric_range = get_attack_range_details(row)
     if has_numeric_range:
         return range_value
-    return "not on supercombo scrolls"
+    return RANGE_SCROLLS_MISSING_TABLE_TEXT
 
 def format_frame_data(row):
     """Format a frame data row into readable text."""
@@ -98,7 +99,7 @@ def get_sf6_move_image_url(row):
     num_cmd_key = normalize_image_key(row.get("numCmd", ""))
     image_url = SF6_MOVE_IMAGE_URLS.get((char_key, num_cmd_key))
     if image_url:
-        return resize_mediawiki_thumb_url(image_url, thumb_width=SF6_BOTTOM_IMAGE_WIDTH)
+        return image_url
 
     num_cmd = str(row.get("numCmd", "")).strip()
     char_name = str(row.get("char_name", "")).strip()

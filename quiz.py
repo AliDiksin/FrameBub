@@ -53,6 +53,7 @@ def configure(**deps):
 ACTIVE_QUIZZES = {}
 QUIZ_PENDING_ANOTHER = {}
 QUIZ_PENDING_MODE = {}
+QUIZ_ACTIVE_TIMEOUT_TASKS = {}
 QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS = {}
 QUIZ_LEADERBOARD_FILE = os.getenv("QUIZ_LEADERBOARD_FILE", "quiz_leaderboard.json")
 QUIZ_GLOBAL_LEADERBOARD = {}
@@ -98,6 +99,7 @@ QUIZ_CHEAT_LOOKUP_RE = re.compile(
 )
 QUIZ_MODE_RE = re.compile(r"\b(easy|medium|hard)\b", re.IGNORECASE)
 QUIZ_PENDING_ANOTHER_TTL_SECONDS = 300
+QUIZ_ACTIVE_TTL_SECONDS = 300
 QUIZ_PENDING_MODE_TTL_SECONDS = 600
 QUIZ_INTRO_BUTTON_RE = re.compile(
     r"\b(?:st|cr|j)\s*(?:lp|mp|hp|lk|mk|hk)\b|\b(?:standing|crouching|jumping)\s+(?:light|medium|heavy)\s+(?:punch|kick)\b|\b(?:[1-9]\d{0,2}(?:lp|mp|hp|lk|mk|hk))\b|\b(?:236|214|623|421|41236|63214|22|66|44)\b|\b(?:sa1|sa2|sa3|ca|level\s*[123])\b",
@@ -1086,6 +1088,7 @@ async def start_quiz(
             "numcmd": numcmd,
             "row": row,
             "mode": mode_key,
+            "created_at": datetime.datetime.now(datetime.timezone.utc),
             "answered": False,
             "awaiting_choice": False,
             "asked": {(char_key, numcmd)},
@@ -1123,9 +1126,11 @@ async def start_quiz(
         )
         if sent is None:
             ACTIVE_QUIZZES.pop(channel_id, None)
+            _quiz_cancel_active_timeout(channel_id)
             return
 
         _quiz_track_message_id(quiz_state, getattr(sent, "id", None))
+        _quiz_schedule_active_timeout(channel_id, message.channel, quiz_state)
 
 
 async def prompt_quiz_mode_selection(
@@ -1183,6 +1188,7 @@ async def stop_quiz(message):
     """Cancel the active quiz in the channel and reveal the current answer."""
     channel_id = message.channel.id
     quiz = ACTIVE_QUIZZES.pop(channel_id, None)
+    _quiz_cancel_active_timeout(channel_id)
     if not quiz:
         try:
             await message.reply("No quiz is running right now.")
@@ -1326,6 +1332,85 @@ def _quiz_cancel_pending_another_timeout(channel_id):
     task = QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS.pop(channel_id, None)
     if task and not task.done():
         task.cancel()
+
+
+def _quiz_cancel_active_timeout(channel_id):
+    task = QUIZ_ACTIVE_TIMEOUT_TASKS.pop(channel_id, None)
+    if task and not task.done():
+        task.cancel()
+
+
+def _quiz_active_timeout_message(quiz_state):
+    char_display, move_name, num_cmd = _quiz_answer_display(quiz_state)
+    score_text = _format_quiz_scores(
+        dict((quiz_state or {}).get("scores") or {}),
+        dict((quiz_state or {}).get("score_names") or {}),
+    )
+    return (
+        "Quiz timed out after 5 minutes with no correct answer.\n"
+        f"The answer was **{char_display}'s {move_name} ({num_cmd})**.\n"
+        f"{score_text}\n"
+        "Would you like another question?"
+    )
+
+
+def _quiz_schedule_active_timeout(channel_id, channel, quiz_state):
+    _quiz_cancel_active_timeout(channel_id)
+
+    async def _timeout_worker():
+        try:
+            await asyncio.sleep(QUIZ_ACTIVE_TTL_SECONDS)
+            active = ACTIVE_QUIZZES.get(channel_id)
+            if active is not quiz_state:
+                return
+
+            created_at = active.get("created_at")
+            if created_at:
+                age = (datetime.datetime.now(datetime.timezone.utc) - created_at).total_seconds()
+                remaining = QUIZ_ACTIVE_TTL_SECONDS - age
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
+
+            active = ACTIVE_QUIZZES.get(channel_id)
+            if active is not quiz_state:
+                return
+
+            created_at = active.get("created_at")
+            if created_at:
+                age = (datetime.datetime.now(datetime.timezone.utc) - created_at).total_seconds()
+                if age < QUIZ_ACTIVE_TTL_SECONDS:
+                    return
+
+            expired_quiz = ACTIVE_QUIZZES.pop(channel_id, None)
+            if expired_quiz is not quiz_state:
+                if expired_quiz:
+                    ACTIVE_QUIZZES[channel_id] = expired_quiz
+                return
+
+            expiry_text = _quiz_active_timeout_message(expired_quiz)
+            try:
+                sent = await channel.send(expiry_text)
+                QUIZ_PENDING_ANOTHER[channel_id] = {
+                    "created_at": datetime.datetime.now(datetime.timezone.utc),
+                    "message_id": getattr(sent, "id", None),
+                    "mode": expired_quiz.get("mode", "hard"),
+                    "owner_user_id": expired_quiz.get("owner_user_id"),
+                    "scores": dict(expired_quiz.get("scores") or {}),
+                    "score_names": dict(expired_quiz.get("score_names") or {}),
+                    "round": expired_quiz.get("round", 1),
+                    "message_ids": _quiz_build_message_history(expired_quiz, getattr(sent, "id", None)),
+                }
+                _quiz_schedule_pending_another_timeout(channel_id, channel)
+            except Exception as send_error:
+                print(f"[quiz] active-expiry send error: {send_error}", flush=True)
+        except asyncio.CancelledError:
+            return
+        finally:
+            tracked_task = QUIZ_ACTIVE_TIMEOUT_TASKS.get(channel_id)
+            if tracked_task is asyncio.current_task():
+                QUIZ_ACTIVE_TIMEOUT_TASKS.pop(channel_id, None)
+
+    QUIZ_ACTIVE_TIMEOUT_TASKS[channel_id] = asyncio.create_task(_timeout_worker())
 
 
 def _quiz_timeout_expiry_message(pending_state):
@@ -1636,6 +1721,7 @@ async def handle_quiz_post_answer_choice(message):
             return True
 
         ACTIVE_QUIZZES.pop(channel_id, None)
+        _quiz_cancel_active_timeout(channel_id)
         char_display, move_name, num_cmd = _quiz_answer_display(quiz)
         score_text = _format_quiz_scores(
             dict(quiz.get("scores") or {}),
@@ -1727,6 +1813,7 @@ async def handle_quiz_answer(message):
     await _quiz_record_global_win(winner_id, winner_name, points=1)
 
     ACTIVE_QUIZZES.pop(channel_id, None)
+    _quiz_cancel_active_timeout(channel_id)
     thinking_message = await _quiz_send_thinking_message(message)
     char_display, move_name, num_cmd = _quiz_answer_display(quiz)
     correct_reply = await build_quiz_correct_guess_message(message.channel, sanitize_ascii_line)
@@ -1771,7 +1858,6 @@ async def route_message(client, message, content_lower):
     mode_prompt_reply = _is_reply_to_quiz_mode_prompt(message)
     command_is_addressed = (
         client.user.mentioned_in(message)
-        or bool(QUIZ_NAME_PREFIX_RE.search(content_lower))
         or _is_reply_to_quiz_followup_msg(message)
         or mode_prompt_reply
     )
@@ -1792,7 +1878,7 @@ async def route_message(client, message, content_lower):
     if (
         not in_quiz
         and _quiz_pending_another_active(channel_id)
-        and (command_is_addressed or requested_quiz_mode in QUIZ_VALID_MODES)
+        and command_is_addressed
     ):
         pending = QUIZ_PENDING_ANOTHER.get(channel_id, {})
         pending_scores = dict(pending.get("scores") or {})
@@ -1841,7 +1927,7 @@ async def route_message(client, message, content_lower):
             )
             return
 
-        if requested_quiz_mode in QUIZ_VALID_MODES:
+        if command_is_addressed and requested_quiz_mode in QUIZ_VALID_MODES:
             QUIZ_PENDING_ANOTHER.pop(channel_id, None)
             _quiz_cancel_pending_another_timeout(channel_id)
             await start_quiz(
@@ -1855,7 +1941,7 @@ async def route_message(client, message, content_lower):
             )
             return
 
-        if wants_another_yes or QUIZ_INTENT_RE.search(content_lower):
+        if command_is_addressed and (wants_another_yes or QUIZ_INTENT_RE.search(content_lower)):
             followup_mode = str(requested_quiz_mode or pending.get("mode") or "").strip().lower()
             QUIZ_PENDING_ANOTHER.pop(channel_id, None)
             _quiz_cancel_pending_another_timeout(channel_id)
@@ -1890,7 +1976,7 @@ async def route_message(client, message, content_lower):
         pending_mode_owner_user_id = pending_mode.get("owner_user_id")
         pending_mode_message_ids = list(pending_mode.get("message_ids") or [])
 
-        if requested_quiz_mode in QUIZ_VALID_MODES:
+        if command_is_addressed and requested_quiz_mode in QUIZ_VALID_MODES:
             QUIZ_PENDING_MODE.pop(channel_id, None)
             await start_quiz(
                 message,
