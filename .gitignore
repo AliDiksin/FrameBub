@@ -59,10 +59,10 @@ GGST - Dustloop Frame Data.ods
 /bubbot/features/bub_llm.py
 /scripts/send_bub_message_gui.py
 /bubbot/features/scheduler.py
-/scripts/build_move_image_caches.py
+
 /.dustloop_cache
 GGST Frame Data.backup.ods
-/scripts/update_ggst_frame_data_from_dustloop.py
+
 /wiki
 inspo.md
 /regressions
