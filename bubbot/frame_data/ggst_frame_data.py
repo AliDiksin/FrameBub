@@ -1,11 +1,19 @@
 import difflib
+import json
 import os
 import re
 
 import discord
 import pandas as pd
 
-from ggst_aliases import (
+from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
+from bubbot.utils.discord_formatting import (
+    add_embed_field as shared_add_embed_field,
+    add_long_embed_field as shared_add_long_embed_field,
+    clean_value as shared_clean_value,
+    truncate_value as shared_truncate_value,
+)
+from bubbot.data.ggst_aliases import (
     GGST_CHARACTER_ALIASES,
     GGST_CHARACTER_MOVE_ALIASES,
     GGST_CHARACTER_STATE_SHEETS,
@@ -15,6 +23,10 @@ from ggst_aliases import (
     GOLDLEWIS_SECURITY_STATE_SHEETS,
     NAGORIYUKI_BLOOD_STATE_SHEETS,
 )
+from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
+from bubbot.utils.row_utils import row_key
+from bubbot.utils.text_utils import compact_key, word_tokens
 
 
 GGST_FRAME_DATA_FILE = "GGST Frame Data.ods"
@@ -26,45 +38,38 @@ GGST_FRAME_DATA = {}
 GGST_STATE_FRAME_DATA = {}
 GGST_SUPPLEMENTAL_FRAME_DATA = {}
 GGST_HITBOX_DATA = {}
+GGST_MOVE_NOTES = {}
 FRAME_IMAGE_THUMB_WIDTH = 220
 GGST_MOVE_IMAGE_URLS = {
     ("ky", "jd"): "https://www.dustloop.com/wiki/images/thumb/2/2c/GGST_Ky_Kiske_jD.png/315px-GGST_Ky_Kiske_jD.png",
 }
-GGST_MOVE_IMAGES_MODULE = "ggst_move_images"
+GGST_MOVE_IMAGES_MODULE = "bubbot.data.ggst_move_images"
 
 def normalize_key(value):
-    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+    return compact_key(value)
 
 
 def resize_mediawiki_thumb_url(url, thumb_width=FRAME_IMAGE_THUMB_WIDTH):
-    text = str(url or "").strip()
-    if not text:
-        return ""
-    return re.sub(r"/\d+px-([^/]+)$", rf"/{thumb_width}px-\1", text)
+    return shared_resize_mediawiki_thumb_url(url, thumb_width)
 
 
 def load_move_image_urls(module_name=GGST_MOVE_IMAGES_MODULE):
-    try:
-        image_module = __import__(module_name)
-        data = {
-            "normal": getattr(image_module, "GGST_MOVE_IMAGE_URLS", {}),
-            "hitbox": getattr(image_module, "GGST_HITBOX_DATA", {}),
-        }
-    except Exception as exc:
-        if not isinstance(exc, ModuleNotFoundError):
-            print(f"[ggst-images] failed to load {module_name}: {exc}", flush=True)
+    image_module = import_cache_module(module_name, "ggst-images")
+    if not image_module:
         return False
+    data = {
+        "normal": getattr(image_module, "GGST_MOVE_IMAGE_URLS", {}),
+        "hitbox": getattr(image_module, "GGST_HITBOX_DATA", {}),
+        "notes": getattr(image_module, "GGST_MOVE_NOTES", {}),
+    }
 
-    normal_loaded = 0
-    for char_key, moves in ((data or {}).get("normal") or {}).items():
-        if not isinstance(moves, dict):
-            continue
-        normalized_char = str(char_key or "").strip().lower()
-        for move_key, url in moves.items():
-            if not isinstance(url, str) or not url.strip():
-                continue
-            GGST_MOVE_IMAGE_URLS[(normalized_char, normalize_move_token(move_key))] = resize_mediawiki_thumb_url(url)
-            normal_loaded += 1
+    normal_loaded = merge_nested_url_cache(
+        GGST_MOVE_IMAGE_URLS,
+        (data or {}).get("normal") or {},
+        char_key_fn=lambda value: str(value or "").strip().lower(),
+        move_key_fn=normalize_move_token,
+        url_fn=resize_mediawiki_thumb_url,
+    )
 
     hitbox_loaded = 0
     GGST_HITBOX_DATA.clear()
@@ -82,7 +87,21 @@ def load_move_image_urls(module_name=GGST_MOVE_IMAGES_MODULE):
             char_links[normalize_move_token(move_key)] = clean_links
             hitbox_loaded += len(clean_links)
 
-    print(f"[ggst-images] loaded {normal_loaded} move image links and {hitbox_loaded} hitbox links", flush=True)
+    notes_loaded = 0
+    GGST_MOVE_NOTES.clear()
+    for char_key, moves in ((data or {}).get("notes") or {}).items():
+        if not isinstance(moves, dict):
+            continue
+        normalized_char = str(char_key or "").strip().lower()
+        char_notes = GGST_MOVE_NOTES.setdefault(normalized_char, {})
+        for move_key, notes_text in moves.items():
+            clean_notes = str(notes_text or "").strip()
+            if not clean_notes:
+                continue
+            char_notes[normalize_move_token(move_key)] = clean_notes
+            notes_loaded += 1
+
+    print(f"[ggst-images] loaded {normal_loaded} move image links, {hitbox_loaded} hitbox links, and {notes_loaded} notes", flush=True)
     return True
 
 
@@ -100,21 +119,7 @@ def display_char_name(char_key):
 
 
 def resolve_character_key(text):
-    raw = str(text or "").strip().lower()
-    if not raw:
-        return None
-    if raw in GGST_FRAME_DATA:
-        return raw
-    if raw in GGST_CHARACTER_ALIASES:
-        return GGST_CHARACTER_ALIASES[raw]
-    normalized = normalize_key(raw)
-    for alias, char_key in GGST_CHARACTER_ALIASES.items():
-        if normalize_key(alias) == normalized:
-            return char_key
-    for char_key in GGST_FRAME_DATA:
-        if normalize_key(char_key) == normalized:
-            return char_key
-    return None
+    return resolve_alias_key(text, GGST_CHARACTER_ALIASES, GGST_FRAME_DATA.keys(), normalize_fn=normalize_key)
 
 
 def resolve_frame_data_file(filename=None):
@@ -418,8 +423,63 @@ def row_matches_move(row, move_query):
     return False
 
 
+def row_primary_command_matches_move(row, move_query):
+    raw_query = str(move_query or "").lower().strip()
+    raw_query_norm = normalize_move_token(raw_query)
+    query = normalize_move_query(move_query)
+    query_norm = normalize_move_token(query)
+    if not query_norm:
+        return False
+    for value in (row.get("numCmd", ""), row.get("cmnName", ""), row.get("plnCmd", "")):
+        value_text = str(value or "").lower().strip()
+        if query.lower() == value_text or query_norm == normalize_move_token(value_text):
+            return True
+        for alternative in expand_or_command_alternatives(value_text):
+            alternative_norm = normalize_move_token(alternative)
+            if query_norm == alternative_norm or raw_query_norm == alternative_norm:
+                return True
+    return False
+
+
+def equivalent_frame_row_key(row):
+    return (
+        normalize_key(row.get("moveName", "")),
+        clean_value(row.get("startup")),
+        clean_value(row.get("active")),
+        clean_value(row.get("recovery")),
+        clean_value(row.get("onHit")),
+        clean_value(row.get("onBlock")),
+        clean_value(row.get("dmg")),
+        clean_value(row.get("guardLevel")),
+        clean_value(row.get("atkLvl")),
+        clean_value(row.get("state_key")),
+    )
+
+
+def row_preference_score(row):
+    num_cmd = str(row.get("numCmd", "") or "").lower()
+    score = len(num_cmd)
+    if " during " in num_cmd:
+        score += 100
+    if " or " in num_cmd:
+        score += 25
+    if num_cmd.startswith("en."):
+        score += 10
+    return score
+
+
+def dedupe_equivalent_frame_rows(rows):
+    selected = {}
+    for row in rows or []:
+        key = equivalent_frame_row_key(row)
+        current = selected.get(key)
+        if current is None or row_preference_score(row) < row_preference_score(current):
+            selected[key] = row
+    return sorted(selected.values(), key=row_preference_score)
+
+
 def find_fuzzy_character_in_text(text):
-    words = re.findall(r"[a-z0-9]+", str(text or "").lower())
+    words = word_tokens(text)
     if not words:
         return None
     best = None
@@ -472,7 +532,7 @@ def find_matching_rows(character, move_input, state_key=None):
         state_matches = []
         seen = set()
         for row in GGST_STATE_FRAME_DATA.get(char_key, {}).get(state_key, []):
-            key = (row.get("char_name"), row.get("moveName"), row.get("numCmd"), row.get("state_key"))
+            key = row_key(row, ("char_name", "moveName", "numCmd", "state_key"))
             if key in seen:
                 continue
             if row_matches_move(row, query):
@@ -486,7 +546,7 @@ def find_matching_rows(character, move_input, state_key=None):
         supplemental_matches = []
         seen_supplemental = set()
         for row in GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, []):
-            key = (row.get("char_name"), row.get("moveName"), row.get("numCmd"), row.get("state_key"))
+            key = row_key(row, ("char_name", "moveName", "numCmd", "state_key"))
             if key in seen_supplemental:
                 continue
             if row_matches_move(row, query):
@@ -503,13 +563,16 @@ def find_matching_rows(character, move_input, state_key=None):
     matches = []
     seen = set()
     for row in rows_to_search:
-        key = (row.get("char_name"), row.get("moveName"), row.get("numCmd"), row.get("state_key"))
+        key = row_key(row, ("char_name", "moveName", "numCmd", "state_key"))
         if key in seen:
             continue
         if row_matches_move(row, query):
             matches.append(row)
             seen.add(key)
-    return matches
+    primary_matches = [row for row in matches if row_primary_command_matches_move(row, query)]
+    if primary_matches:
+        return dedupe_equivalent_frame_rows(primary_matches)
+    return dedupe_equivalent_frame_rows(matches)
 
 
 def find_followup_rows(character, move_input):
@@ -548,7 +611,7 @@ def find_followup_rows(character, move_input):
     matches = []
     seen = set()
     for row in rows_to_search:
-        key = (row.get("char_name"), row.get("moveName"), row.get("numCmd"), row.get("state_key"))
+        key = row_key(row, ("char_name", "moveName", "numCmd", "state_key"))
         if key in seen:
             continue
         row_cmd_compact = normalize_key(row.get("numCmd", ""))
@@ -583,22 +646,7 @@ def build_followup_prompt(char_key, rows):
 
 
 def find_characters_in_text(text):
-    lowered = str(text or "").lower()
-    matches = []
-    aliases = sorted(GGST_CHARACTER_ALIASES.items(), key=lambda item: len(item[0]), reverse=True)
-    for alias, char_key in aliases:
-        pattern = rf"(?<![a-z0-9]){re.escape(alias.lower())}(?![a-z0-9])"
-        match = re.search(pattern, lowered)
-        if match:
-            matches.append((char_key, match.start(), match.end(), alias))
-    deduped = []
-    seen = set()
-    for item in sorted(matches, key=lambda x: x[1]):
-        if item[0] in seen:
-            continue
-        seen.add(item[0])
-        deduped.append(item)
-    return deduped
+    return find_alias_positions_in_text(text, GGST_CHARACTER_ALIASES, GGST_FRAME_DATA.keys())
 
 
 def find_moves_in_text(text):
@@ -691,28 +739,19 @@ def find_moves_in_text(text):
 
 
 def clean_value(value, default=""):
-    text = str(value if value is not None else "").replace("*", ",").strip()
-    if text.lower() in {"", "nan", "none", "null", "-", "--"}:
-        return default
-    return text
+    return shared_clean_value(value, default)
 
 
 def truncate_value(value, limit):
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 3)] + "..."
+    return shared_truncate_value(value, limit)
 
 
 def add_embed_field(embed, name, value, inline=True):
-    value = clean_value(value)
-    if not value:
-        return
-    embed.add_field(
-        name=truncate_value(name, 256),
-        value=truncate_value(value, 1024),
-        inline=inline,
-    )
+    shared_add_embed_field(embed, name, clean_value(value), inline=inline)
+
+
+def add_long_embed_field(embed, name, value, inline=False, chunk_limit=1024):
+    shared_add_long_embed_field(embed, name, clean_value(value), inline=inline, chunk_limit=chunk_limit)
 
 
 def format_jsonish_list(value):
@@ -721,21 +760,39 @@ def format_jsonish_list(value):
         return ""
     text = text.strip()
     if text.startswith("[") and text.endswith("]"):
+        try:
+            parts = json.loads(text)
+            if isinstance(parts, list):
+                return ", ".join(str(part).strip() for part in parts if str(part).strip())
+        except Exception:
+            pass
         text = text.strip("[]")
         parts = [part.strip().strip('"\'') for part in text.split(",")]
         return ", ".join(part for part in parts if part)
     return text
 
 
-def format_frame_data(row):
-    return (
+def get_notes_text(row):
+    char_key = str(row.get("char_key", "")).strip().lower()
+    num_cmd_key = normalize_move_token(row.get("numCmd", ""))
+    cached_notes = (GGST_MOVE_NOTES.get(char_key, {}) or {}).get(num_cmd_key)
+    if cached_notes:
+        return cached_notes
+    return format_jsonish_list(row.get("extraInfo"))
+
+
+def format_frame_data(row, include_notes=False):
+    text = (
         f"Move: {clean_value(row.get('moveName'))} ({clean_value(row.get('numCmd'))})\n"
         f"Startup: {clean_value(row.get('startup'), '-')}f | Active: {clean_value(row.get('active'), '-')}f | Recovery: {clean_value(row.get('recovery'), '-')}f\n"
         f"On Hit: {clean_value(row.get('onHit'), '-')} | On Block: {clean_value(row.get('onBlock'), '-')}\n"
         f"Damage: {clean_value(row.get('dmg'), '-')} | Guard: {clean_value(row.get('guardLevel'), '-')} | Attack Level: {clean_value(row.get('atkLvl'), '-')}\n"
-        f"RISC Gain: {clean_value(row.get('riscGain'), '-')} | Proration: {clean_value(row.get('prorate'), '-')} | Knockdown Adv: {clean_value(row.get('kda'), '-')}\n"
-        f"Notes: {format_jsonish_list(row.get('extraInfo'))}"
+        f"RISC Gain: {clean_value(row.get('riscGain'), '-')} | Proration: {clean_value(row.get('prorate'), '-')} | Knockdown Adv: {clean_value(row.get('kda'), '-')}"
     )
+    notes = get_notes_text(row)
+    if include_notes and notes:
+        text += f"\nNotes: {notes}"
+    return text
 
 
 def get_move_image_url(row):
@@ -746,7 +803,7 @@ def get_move_image_url(row):
     )
 
 
-def build_frame_embed(row):
+def build_frame_embed(row, show_notes=False):
     char_name = clean_value(row.get("char_name"), "Unknown")
     move_name = clean_value(row.get("moveName"), "Unknown")
     num_cmd = clean_value(row.get("numCmd"), "?")
@@ -769,7 +826,8 @@ def build_frame_embed(row):
     add_embed_field(embed, "Attack Level", row.get("atkLvl"), inline=True)
     add_embed_field(embed, "Cancel", format_jsonish_list(row.get("xx")), inline=True)
     add_embed_field(embed, "Gatling", format_jsonish_list(row.get("gatling")), inline=True)
-    add_embed_field(embed, "Notes", format_jsonish_list(row.get("extraInfo")), inline=False)
+    if show_notes:
+        add_long_embed_field(embed, "Notes", get_notes_text(row), inline=False)
     image_url = get_move_image_url(row)
     if image_url:
         embed.set_image(url=image_url)
@@ -801,27 +859,48 @@ class GGSTHitboxButton(discord.ui.Button):
                 ephemeral=True,
             )
             return
-        if interaction.message and interaction.message.embeds:
+        next_showing_hitbox = not self.showing_hitbox
+        self.showing_hitbox = next_showing_hitbox
+        self.label = "Show Image" if next_showing_hitbox else "Show Hitbox"
+        if hasattr(self.view, "build_embed"):
+            embed = self.view.build_embed()
+        elif interaction.message and interaction.message.embeds:
             embed = discord.Embed.from_dict(interaction.message.embeds[0].to_dict())
         else:
             embed = build_frame_embed(self.frame_row)
-        if self.showing_hitbox:
-            embed.set_image(url=self.original_image_url)
-            self.label = "Show Hitbox"
-            self.showing_hitbox = False
-        else:
-            embed.set_image(url=self.hitbox_links[0])
-            self.label = "Show Image"
-            self.showing_hitbox = True
+        target_image_url = self.hitbox_links[0] if next_showing_hitbox else self.original_image_url
+        if target_image_url:
+            embed.set_image(url=target_image_url)
         await interaction.response.edit_message(embed=embed, view=self.view)
+
+
+class GGSTNotesButton(discord.ui.Button):
+    def __init__(self, row):
+        self.frame_row = row
+        self.notes_text = get_notes_text(row)
+        super().__init__(
+            label="Show Notes",
+            style=discord.ButtonStyle.secondary,
+            disabled=not self.notes_text,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if not hasattr(self.view, "build_embed"):
+            await interaction.response.defer()
+            return
+        self.view.show_notes = not self.view.show_notes
+        self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
+        self.style = discord.ButtonStyle.primary if self.view.show_notes else discord.ButtonStyle.secondary
+        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
 
 
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="ggst_frame_return_menu", row=1)
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="ggst_frame_return_menu", row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        import menu_system
+        from bubbot.features import menu_system
         await interaction.response.send_message(
             embed=menu_system._main_menu_embed(),
             view=menu_system.MainMenuView(interaction.user.id),
@@ -831,16 +910,28 @@ class ReturnToMenuButton(discord.ui.Button):
 class GGSTFrameDataView(discord.ui.View):
     def __init__(self, row, include_menu_button=True):
         super().__init__(timeout=3600)
-        self.add_item(GGSTHitboxButton(row))
+        self.row = row
+        self.show_notes = False
+        self.hitbox_button = GGSTHitboxButton(row)
+        self.notes_button = GGSTNotesButton(row)
+        self.add_item(self.hitbox_button)
+        self.add_item(self.notes_button)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
+
+    def build_embed(self):
+        embed = build_frame_embed(self.row, show_notes=self.show_notes)
+        if self.hitbox_button.showing_hitbox and self.hitbox_button.hitbox_links:
+            embed.set_image(url=self.hitbox_button.hitbox_links[0])
+        return embed
 
 
 async def send_frame_response(message, rows):
     if not rows:
         return False
     for row in rows[:4]:
-        await message.channel.send(embed=build_frame_embed(row), view=GGSTFrameDataView(row))
+        view = GGSTFrameDataView(row)
+        await message.channel.send(embed=view.build_embed(), view=view)
     return True
 
 

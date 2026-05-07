@@ -45,21 +45,23 @@ gemini-3.md
 .vscode/launch.json
 CLAUDE.md
 .claude/settings.local.json
-lltest.py
+/scripts/lltest.py
 .sisyphus/ralph-loop.local.md
 memory.md
 skills-lock.json
-shared_air_ground_gif_regressions.py
+/regressions/shared_air_ground_gif_regressions.py
 ~/
-local_gif_alias_regressions.py
+/regressions/local_gif_alias_regressions.py
 GGST - Dustloop Frame Data test.ods
-scrape_ggst_dustloop.py
+/scripts/scrape_ggst_dustloop.py
 GGST - Dustloop Frame Data.ods
 /sf6frames
-bub_llm.py
-send_bub_message_gui.py
-scheduler.py
-build_move_image_caches.py
+/bubbot/features/bub_llm.py
+/scripts/send_bub_message_gui.py
+/bubbot/features/scheduler.py
+/scripts/build_move_image_caches.py
 /.dustloop_cache
 GGST Frame Data.backup.ods
-update_ggst_frame_data_from_dustloop.py
+/scripts/update_ggst_frame_data_from_dustloop.py
+/wiki
+inspo.md

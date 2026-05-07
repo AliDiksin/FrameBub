@@ -1,6 +1,9 @@
 import os
 import re
 
+from bubbot.utils.character_lookup import find_aliases_in_text
+from bubbot.utils.text_utils import compact_key, remove_first_token_sequence as remove_first_token_sequence_shared
+
 CHARACTER_ALIASES = {}
 FRAME_DATA = {}
 HITBOX_GIF_DATA = {}
@@ -21,7 +24,7 @@ def configure(**deps):
 
 
 def compact_move_token(value):
-    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+    return compact_key(value)
 
 
 def normalize_num_cmd_token(value):
@@ -533,46 +536,11 @@ def collect_hitbox_gif_links(rows, limit=3):
 
 def find_characters_in_text(text):
     text_lower = strip_discord_mentions(text).lower()
-    tokens = re.findall(r"[a-z0-9]+", text_lower)
-
-    def has_token_sequence(sequence):
-        if not sequence:
-            return False
-        seq_len = len(sequence)
-        for idx in range(len(tokens) - seq_len + 1):
-            if tokens[idx:idx + seq_len] == sequence:
-                return True
-        return False
-
-    found = []
-    alias_items = sorted(
-        CHARACTER_ALIASES.items(),
-        key=lambda item: len(re.findall(r"[a-z0-9]+", item[0])),
-        reverse=True,
-    )
-    for alias, canonical in alias_items:
-        if canonical not in FRAME_DATA:
-            continue
-        alias_tokens = re.findall(r"[a-z0-9]+", alias.lower())
-        if has_token_sequence(alias_tokens) and canonical not in found:
-            found.append(canonical)
-
-    for char_key in FRAME_DATA.keys():
-        char_tokens = re.findall(r"[a-z0-9]+", str(char_key).lower())
-        if has_token_sequence(char_tokens) and char_key not in found:
-            found.append(char_key)
-
-    return found
+    return find_aliases_in_text(text_lower, CHARACTER_ALIASES, FRAME_DATA.keys())
 
 
 def remove_first_token_sequence(tokens, sequence):
-    if not sequence:
-        return tokens, False
-    seq_len = len(sequence)
-    for idx in range(len(tokens) - seq_len + 1):
-        if tokens[idx:idx + seq_len] == sequence:
-            return tokens[:idx] + tokens[idx + seq_len:], True
-    return tokens, False
+    return remove_first_token_sequence_shared(tokens, sequence)
 
 
 def extract_gif_move_query_text(text, char_key):

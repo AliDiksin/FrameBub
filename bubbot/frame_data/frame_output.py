@@ -1,9 +1,19 @@
 import os
 import re
-import urllib.parse
-import hashlib
 
 import discord
+
+from bubbot.utils.discord_formatting import (
+    add_embed_field as shared_add_embed_field,
+    clean_value as shared_clean_value,
+    is_missing_value,
+    truncate_value as shared_truncate_value,
+)
+from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.mediawiki_images import mediawiki_thumb_url as shared_mediawiki_thumb_url
+from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
+from bubbot.utils.row_utils import unique_rows
+from bubbot.utils.text_utils import compact_key
 
 is_missing_attack_range_value = None
 truncate_message = None
@@ -18,7 +28,7 @@ SF6_BOTTOM_IMAGE_WIDTH = 315
 SF6_MOVE_IMAGE_URLS = {
     ("ken", "5hp"): "https://wiki.supercombo.gg/images/thumb/6/6c/SF6_Ken_5hp.png/262px-SF6_Ken_5hp.png",
 }
-SF6_MOVE_IMAGES_MODULE = "sf6_move_images"
+SF6_MOVE_IMAGES_MODULE = "bubbot.data.sf6_move_images"
 
 
 def configure(**deps):
@@ -26,24 +36,17 @@ def configure(**deps):
 
 
 def load_move_image_urls(module_name=SF6_MOVE_IMAGES_MODULE):
-    try:
-        image_module = __import__(module_name)
-        data = getattr(image_module, "SF6_MOVE_IMAGE_URLS", {})
-    except Exception as exc:
-        if not isinstance(exc, ModuleNotFoundError):
-            print(f"[sf6-images] failed to load {module_name}: {exc}", flush=True)
+    image_module = import_cache_module(module_name, "sf6-images")
+    if not image_module:
         return False
+    data = getattr(image_module, "SF6_MOVE_IMAGE_URLS", {})
 
-    loaded = 0
-    for char_key, moves in (data or {}).items():
-        if not isinstance(moves, dict):
-            continue
-        normalized_char = normalize_image_key(char_key)
-        for move_key, url in moves.items():
-            if not isinstance(url, str) or not url.strip():
-                continue
-            SF6_MOVE_IMAGE_URLS[(normalized_char, normalize_image_key(move_key))] = url.strip()
-            loaded += 1
+    loaded = merge_nested_url_cache(
+        SF6_MOVE_IMAGE_URLS,
+        data,
+        char_key_fn=normalize_image_key,
+        move_key_fn=normalize_image_key,
+    )
     print(f"[sf6-images] loaded {loaded} move image links", flush=True)
     return True
 
@@ -75,23 +78,15 @@ def format_frame_data(row):
 
 
 def normalize_image_key(value):
-    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+    return compact_key(value)
 
 
 def mediawiki_thumb_url(base_url, filename, thumb_width=FRAME_IMAGE_THUMB_WIDTH):
-    normalized_name = str(filename or "").strip().replace(" ", "_")
-    if not normalized_name:
-        return ""
-    digest = hashlib.md5(normalized_name.encode("utf-8")).hexdigest()
-    encoded_name = urllib.parse.quote(normalized_name, safe="._()-")
-    return f"{base_url}/images/thumb/{digest[0]}/{digest[:2]}/{encoded_name}/{thumb_width}px-{encoded_name}"
+    return shared_mediawiki_thumb_url(base_url, filename, thumb_width)
 
 
 def resize_mediawiki_thumb_url(url, thumb_width=FRAME_IMAGE_THUMB_WIDTH):
-    text = str(url or "").strip()
-    if not text:
-        return ""
-    return re.sub(r"/\d+px-([^/]+)$", rf"/{thumb_width}px-\1", text)
+    return shared_resize_mediawiki_thumb_url(url, thumb_width)
 
 
 def get_sf6_move_image_url(row):
@@ -100,6 +95,14 @@ def get_sf6_move_image_url(row):
     image_url = SF6_MOVE_IMAGE_URLS.get((char_key, num_cmd_key))
     if image_url:
         return image_url
+
+    strength_match = re.match(r"^(.*?)([lmh])([pk])$", num_cmd_key)
+    if strength_match:
+        prefix, _strength, button = strength_match.groups()
+        for strength in ("l", "m", "h"):
+            image_url = SF6_MOVE_IMAGE_URLS.get((char_key, f"{prefix}{strength}{button}"))
+            if image_url:
+                return image_url
 
     num_cmd = str(row.get("numCmd", "")).strip()
     char_name = str(row.get("char_name", "")).strip()
@@ -121,16 +124,7 @@ def format_property_only_lines(lines, limit=1800):
 
 def format_startup_only_reply(rows):
     lines = []
-    seen = set()
-    for row in rows:
-        key = (
-            row.get("char_name", "Unknown"),
-            row.get("moveName", "Unknown"),
-            row.get("numCmd", "?"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
+    for row in iter_unique_frame_rows(rows):
         startup_raw = str(row.get("startup", "-")).replace("*", ",").strip()
         startup = startup_raw if startup_raw else "-"
         startup_suffix = "f" if any(ch.isdigit() for ch in startup) and not startup.endswith("f") else ""
@@ -143,16 +137,7 @@ def format_startup_only_reply(rows):
 
 def format_hitconfirm_only_reply(rows):
     lines = []
-    seen = set()
-    for row in rows:
-        key = (
-            row.get("char_name", "Unknown"),
-            row.get("moveName", "Unknown"),
-            row.get("numCmd", "?"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
+    for row in iter_unique_frame_rows(rows):
         char_name = row.get("char_name", "Unknown")
         move_name = row.get("moveName", "Unknown")
         num_cmd = row.get("numCmd", "?")
@@ -167,16 +152,7 @@ def format_hitconfirm_only_reply(rows):
 
 def format_super_gain_only_reply(rows):
     lines = []
-    seen = set()
-    for row in rows:
-        key = (
-            row.get("char_name", "Unknown"),
-            row.get("moveName", "Unknown"),
-            row.get("numCmd", "?"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
+    for row in iter_unique_frame_rows(rows):
         char_name = row.get("char_name", "Unknown")
         move_name = row.get("moveName", "Unknown")
         num_cmd = row.get("numCmd", "?")
@@ -189,18 +165,7 @@ def format_super_gain_only_reply(rows):
 
 
 def format_range_only_reply(rows):
-    unique_rows = []
-    seen = set()
-    for row in rows:
-        key = (
-            row.get("char_name", "Unknown"),
-            row.get("moveName", "Unknown"),
-            row.get("numCmd", "?"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_rows.append(row)
+    unique_rows = iter_unique_frame_rows(rows)
 
     if not unique_rows:
         return ""
@@ -231,36 +196,19 @@ def format_range_only_reply(rows):
 
 
 def truncate_embed_value(value, limit):
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text
-    if limit <= 3:
-        return text[:limit]
-    return text[: limit - 3] + "..."
+    return shared_truncate_value(value, limit)
 
 
 def is_missing_embed_value(value):
-    text = str(value if value is not None else "").strip().lower()
-    return text in {"", "-", "--", "n/a", "na", "none", "null", "nan"}
+    return is_missing_value(value)
 
 
 def clean_embed_value(value, default="", strip_brackets=False):
-    text = str(value if value is not None else "").replace("*", ",").strip()
-    if strip_brackets:
-        text = text.replace("[", "").replace("]", "").replace('"', "")
-    if is_missing_embed_value(text):
-        text = default
-    return text
+    return shared_clean_value(value, default, strip_brackets=strip_brackets)
 
 
 def add_embed_field(embed, name, value, inline=True):
-    if is_missing_embed_value(value):
-        return
-    safe_name = truncate_embed_value(name, 256) or "-"
-    safe_value = truncate_embed_value(value, 1024)
-    if is_missing_embed_value(safe_value):
-        return
-    embed.add_field(name=safe_name, value=safe_value, inline=inline)
+    shared_add_embed_field(embed, name, value, inline=inline)
 
 
 def format_hit_block_value(hit_value, block_value):
@@ -341,19 +289,7 @@ def build_frame_embed(row):
 
 
 def iter_unique_frame_rows(rows):
-    seen = set()
-    unique_rows = []
-    for row in rows or []:
-        key = (
-            row.get("char_name", "Unknown"),
-            row.get("moveName", "Unknown"),
-            row.get("numCmd", "?"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_rows.append(row)
-    return unique_rows
+    return unique_rows(rows)
 
 
 def build_frame_embeds(rows):
@@ -460,7 +396,7 @@ class ReturnToMenuButton(discord.ui.Button):
         super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="frame_return_menu", row=1)
 
     async def callback(self, interaction: discord.Interaction):
-        import menu_system
+        from bubbot.features import menu_system
         await interaction.response.send_message(
             embed=menu_system._main_menu_embed(),
             view=menu_system.MainMenuView(interaction.user.id),

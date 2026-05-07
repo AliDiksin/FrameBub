@@ -3,6 +3,8 @@ import re
 
 import discord
 
+from bubbot.utils.choice_utils import character_choices, move_choices
+
 FRAME_DATA = {}
 CHARACTER_ALIASES = {}
 GGST_FRAME_DATA = {}
@@ -55,64 +57,29 @@ class OwnedView(discord.ui.View):
 
 
 def _sf6_character_list():
-    seen = set()
-    chars = []
-    for char_key in sorted(FRAME_DATA.keys()):
-        display = char_key.title()
-        if display.lower() not in seen:
-            seen.add(display.lower())
-            chars.append((char_key, display))
-    return chars
+    return character_choices(FRAME_DATA, display_fn=lambda char_key, _rows: str(char_key).title())
 
 
 def _ggst_character_list():
-    seen = set()
-    chars = []
-    for char_key in sorted(GGST_FRAME_DATA.keys()):
-        rows = GGST_FRAME_DATA.get(char_key, [])
-        display = str(rows[0].get("char_name", char_key)).strip() if rows else char_key.title()
-        if display.lower() not in seen:
-            seen.add(display.lower())
-            chars.append((char_key, display))
-    return chars
+    return character_choices(GGST_FRAME_DATA)
 
 
 def _sf6_move_list(char_key):
-    seen = set()
-    moves = []
-    for row in FRAME_DATA.get(char_key, []):
-        move_name = str(row.get("moveName", "")).strip()
-        num_cmd = str(row.get("numCmd", "")).strip()
-        if not move_name and not num_cmd:
-            continue
-        label = f"{move_name} ({num_cmd})" if num_cmd else move_name
-        key = (move_name, num_cmd)
-        if key not in seen:
-            seen.add(key)
-            moves.append((row, label))
-    return moves
+    return move_choices(FRAME_DATA.get(char_key, []))
 
 
 def _ggst_move_list(char_key):
-    seen = set()
-    moves = []
-    for row in GGST_FRAME_DATA.get(char_key, []):
+    def label_fn(row):
         move_name = str(row.get("moveName", "")).strip()
         num_cmd = str(row.get("numCmd", "")).strip()
         state_label = str(row.get("state_label", "")).strip()
-        if not move_name and not num_cmd:
-            continue
         if state_label:
-            label = f"{move_name} ({num_cmd}) [{state_label}]"
-        elif num_cmd:
-            label = f"{move_name} ({num_cmd})"
-        else:
-            label = move_name
-        key = (move_name, num_cmd, state_label)
-        if key not in seen:
-            seen.add(key)
-            moves.append((row, label))
-    return moves
+            return f"{move_name} ({num_cmd}) [{state_label}]"
+        if num_cmd:
+            return f"{move_name} ({num_cmd})"
+        return move_name
+
+    return move_choices(GGST_FRAME_DATA.get(char_key, []), label_fn=label_fn, key_fields=("moveName", "numCmd", "state_label"))
 
 
 class MainMenuView(OwnedView):
@@ -124,6 +91,7 @@ class MainMenuView(OwnedView):
         await interaction.response.edit_message(
             embed=_game_menu_embed("Street Fighter 6", 0x3998C6),
             view=GameMenuView("sf6", self.owner_id),
+            attachments=[],
         )
 
     @discord.ui.button(label="Guilty Gear Strive", style=discord.ButtonStyle.danger, custom_id="menu_ggst")
@@ -131,6 +99,7 @@ class MainMenuView(OwnedView):
         await interaction.response.edit_message(
             embed=_game_menu_embed("Guilty Gear Strive", 0x7A2BFF),
             view=GameMenuView("ggst", self.owner_id),
+            attachments=[],
         )
 
 
@@ -150,6 +119,7 @@ class GameMenuView(OwnedView):
         await interaction.response.edit_message(
             embed=_character_select_embed(self.game, page=0, total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))),
             view=CharacterSelectView(self.game, chars, self.owner_id, page=0),
+            attachments=[],
         )
 
     @discord.ui.button(label="Quiz", style=discord.ButtonStyle.success, custom_id="game_quiz")
@@ -158,6 +128,7 @@ class GameMenuView(OwnedView):
         await interaction.response.edit_message(
             embed=_quiz_difficulty_embed(game_label),
             view=QuizDifficultyView(self.game, self.owner_id),
+            attachments=[],
         )
 
     @discord.ui.button(label="Combos", style=discord.ButtonStyle.secondary, custom_id="game_combos")
@@ -169,6 +140,7 @@ class GameMenuView(OwnedView):
                 colour=0xAAAAAA,
             ),
             view=BackToGameMenuView(self.game, self.owner_id),
+            attachments=[],
         )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, custom_id="game_back")
@@ -176,6 +148,7 @@ class GameMenuView(OwnedView):
         await interaction.response.edit_message(
             embed=_main_menu_embed(),
             view=MainMenuView(self.owner_id),
+            attachments=[],
         )
 
 
@@ -215,6 +188,7 @@ class CharacterSelectView(OwnedView):
         await interaction.response.edit_message(
             embed=_character_select_embed(self.game, page=new_page, total_pages=max_page + 1),
             view=CharacterSelectView(self.game, self.chars, self.owner_id, page=new_page),
+            attachments=[],
         )
 
     @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=4)
@@ -224,6 +198,7 @@ class CharacterSelectView(OwnedView):
         await interaction.response.edit_message(
             embed=_character_select_embed(self.game, page=new_page, total_pages=max_page + 1),
             view=CharacterSelectView(self.game, self.chars, self.owner_id, page=new_page),
+            attachments=[],
         )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
@@ -233,6 +208,7 @@ class CharacterSelectView(OwnedView):
         await interaction.response.edit_message(
             embed=_game_menu_embed(game_label, colour),
             view=GameMenuView(self.game, self.owner_id),
+            attachments=[],
         )
 
 
@@ -258,6 +234,7 @@ class CharacterSelect(discord.ui.Select):
         await interaction.response.edit_message(
             embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
             view=MoveSelectView(self.game, char_key, moves, self.view.owner_id, page=0),
+            attachments=[],
         )
 
 
@@ -298,6 +275,7 @@ class MoveSelectView(OwnedView):
         await interaction.response.edit_message(
             embed=_move_select_embed(self.char_key.title(), page=new_page, total_pages=max_page + 1),
             view=MoveSelectView(self.game, self.char_key, self.moves, self.owner_id, page=new_page),
+            attachments=[],
         )
 
     @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=4)
@@ -307,6 +285,7 @@ class MoveSelectView(OwnedView):
         await interaction.response.edit_message(
             embed=_move_select_embed(self.char_key.title(), page=new_page, total_pages=max_page + 1),
             view=MoveSelectView(self.game, self.char_key, self.moves, self.owner_id, page=new_page),
+            attachments=[],
         )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
@@ -315,6 +294,7 @@ class MoveSelectView(OwnedView):
         await interaction.response.edit_message(
             embed=_character_select_embed(self.game, page=0, total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))),
             view=CharacterSelectView(self.game, chars, self.owner_id, page=0),
+            attachments=[],
         )
 
 
@@ -335,9 +315,9 @@ class MoveSelect(discord.ui.Select):
             return
         idx = int(raw_idx)
         row, label = self.moves[idx]
-        embed = build_sf6_frame_embed(row) if self.game == "sf6" else build_ggst_frame_embed(row)
         view = FrameResultView(self.game, self.char_key, row, self.view.owner_id)
-        await interaction.response.edit_message(embed=embed, view=view)
+        embed = build_sf6_frame_embed(row) if self.game == "sf6" else view.build_embed()
+        await interaction.response.edit_message(embed=embed, view=view, attachments=[])
 
 
 class FrameResultView(OwnedView):
@@ -345,19 +325,35 @@ class FrameResultView(OwnedView):
         super().__init__(owner_id=owner_id, timeout=300)
         self.game = game
         self.char_key = char_key
+        self.row = row
         if game == "sf6":
-            from frame_output import FrameDataGifButton
-            from gif_lookup import get_frame_row_gif_links
+            from bubbot.frame_data.frame_output import FrameDataGifButton
+            from bubbot.frame_data.gif_lookup import get_frame_row_gif_links
             self.add_item(FrameDataGifButton(row, get_frame_row_gif_links(row)))
         else:
-            from ggst_frame_data import GGSTHitboxButton
-            self.add_item(GGSTHitboxButton(row))
+            from bubbot.frame_data.ggst_frame_data import GGSTHitboxButton, GGSTNotesButton
+            self.show_notes = False
+            self.hitbox_button = GGSTHitboxButton(row)
+            self.notes_button = GGSTNotesButton(row)
+            self.add_item(self.hitbox_button)
+            self.add_item(self.notes_button)
+
+    def build_embed(self):
+        if self.game == "sf6":
+            return build_sf6_frame_embed(self.row)
+        from bubbot.frame_data.ggst_frame_data import build_frame_embed
+        embed = build_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
+        hitbox_button = getattr(self, "hitbox_button", None)
+        if hitbox_button and hitbox_button.showing_hitbox and hitbox_button.hitbox_links:
+            embed.set_image(url=hitbox_button.hitbox_links[0])
+        return embed
 
     @discord.ui.button(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="frame_return_menu")
     async def return_menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             embed=_main_menu_embed(),
             view=MainMenuView(self.owner_id),
+            attachments=[],
         )
 
     @discord.ui.button(label="Back to Moves", style=discord.ButtonStyle.grey, custom_id="frame_back_moves")
@@ -367,6 +363,7 @@ class FrameResultView(OwnedView):
         await interaction.response.edit_message(
             embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
             view=MoveSelectView(self.game, self.char_key, moves, self.owner_id, page=0),
+            attachments=[],
         )
 
 
@@ -394,6 +391,7 @@ class QuizDifficultyView(OwnedView):
         await interaction.response.edit_message(
             embed=_game_menu_embed(game_label, colour),
             view=GameMenuView(self.game, self.owner_id),
+            attachments=[],
         )
 
     async def _start_quiz(self, interaction, difficulty):
@@ -408,6 +406,7 @@ class QuizDifficultyView(OwnedView):
                 colour=0x00FF00,
             ),
             view=None,
+            attachments=[],
         )
         fake_message = QuizFakeMessage(interaction)
         await quiz_module.start_quiz(fake_message, mode=difficulty)
@@ -425,6 +424,7 @@ class BackToGameMenuView(OwnedView):
         await interaction.response.edit_message(
             embed=_game_menu_embed(game_label, colour),
             view=GameMenuView(self.game, self.owner_id),
+            attachments=[],
         )
 
 

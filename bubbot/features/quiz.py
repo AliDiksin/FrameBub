@@ -9,7 +9,7 @@ import re
 import discord
 
 try:
-    from bub_llm import (
+    from bubbot.features.bub_llm import (
         build_quiz_cheating_warning_message,
         build_quiz_correct_guess_message,
         build_quiz_decline_message,
@@ -22,7 +22,7 @@ try:
 except ModuleNotFoundError as import_error:
     if import_error.name != "bub_llm":
         raise
-    from bub_llm_fallback import (
+    from bubbot.features.bub_llm_fallback import (
         build_quiz_cheating_warning_message,
         build_quiz_correct_guess_message,
         build_quiz_decline_message,
