@@ -24,4 +24,7 @@ async def send_slash_frame_result(
         await interaction.response.send_message(f"{char_name} with {move_name} is not a valid character/move combination for {game_label}")
         return
     row = rows[0]
-    await interaction.response.send_message(embed=embed_fn(row), view=view_fn(row))
+    view = view_fn(row)
+    embed = view.build_embed() if hasattr(view, "build_embed") else embed_fn(row)
+    files = view.initial_files() if hasattr(view, "initial_files") else []
+    await interaction.response.send_message(embed=embed, view=view, files=files)

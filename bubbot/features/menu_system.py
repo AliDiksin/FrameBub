@@ -1,4 +1,5 @@
 import math
+import os
 import re
 
 import discord
@@ -9,10 +10,13 @@ FRAME_DATA = {}
 CHARACTER_ALIASES = {}
 GGST_FRAME_DATA = {}
 GGST_CHARACTER_ALIASES = {}
+TUCO_FRAME_DATA = {}
+TUCO_CHARACTER_ALIASES = {}
 
 quiz_module = None
 build_sf6_frame_embed = None
 build_ggst_frame_embed = None
+build_tuco_frame_embed = None
 send_frame_embeds_with_views = None
 
 
@@ -21,20 +25,26 @@ def configure(
     character_aliases=None,
     ggst_frame_data=None,
     ggst_character_aliases=None,
+    tuco_frame_data=None,
+    tuco_character_aliases=None,
     quiz_module_ref=None,
     build_sf6_frame_embed_fn=None,
     build_ggst_frame_embed_fn=None,
+    build_tuco_frame_embed_fn=None,
     send_frame_embeds_with_views_fn=None,
 ):
-    global FRAME_DATA, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES
-    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, send_frame_embeds_with_views
+    global FRAME_DATA, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES
+    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_tuco_frame_embed, send_frame_embeds_with_views
     FRAME_DATA = frame_data or {}
     CHARACTER_ALIASES = character_aliases or {}
     GGST_FRAME_DATA = ggst_frame_data or {}
     GGST_CHARACTER_ALIASES = ggst_character_aliases or {}
+    TUCO_FRAME_DATA = tuco_frame_data or {}
+    TUCO_CHARACTER_ALIASES = tuco_character_aliases or {}
     quiz_module = quiz_module_ref
     build_sf6_frame_embed = build_sf6_frame_embed_fn
     build_ggst_frame_embed = build_ggst_frame_embed_fn
+    build_tuco_frame_embed = build_tuco_frame_embed_fn
     send_frame_embeds_with_views = send_frame_embeds_with_views_fn
 
 
@@ -64,6 +74,40 @@ def _ggst_character_list():
     return character_choices(GGST_FRAME_DATA)
 
 
+def _tuco_character_list():
+    return character_choices(TUCO_FRAME_DATA)
+
+
+def _game_label(game):
+    if game == "sf6":
+        return "Street Fighter 6"
+    if game == "ggst":
+        return "Guilty Gear Strive"
+    if game == "tuco":
+        return "2XKO"
+    return str(game).upper()
+
+
+def _game_colour(game):
+    if game == "sf6":
+        return 0x3998C6
+    if game == "ggst":
+        return 0x7A2BFF
+    if game == "tuco":
+        return 0xD63C2F
+    return 0xAAAAAA
+
+
+def _character_list(game):
+    if game == "sf6":
+        return _sf6_character_list()
+    if game == "ggst":
+        return _ggst_character_list()
+    if game == "tuco":
+        return _tuco_character_list()
+    return []
+
+
 def _sf6_move_list(char_key):
     return move_choices(FRAME_DATA.get(char_key, []))
 
@@ -80,6 +124,53 @@ def _ggst_move_list(char_key):
         return move_name
 
     return move_choices(GGST_FRAME_DATA.get(char_key, []), label_fn=label_fn, key_fields=("moveName", "numCmd", "state_label"))
+
+
+def _tuco_move_list(char_key):
+    return move_choices(TUCO_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd"))
+
+
+def _move_list(game, char_key):
+    if game == "sf6":
+        return _sf6_move_list(char_key)
+    if game == "ggst":
+        return _ggst_move_list(char_key)
+    if game == "tuco":
+        return _tuco_move_list(char_key)
+    return []
+
+
+def _character_display_name(game, char_key):
+    chars = _character_list(game)
+    return dict(chars).get(char_key, str(char_key).title())
+
+
+def _normalize_search_text(value):
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def _search_matches(label, query):
+    normalized_label = _normalize_search_text(label)
+    normalized_query = _normalize_search_text(query)
+    if not normalized_query:
+        return True
+    compact_label = re.sub(r"[^a-z0-9]+", "", normalized_label)
+    compact_query = re.sub(r"[^a-z0-9]+", "", normalized_query)
+    if compact_query and compact_query in compact_label:
+        return True
+    return all(term in normalized_label for term in normalized_query.split())
+
+
+def _filter_character_choices(chars, query):
+    if not str(query or "").strip():
+        return list(chars)
+    return [(char_key, display) for char_key, display in chars if _search_matches(display, query)]
+
+
+def _filter_move_choices(moves, query):
+    if not str(query or "").strip():
+        return list(moves)
+    return [(row, label) for row, label in moves if _search_matches(label, query)]
 
 
 class MainMenuView(OwnedView):
@@ -102,17 +193,25 @@ class MainMenuView(OwnedView):
             attachments=[],
         )
 
+    @discord.ui.button(label="2XKO", style=discord.ButtonStyle.success, custom_id="menu_tuco")
+    async def tuco_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=_game_menu_embed("2XKO", 0xD63C2F),
+            view=GameMenuView("tuco", self.owner_id),
+            attachments=[],
+        )
+
 
 class GameMenuView(OwnedView):
     def __init__(self, game, owner_id):
         super().__init__(owner_id=owner_id, timeout=300)
         self.game = game
-        if self.game == "ggst":
+        if self.game != "sf6":
             self.remove_item(self.quiz_button)
 
     @discord.ui.button(label="Frame Data", style=discord.ButtonStyle.primary, custom_id="game_framedata")
     async def framedata_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        chars = _sf6_character_list() if self.game == "sf6" else _ggst_character_list()
+        chars = _character_list(self.game)
         if not chars:
             await interaction.response.send_message("No character data loaded.", ephemeral=True)
             return
@@ -124,7 +223,7 @@ class GameMenuView(OwnedView):
 
     @discord.ui.button(label="Quiz", style=discord.ButtonStyle.success, custom_id="game_quiz")
     async def quiz_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        game_label = "Street Fighter 6" if self.game == "sf6" else "Guilty Gear Strive"
+        game_label = _game_label(self.game)
         await interaction.response.edit_message(
             embed=_quiz_difficulty_embed(game_label),
             view=QuizDifficultyView(self.game, self.owner_id),
@@ -201,13 +300,51 @@ class CharacterSelectView(OwnedView):
             attachments=[],
         )
 
+    @discord.ui.button(label="Search", style=discord.ButtonStyle.primary, row=4)
+    async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CharacterSearchModal(self.game, self.owner_id))
+
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        game_label = "Street Fighter 6" if self.game == "sf6" else "Guilty Gear Strive"
-        colour = 0x3998C6 if self.game == "sf6" else 0x7A2BFF
+        game_label = _game_label(self.game)
+        colour = _game_colour(self.game)
         await interaction.response.edit_message(
             embed=_game_menu_embed(game_label, colour),
             view=GameMenuView(self.game, self.owner_id),
+            attachments=[],
+        )
+
+
+class CharacterSearchModal(discord.ui.Modal):
+    def __init__(self, game, owner_id):
+        super().__init__(title="Search Characters")
+        self.game = game
+        self.owner_id = owner_id
+        self.query = discord.ui.TextInput(
+            label="Character search",
+            placeholder="Example: ryu, sol, happy chaos",
+            required=False,
+            max_length=80,
+        )
+        self.add_item(self.query)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the person who opened this menu can search it.", ephemeral=True)
+            return
+        chars = _character_list(self.game)
+        filtered = _filter_character_choices(chars, str(self.query.value))
+        if not filtered:
+            await interaction.response.send_message("No characters matched that search.", ephemeral=True)
+            return
+        await interaction.response.edit_message(
+            embed=_character_select_embed(
+                self.game,
+                page=0,
+                total_pages=max(1, math.ceil(len(filtered) / MENU_SELECT_LIMIT)),
+                search_query=str(self.query.value).strip(),
+            ),
+            view=CharacterSelectView(self.game, filtered, self.owner_id, page=0),
             attachments=[],
         )
 
@@ -222,7 +359,7 @@ class CharacterSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         char_key = self.values[0]
-        moves = _sf6_move_list(char_key) if self.game == "sf6" else _ggst_move_list(char_key)
+        moves = _move_list(self.game, char_key)
         if not moves:
             await interaction.response.send_message("No moves found for this character.", ephemeral=True)
             return
@@ -288,12 +425,52 @@ class MoveSelectView(OwnedView):
             attachments=[],
         )
 
+    @discord.ui.button(label="Search", style=discord.ButtonStyle.primary, row=4)
+    async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(MoveSearchModal(self.game, self.char_key, self.owner_id))
+
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        chars = _sf6_character_list() if self.game == "sf6" else _ggst_character_list()
+        chars = _character_list(self.game)
         await interaction.response.edit_message(
             embed=_character_select_embed(self.game, page=0, total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))),
             view=CharacterSelectView(self.game, chars, self.owner_id, page=0),
+            attachments=[],
+        )
+
+
+class MoveSearchModal(discord.ui.Modal):
+    def __init__(self, game, char_key, owner_id):
+        super().__init__(title="Search Moves")
+        self.game = game
+        self.char_key = char_key
+        self.owner_id = owner_id
+        self.query = discord.ui.TextInput(
+            label="Move search",
+            placeholder="Example: 5hp, fireball, volcanic viper",
+            required=False,
+            max_length=80,
+        )
+        self.add_item(self.query)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the person who opened this menu can search it.", ephemeral=True)
+            return
+        moves = _move_list(self.game, self.char_key)
+        filtered = _filter_move_choices(moves, str(self.query.value))
+        if not filtered:
+            await interaction.response.send_message("No moves matched that search.", ephemeral=True)
+            return
+        display = _character_display_name(self.game, self.char_key)
+        await interaction.response.edit_message(
+            embed=_move_select_embed(
+                display,
+                page=0,
+                total_pages=max(1, math.ceil(len(filtered) / MENU_SELECT_LIMIT)),
+                search_query=str(self.query.value).strip(),
+            ),
+            view=MoveSelectView(self.game, self.char_key, filtered, self.owner_id, page=0),
             attachments=[],
         )
 
@@ -316,8 +493,7 @@ class MoveSelect(discord.ui.Select):
         idx = int(raw_idx)
         row, label = self.moves[idx]
         view = FrameResultView(self.game, self.char_key, row, self.view.owner_id)
-        embed = build_sf6_frame_embed(row) if self.game == "sf6" else view.build_embed()
-        await interaction.response.edit_message(embed=embed, view=view, attachments=[])
+        await interaction.response.edit_message(embed=view.build_embed(), view=view, attachments=view.initial_files())
 
 
 class FrameResultView(OwnedView):
@@ -326,27 +502,61 @@ class FrameResultView(OwnedView):
         self.game = game
         self.char_key = char_key
         self.row = row
+        self.show_notes = False
         if game == "sf6":
-            from bubbot.frame_data.frame_output import FrameDataGifButton
-            from bubbot.frame_data.gif_lookup import get_frame_row_gif_links
-            self.add_item(FrameDataGifButton(row, get_frame_row_gif_links(row)))
-        else:
+            from bubbot.frame_data.frame_output import FrameDataGifButton, SF6NotesButton
+            from bubbot.frame_data.gif_lookup import get_existing_local_gif_asset_paths, get_frame_row_gif_links
+            self.gif_links = list(get_frame_row_gif_links(row) or [])
+            asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=1) if self.gif_links else []
+            self.default_gif_asset_path = asset_paths[0] if asset_paths else None
+            self.gif_button = FrameDataGifButton(row, self.gif_links, showing_gif=bool(self.default_gif_asset_path))
+            self.notes_button = SF6NotesButton(row)
+            self.add_item(self.gif_button)
+            self.add_item(self.notes_button)
+        elif game == "ggst":
             from bubbot.frame_data.ggst_frame_data import GGSTHitboxButton, GGSTNotesButton
-            self.show_notes = False
-            self.hitbox_button = GGSTHitboxButton(row)
+            self.hitbox_button = GGSTHitboxButton(row, showing_hitbox=True)
             self.notes_button = GGSTNotesButton(row)
+            self.add_item(self.hitbox_button)
+            self.add_item(self.notes_button)
+        else:
+            from bubbot.frame_data.tuco_frame_data import TUCOHitboxButton, TUCONotesButton
+            self.hitbox_button = TUCOHitboxButton(row, showing_hitbox=True)
+            self.notes_button = TUCONotesButton(row)
             self.add_item(self.hitbox_button)
             self.add_item(self.notes_button)
 
     def build_embed(self):
         if self.game == "sf6":
-            return build_sf6_frame_embed(self.row)
-        from bubbot.frame_data.ggst_frame_data import build_frame_embed
+            if getattr(self, "default_gif_asset_path", None) and getattr(self, "gif_button", None) and self.gif_button.showing_gif:
+                filename = os.path.basename(self.default_gif_asset_path)
+                return build_sf6_frame_embed(
+                    self.row,
+                    image_url_override=f"attachment://{filename}",
+                    show_notes=getattr(self, "show_notes", False),
+                )
+            return build_sf6_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
+        if self.game == "ggst":
+            from bubbot.frame_data.ggst_frame_data import build_frame_embed
+        else:
+            from bubbot.frame_data.tuco_frame_data import build_frame_embed
         embed = build_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
         hitbox_button = getattr(self, "hitbox_button", None)
         if hitbox_button and hitbox_button.showing_hitbox and hitbox_button.hitbox_links:
             embed.set_image(url=hitbox_button.hitbox_links[0])
         return embed
+
+    def initial_files(self):
+        return self.active_files()
+
+    def active_files(self):
+        if self.game != "sf6" or not getattr(self, "default_gif_asset_path", None):
+            return []
+        gif_button = getattr(self, "gif_button", None)
+        if not gif_button or not gif_button.showing_gif:
+            return []
+        filename = os.path.basename(self.default_gif_asset_path)
+        return [discord.File(self.default_gif_asset_path, filename=filename)]
 
     @discord.ui.button(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="frame_return_menu")
     async def return_menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -358,8 +568,8 @@ class FrameResultView(OwnedView):
 
     @discord.ui.button(label="Back to Moves", style=discord.ButtonStyle.grey, custom_id="frame_back_moves")
     async def back_moves_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        moves = _sf6_move_list(self.char_key) if self.game == "sf6" else _ggst_move_list(self.char_key)
-        display = self.char_key.title()
+        moves = _move_list(self.game, self.char_key)
+        display = _character_display_name(self.game, self.char_key)
         await interaction.response.edit_message(
             embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
             view=MoveSelectView(self.game, self.char_key, moves, self.owner_id, page=0),
@@ -386,8 +596,8 @@ class QuizDifficultyView(OwnedView):
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, custom_id="quiz_back")
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        game_label = "Street Fighter 6" if self.game == "sf6" else "Guilty Gear Strive"
-        colour = 0x3998C6 if self.game == "sf6" else 0x7A2BFF
+        game_label = _game_label(self.game)
+        colour = _game_colour(self.game)
         await interaction.response.edit_message(
             embed=_game_menu_embed(game_label, colour),
             view=GameMenuView(self.game, self.owner_id),
@@ -398,7 +608,7 @@ class QuizDifficultyView(OwnedView):
         if quiz_module is None:
             await interaction.response.send_message("Quiz system is not available.", ephemeral=True)
             return
-        game_label = "Street Fighter 6" if self.game == "sf6" else "Guilty Gear Strive"
+        game_label = _game_label(self.game)
         await interaction.response.edit_message(
             embed=discord.Embed(
                 title="Quiz Started",
@@ -419,8 +629,8 @@ class BackToGameMenuView(OwnedView):
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, custom_id="combos_back")
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        game_label = "Street Fighter 6" if self.game == "sf6" else "Guilty Gear Strive"
-        colour = 0x3998C6 if self.game == "sf6" else 0x7A2BFF
+        game_label = _game_label(self.game)
+        colour = _game_colour(self.game)
         await interaction.response.edit_message(
             embed=_game_menu_embed(game_label, colour),
             view=GameMenuView(self.game, self.owner_id),
@@ -461,21 +671,23 @@ def _game_menu_embed(game_label, colour):
     )
 
 
-def _character_select_embed(game, page=None, total_pages=None):
-    label = "Street Fighter 6" if game == "sf6" else "Guilty Gear Strive"
+def _character_select_embed(game, page=None, total_pages=None, search_query=None):
+    label = _game_label(game)
     page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
+    search_text = f"\nSearch: `{search_query}`" if search_query else ""
     return discord.Embed(
         title=f"{label} - Frame Data",
-        description=f"Select a character from the dropdown below.{page_text}",
-        colour=0x3998C6 if game == "sf6" else 0x7A2BFF,
+        description=f"Select a character from the dropdown below.{page_text}{search_text}",
+        colour=_game_colour(game),
     )
 
 
-def _move_select_embed(char_display, page=None, total_pages=None):
+def _move_select_embed(char_display, page=None, total_pages=None, search_query=None):
     page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
+    search_text = f"\nSearch: `{search_query}`" if search_query else ""
     return discord.Embed(
         title=f"{char_display} - Moves",
-        description=f"Select a move from the dropdown below.{page_text}",
+        description=f"Select a move from the dropdown below.{page_text}{search_text}",
         colour=0x3998C6,
     )
 
@@ -496,14 +708,11 @@ async def send_main_menu(destination, owner_id=None):
 
 
 async def send_character_moves_menu(destination, game, char_key, owner_id=None):
-    moves = _sf6_move_list(char_key) if game == "sf6" else _ggst_move_list(char_key)
+    moves = _move_list(game, char_key)
     if not moves:
         await destination.send("No moves found for that character.")
         return False
-    if game == "sf6":
-        chars = dict(_sf6_character_list())
-    else:
-        chars = dict(_ggst_character_list())
+    chars = dict(_character_list(game))
     display = chars.get(char_key, str(char_key).title())
     await destination.send(
         embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),

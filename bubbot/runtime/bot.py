@@ -100,6 +100,7 @@ import bubbot.features.quiz as quiz_module
 import bubbot.frame_data.gif_lookup as gif_lookup_module
 import bubbot.frame_data.frame_output as frame_output_module
 import bubbot.frame_data.ggst_frame_data as ggst_module
+import bubbot.frame_data.tuco_frame_data as tuco_module
 import bubbot.features.menu_system as menu_system
 from bubbot.frame_data.frame_output import send_frame_embeds_with_views, send_frame_table_response, send_gif_links_response
 from bubbot.frame_data.gif_lookup import get_frame_row_gif_links
@@ -219,6 +220,10 @@ def _ggst_character_choice_values():
     return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in ggst_module.GGST_FRAME_DATA.items() if rows}))
 
 
+def _tuco_character_choice_values():
+    return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in tuco_module.TUCO_FRAME_DATA.items() if rows}))
+
+
 def _sf6_move_choice_values(char_name):
     char_key = resolve_character_key(char_name)
     if not char_key:
@@ -256,6 +261,17 @@ def _ggst_move_choice_values(char_name):
     for _row, label in shared_move_choices(rows, label_fn=_move_choice_label, key_fields=("moveName", "numCmd", "moveType")):
         if label and label not in seen:
             seen.add(label)
+            values.append(label)
+    return values
+
+
+def _tuco_move_choice_values(char_name):
+    char_key = tuco_module.resolve_character_key(char_name)
+    if not char_key:
+        return []
+    values = []
+    for _row, label in shared_move_choices(tuco_module.TUCO_FRAME_DATA.get(char_key, []), label_fn=_move_choice_label, key_fields=("moveName", "numCmd")):
+        if label:
             values.append(label)
     return values
 
@@ -326,6 +342,21 @@ async def _send_ggst_slash_frame(interaction, char_name, move_name, char_state=N
     )
 
 
+async def _send_tuco_slash_frame(interaction, char_name, move_name):
+    query = f"2xko {char_name} {_strip_autocomplete_label(move_name)} framedata".strip().lower()
+    await send_slash_frame_result(
+        interaction,
+        char_name=char_name,
+        move_name=move_name,
+        query=query,
+        parse_fn=tuco_module.find_moves_in_text,
+        embed_fn=tuco_module.build_frame_embed,
+        view_fn=tuco_module.TUCOFrameDataView,
+        game_label="2XKO",
+        disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
+    )
+
+
 @tree.command(name="bub", description="Open Bub's menu")
 async def bub_slash_command(interaction: discord.Interaction):
     await interaction.response.send_message(
@@ -345,6 +376,16 @@ async def ggst(interaction: discord.Interaction, char_name: str, move_name: str,
 
     Also works with stats of the char like fdash, bdash, throw range etc."""
     return await _send_ggst_slash_frame(interaction, char_name, move_name, char_state)
+
+
+@tree.command(name="2xko")
+@discord.app_commands.describe(
+    char_name="The champion name",
+    move_name="The move name or input",
+)
+async def tuco(interaction: discord.Interaction, char_name: str, move_name: str):
+    """Get 2XKO frame data for the specific champion and move."""
+    return await _send_tuco_slash_frame(interaction, char_name, move_name)
 
 
 @tree.command(name="sf6")
@@ -401,6 +442,18 @@ async def ggst_move_autocomplete(interaction: discord.Interaction, current: str)
     if not interaction.namespace.char_name:
         return _slash_choices([])
     return _slash_choices(_autocomplete_values(current, _ggst_move_choice_values(interaction.namespace.char_name)))
+
+
+@tuco.autocomplete("char_name")
+async def tuco_char_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, _tuco_character_choice_values()))
+
+
+@tuco.autocomplete("move_name")
+async def tuco_move_autocomplete(interaction: discord.Interaction, current: str):
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _tuco_move_choice_values(interaction.namespace.char_name)))
 
 
 def truncate_message(text, limit=1800):
@@ -4536,6 +4589,7 @@ async def on_ready():
     print(f"[memory] loaded entries={len(load_memory_entries(MEMORY_FILE))}", flush=True)
     load_frame_data()
     ggst_module.load_frame_data()
+    tuco_module.load_frame_data()
     configure_extracted_modules()
     quiz_module.configure(
         FRAME_DATA=FRAME_DATA,
@@ -4560,9 +4614,12 @@ async def on_ready():
         character_aliases=CHARACTER_ALIASES,
         ggst_frame_data=ggst_module.GGST_FRAME_DATA,
         ggst_character_aliases=ggst_module.GGST_CHARACTER_ALIASES,
+        tuco_frame_data=tuco_module.TUCO_FRAME_DATA,
+        tuco_character_aliases=tuco_module.TUCO_CHARACTER_ALIASES,
         quiz_module_ref=quiz_module,
         build_sf6_frame_embed_fn=build_frame_embed,
         build_ggst_frame_embed_fn=ggst_module.build_frame_embed,
+        build_tuco_frame_embed_fn=tuco_module.build_frame_embed,
         send_frame_embeds_with_views_fn=send_frame_embeds_with_views,
     )
     print("[menu] Menu system configured.", flush=True)
@@ -4599,7 +4656,16 @@ async def on_message(message):
             ggst_module.GGST_CHARACTER_ALIASES,
             ggst_module.GGST_FRAME_DATA.keys(),
         )
+        tuco_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            tuco_module.TUCO_CHARACTER_ALIASES,
+            tuco_module.TUCO_FRAME_DATA.keys(),
+        )
         explicit_ggst_moves_query = bool(re.search(r"\b(?:ggst|strive|guilty\s+gear|guilty)\b", content_lower))
+        explicit_tuco_moves_query = bool(re.search(r"\b(?:2xko|tuco)\b", content_lower))
+        if explicit_tuco_moves_query and tuco_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "tuco", tuco_char_key, owner_id=message.author.id)
+            return
         if explicit_ggst_moves_query and ggst_char_key:
             await menu_system.send_character_moves_menu(message.channel, "ggst", ggst_char_key, owner_id=message.author.id)
             return
@@ -4608,6 +4674,9 @@ async def on_message(message):
             return
         if ggst_char_key:
             await menu_system.send_character_moves_menu(message.channel, "ggst", ggst_char_key, owner_id=message.author.id)
+            return
+        if tuco_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "tuco", tuco_char_key, owner_id=message.author.id)
             return
 
     if await reminder_manager.handle_message(message, content_no_mentions, content_lower):
@@ -4733,9 +4802,15 @@ async def on_message(message):
         ggst_module.GGST_CHARACTER_ALIASES,
         ggst_module.GGST_FRAME_DATA.keys(),
     )
+    tuco_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        tuco_module.TUCO_CHARACTER_ALIASES,
+        tuco_module.TUCO_FRAME_DATA.keys(),
+    )
     fd_context_payload = find_moves_in_text(content_lower)
 
     ggst_payload = ggst_module.find_moves_in_text(content_lower)
+    tuco_payload = tuco_module.find_moves_in_text(content_lower)
     ggst_rows = ggst_payload.get("rows", [])
     ggst_lookup_intent = bool(
         ggst_payload.get("frame_query")
@@ -4778,6 +4853,44 @@ async def on_message(message):
         return
     elif client.user.mentioned_in(message) and ggst_route_allowed and ggst_lookup_intent and ggst_payload.get("needs_disambiguation"):
         await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
+        return
+
+    tuco_rows = tuco_payload.get("rows", [])
+    tuco_lookup_intent = bool(
+        tuco_payload.get("frame_query")
+        or tuco_payload.get("gif_query")
+        or tuco_payload.get("game_query")
+    )
+    tuco_route_allowed = bool(
+        tuco_payload.get("game_query")
+        or (tuco_exact_character_query and not sf6_exact_character_query and not ggst_exact_character_query)
+    )
+    if client.user.mentioned_in(message) and tuco_route_allowed and tuco_lookup_intent and tuco_rows:
+        if tuco_payload.get("needs_disambiguation"):
+            await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
+        elif tuco_payload.get("gif_query") and tuco_payload.get("frame_query"):
+            await tuco_module.send_frame_response(message, tuco_rows)
+            await tuco_module.send_hitbox_response(message, tuco_rows)
+        elif tuco_payload.get("gif_query"):
+            await tuco_module.send_hitbox_response(message, tuco_rows)
+        else:
+            await tuco_module.send_frame_response(message, tuco_rows)
+        return
+    elif client.user.mentioned_in(message) and tuco_route_allowed and tuco_lookup_intent and tuco_payload.get("needs_disambiguation"):
+        await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
+        return
+
+    if (
+        client.user.mentioned_in(message)
+        and tuco_route_allowed
+        and not tuco_lookup_intent
+        and not message.reference
+        and (tuco_rows or tuco_payload.get("needs_disambiguation"))
+    ):
+        if tuco_payload.get("needs_disambiguation"):
+            await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
+        else:
+            await tuco_module.send_frame_response(message, tuco_rows)
         return
 
     if (

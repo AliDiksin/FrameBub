@@ -5,6 +5,7 @@ import discord
 
 from bubbot.utils.discord_formatting import (
     add_embed_field as shared_add_embed_field,
+    add_long_embed_field as shared_add_long_embed_field,
     clean_value as shared_clean_value,
     is_missing_value,
     truncate_value as shared_truncate_value,
@@ -72,7 +73,7 @@ def format_frame_data(row):
         f"Startup: {row['startup']}f | Active: {row['active']}f | Recovery: {row['recovery']}f\n"
         f"Range: {atk_range}\n"
         f"On Hit: {row['onHit']} | On Block: {row['onBlock']}\n"
-        f"Damage: {row['dmg']} | Attack Type: {row['atkLvl']}\n"
+        f"Damage: {row['dmg']} | Attack Type: {format_guard_value(row['atkLvl'])}\n"
         f"Notes: {row.get('extraInfo', '')}"
     )
 
@@ -211,6 +212,10 @@ def add_embed_field(embed, name, value, inline=True):
     shared_add_embed_field(embed, name, value, inline=inline)
 
 
+def add_long_embed_field(embed, name, value, inline=False):
+    shared_add_long_embed_field(embed, name, value, inline=inline)
+
+
 def format_hit_block_value(hit_value, block_value):
     hit = clean_embed_value(hit_value)
     block = clean_embed_value(block_value)
@@ -222,7 +227,16 @@ def format_hit_block_value(hit_value, block_value):
     return " / ".join(parts)
 
 
-def build_frame_embed(row):
+def format_guard_value(value):
+    guard = clean_embed_value(value)
+    return "OH" if guard.strip().lower() == "m" else guard
+
+
+def get_notes_text(row):
+    return clean_embed_value(row.get("extraInfo", ""), strip_brackets=True)
+
+
+def build_frame_embed(row, image_url_override=None, show_notes=False):
     char_name = clean_embed_value(row.get("char_name", "Unknown"), default="Unknown")
     move_name = clean_embed_value(row.get("moveName", "Unknown"), default="Unknown")
     num_cmd = clean_embed_value(row.get("numCmd", "?"), default="?")
@@ -238,7 +252,7 @@ def build_frame_embed(row):
     recovery = clean_embed_value(row.get("recovery", "")).replace("(", " (Whiff: ")
     cancel = clean_embed_value(row.get("xx", ""))
     damage = clean_embed_value(row.get("dmg", ""))
-    guard = clean_embed_value(row.get("atkLvl", ""))
+    guard = format_guard_value(row.get("atkLvl", ""))
     atk_range = format_attack_range_for_table(row)
     on_hit = clean_embed_value(row.get("onHit", ""))
     on_block = clean_embed_value(row.get("onBlock", ""))
@@ -277,11 +291,10 @@ def build_frame_embed(row):
     add_embed_field(embed, "Hit Confirm (TC)", hc_tc, inline=True)
     add_embed_field(embed, "Hit Confirm Notes", hc_notes, inline=False)
 
-    extra_info = clean_embed_value(row.get("extraInfo", ""), strip_brackets=True)
-    if extra_info:
-        embed.set_footer(text=truncate_embed_value(extra_info, 2048))
+    if show_notes:
+        add_long_embed_field(embed, "Notes", get_notes_text(row), inline=False)
 
-    image_url = get_sf6_move_image_url(row)
+    image_url = image_url_override or get_sf6_move_image_url(row)
     if image_url:
         embed.set_image(url=image_url)
 
@@ -340,12 +353,16 @@ def sanitize_embed_followup_text(text):
     return "Noted. The relevant frame data is in the embeds above."
 
 class FrameDataGifButton(discord.ui.Button):
-    def __init__(self, row, gif_links):
-        super().__init__(label="Show GIF", style=discord.ButtonStyle.primary, disabled=not gif_links)
+    def __init__(self, row, gif_links, showing_gif=False):
+        super().__init__(
+            label="Show Image" if showing_gif else "Show GIF",
+            style=discord.ButtonStyle.secondary if showing_gif else discord.ButtonStyle.primary,
+            disabled=not gif_links,
+        )
         self.frame_row = row
         self.gif_links = list(gif_links or [])
         self.original_image_url = get_sf6_move_image_url(row)
-        self.showing_gif = False
+        self.showing_gif = bool(showing_gif and self.gif_links)
 
     async def callback(self, interaction: discord.Interaction):
         move_name = str((self.frame_row or {}).get("moveName", "This move")).strip() or "This move"
@@ -364,10 +381,14 @@ class FrameDataGifButton(discord.ui.Button):
                 embed = build_frame_embed(self.frame_row)
 
             if self.showing_gif:
-                embed.set_image(url=self.original_image_url)
-                embed.set_thumbnail(url=None)
                 self.label = "Show GIF"
+                self.style = discord.ButtonStyle.primary
                 self.showing_gif = False
+                if hasattr(self.view, "build_embed"):
+                    embed = self.view.build_embed()
+                else:
+                    embed.set_image(url=self.original_image_url)
+                    embed.set_thumbnail(url=None)
                 await interaction.response.edit_message(embed=embed, attachments=[], view=self.view)
                 return
 
@@ -376,7 +397,10 @@ class FrameDataGifButton(discord.ui.Button):
             embed.set_thumbnail(url=None)
             embed.set_image(url=f"attachment://{filename}")
             self.label = "Show Image"
+            self.style = discord.ButtonStyle.secondary
             self.showing_gif = True
+            if hasattr(self.view, "build_embed"):
+                embed = self.view.build_embed()
             await interaction.response.edit_message(
                 embed=embed,
                 attachments=[discord.File(asset_path, filename=filename)],
@@ -391,9 +415,34 @@ class FrameDataGifButton(discord.ui.Button):
         await interaction.response.send_message("\n".join(self.gif_links[:4]))
 
 
+class SF6NotesButton(discord.ui.Button):
+    def __init__(self, row):
+        self.frame_row = row
+        self.notes_text = get_notes_text(row)
+        super().__init__(
+            label="Show Notes",
+            style=discord.ButtonStyle.primary,
+            disabled=not self.notes_text,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if not hasattr(self.view, "build_embed"):
+            await interaction.response.defer()
+            return
+        self.view.show_notes = not self.view.show_notes
+        self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
+        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
+        files = self.view.active_files() if hasattr(self.view, "active_files") else []
+        kwargs = {"embed": self.view.build_embed(), "view": self.view}
+        if files:
+            kwargs["attachments"] = files
+        await interaction.response.edit_message(**kwargs)
+
+
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="frame_return_menu", row=1)
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="frame_return_menu", row=0)
 
     async def callback(self, interaction: discord.Interaction):
         from bubbot.features import menu_system
@@ -406,9 +455,43 @@ class ReturnToMenuButton(discord.ui.Button):
 class FrameDataGifView(discord.ui.View):
     def __init__(self, row, include_menu_button=True):
         super().__init__(timeout=3600)
-        self.add_item(FrameDataGifButton(row, get_frame_row_gif_links(row)))
+        self.row = row
+        self.show_notes = False
+        self.gif_links = list(get_frame_row_gif_links(row) or [])
+        self.default_gif_asset_path = self._default_gif_asset_path()
+        self.gif_button = FrameDataGifButton(row, self.gif_links, showing_gif=bool(self.default_gif_asset_path))
+        self.notes_button = SF6NotesButton(row)
+        self.add_item(self.gif_button)
+        self.add_item(self.notes_button)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
+
+    def _default_gif_asset_path(self):
+        if not self.gif_links:
+            return None
+        asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=1)
+        return asset_paths[0] if asset_paths else None
+
+    def build_embed(self):
+        if self.default_gif_asset_path and self.gif_button.showing_gif:
+            filename = os.path.basename(self.default_gif_asset_path)
+            return build_frame_embed(
+                self.row,
+                image_url_override=f"attachment://{filename}",
+                show_notes=self.show_notes,
+            )
+        return build_frame_embed(self.row, show_notes=self.show_notes)
+
+    def initial_files(self):
+        return self.active_files()
+
+    def active_files(self):
+        if not self.default_gif_asset_path:
+            return []
+        if not self.gif_button.showing_gif:
+            return []
+        filename = os.path.basename(self.default_gif_asset_path)
+        return [discord.File(self.default_gif_asset_path, filename=filename)]
 
 
 async def send_frame_embeds_with_views(channel, rows, embeds=None):
@@ -419,7 +502,14 @@ async def send_frame_embeds_with_views(channel, rows, embeds=None):
 
     for index, embed in enumerate(embed_list):
         view = FrameDataGifView(unique_rows[index]) if index < len(unique_rows) else None
-        await channel.send(embed=embed, view=view)
+        files = []
+        if view and view.default_gif_asset_path:
+            filename = os.path.basename(view.default_gif_asset_path)
+            embed.set_image(url=f"attachment://{filename}")
+            files = view.initial_files()
+        elif view and not embeds:
+            embed = view.build_embed()
+        await channel.send(embed=embed, view=view, files=files)
     return True
 
 

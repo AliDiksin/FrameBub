@@ -845,23 +845,28 @@ def get_hitbox_links(row, limit=4):
 
 
 class GGSTHitboxButton(discord.ui.Button):
-    def __init__(self, row):
+    def __init__(self, row, showing_hitbox=False):
         self.frame_row = row
         self.hitbox_links = get_hitbox_links(row)
         self.original_image_url = get_move_image_url(row)
-        self.showing_hitbox = False
-        super().__init__(label="Show Hitbox", style=discord.ButtonStyle.primary, disabled=not self.hitbox_links)
+        self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
+        super().__init__(
+            label="Show Image" if self.showing_hitbox else "Show Hitbox",
+            style=discord.ButtonStyle.secondary if self.showing_hitbox else discord.ButtonStyle.primary,
+            disabled=not self.hitbox_links,
+        )
 
     async def callback(self, interaction: discord.Interaction):
         if not self.hitbox_links:
             await interaction.response.send_message(
-                "GGST hitbox images are not wired yet. The placeholder button is ready for future assets.",
+                "I have frame data for this move but no GGST hitbox image link yet.",
                 ephemeral=True,
             )
             return
         next_showing_hitbox = not self.showing_hitbox
         self.showing_hitbox = next_showing_hitbox
         self.label = "Show Image" if next_showing_hitbox else "Show Hitbox"
+        self.style = discord.ButtonStyle.secondary if next_showing_hitbox else discord.ButtonStyle.primary
         if hasattr(self.view, "build_embed"):
             embed = self.view.build_embed()
         elif interaction.message and interaction.message.embeds:
@@ -880,9 +885,9 @@ class GGSTNotesButton(discord.ui.Button):
         self.notes_text = get_notes_text(row)
         super().__init__(
             label="Show Notes",
-            style=discord.ButtonStyle.secondary,
+            style=discord.ButtonStyle.primary,
             disabled=not self.notes_text,
-            row=1,
+            row=0,
         )
 
     async def callback(self, interaction: discord.Interaction):
@@ -891,13 +896,13 @@ class GGSTNotesButton(discord.ui.Button):
             return
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
-        self.style = discord.ButtonStyle.primary if self.view.show_notes else discord.ButtonStyle.secondary
+        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
         await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
 
 
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="ggst_frame_return_menu", row=2)
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="ggst_frame_return_menu", row=0)
 
     async def callback(self, interaction: discord.Interaction):
         from bubbot.features import menu_system
@@ -912,7 +917,7 @@ class GGSTFrameDataView(discord.ui.View):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
-        self.hitbox_button = GGSTHitboxButton(row)
+        self.hitbox_button = GGSTHitboxButton(row, showing_hitbox=True)
         self.notes_button = GGSTNotesButton(row)
         self.add_item(self.hitbox_button)
         self.add_item(self.notes_button)

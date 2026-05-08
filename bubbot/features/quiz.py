@@ -273,13 +273,28 @@ def build_quiz_question_text(round_num, total_rounds, row, mode="hard"):
     return "\n".join(lines)
 
 
-def build_quiz_frame_embed(row, mode="hard"):
+def _quiz_censor_embed_text(value):
+    return _quiz_censor_character_names(str(value or ""))
+
+
+def build_quiz_frame_embed(row, mode="hard", show_notes=False):
     """Build a quiz embed using the standard frame table format without answer identity."""
     mode_key = _quiz_normalize_mode(mode)
     mode_label = mode_key.capitalize()
-    embed = build_frame_embed(row)
+    embed = build_frame_embed(row, show_notes=show_notes)
     embed.title = truncate_embed_value(f"FRAME DATA QUIZ ({mode_label})", 256)
     embed.description = None
+    embed.set_image(url=None)
+    embed.set_thumbnail(url=None)
+
+    for index, field in enumerate(list(embed.fields)):
+        if str(field.name or "").startswith("Notes"):
+            embed.set_field_at(
+                index,
+                name=field.name,
+                value=truncate_embed_value(_quiz_censor_embed_text(field.value), 1024),
+                inline=field.inline,
+            )
 
     footer_text = getattr(getattr(embed, "footer", None), "text", "")
     if footer_text:
@@ -287,6 +302,44 @@ def build_quiz_frame_embed(row, mode="hard"):
         embed.set_footer(text=truncate_embed_value(censored_footer, 2048))
 
     return embed
+
+
+def _quiz_row_has_notes(row):
+    notes = clean_embed_value(row.get("extraInfo", ""), strip_brackets=True)
+    return bool(notes)
+
+
+class QuizNotesButton(discord.ui.Button):
+    def __init__(self, row, mode="hard"):
+        self.frame_row = row
+        self.mode = mode
+        super().__init__(
+            label="Show Notes",
+            style=discord.ButtonStyle.primary,
+            disabled=not _quiz_row_has_notes(row),
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if not hasattr(self.view, "build_embed"):
+            await interaction.response.defer()
+            return
+        self.view.show_notes = not self.view.show_notes
+        self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
+        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
+        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view, attachments=[])
+
+
+class QuizQuestionView(discord.ui.View):
+    def __init__(self, row, mode="hard"):
+        super().__init__(timeout=QUIZ_ACTIVE_TTL_SECONDS)
+        self.frame_row = row
+        self.mode = mode
+        self.show_notes = False
+        self.add_item(QuizNotesButton(row, mode=mode))
+
+    def build_embed(self):
+        return build_quiz_frame_embed(self.frame_row, mode=self.mode, show_notes=self.show_notes)
 
 
 def _normalize_quiz_words(text):
@@ -408,9 +461,10 @@ async def build_quiz_question_message(channel, round_num, total_rounds, row, mod
         _quiz_intro_has_specific_answer_hint,
     )
     intro = _quiz_censor_character_names(intro)
-    quiz_embed = build_quiz_frame_embed(row, mode=mode)
+    quiz_view = QuizQuestionView(row, mode=mode)
+    quiz_embed = quiz_view.build_embed()
     prompt_text = f"{intro}\nAnswer by mention or reply with: `Character Move`"
-    return prompt_text, quiz_embed
+    return prompt_text, quiz_embed, quiz_view
 
 
 async def _quiz_send_thinking_message(message, text="Thinking..."):
@@ -432,17 +486,17 @@ async def _quiz_send_thinking_message(message, text="Thinking..."):
             return None
 
 
-async def _quiz_publish_from_placeholder(channel, placeholder_message, text, embed=None):
+async def _quiz_publish_from_placeholder(channel, placeholder_message, text, embed=None, view=None):
     """Edit placeholder message into final quiz output, or send a fallback."""
     if placeholder_message is not None:
         try:
-            await placeholder_message.edit(content=text, embed=embed)
+            await placeholder_message.edit(content=text, embed=embed, view=view, attachments=[])
             return placeholder_message
         except Exception as e:
             print(f"[quiz] placeholder edit error: {e}", flush=True)
 
     try:
-        return await channel.send(text, embed=embed)
+        return await channel.send(text, embed=embed, view=view)
     except Exception as e:
         print(f"[quiz] placeholder fallback send error: {e}", flush=True)
         return None
@@ -1111,7 +1165,7 @@ async def start_quiz(
 
         thinking_message = await _quiz_send_thinking_message(message)
 
-        question_text, question_embed = await build_quiz_question_message(
+        question_text, question_embed, question_view = await build_quiz_question_message(
             message.channel,
             round_num,
             1,
@@ -1123,6 +1177,7 @@ async def start_quiz(
             thinking_message,
             question_text,
             embed=question_embed,
+            view=question_view,
         )
         if sent is None:
             ACTIVE_QUIZZES.pop(channel_id, None)
