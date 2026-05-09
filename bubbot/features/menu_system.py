@@ -306,8 +306,6 @@ class GameMenuView(OwnedView):
     def __init__(self, game, owner_id):
         super().__init__(owner_id=owner_id, timeout=300)
         self.game = game
-        if self.game != "sf6":
-            self.remove_item(self.quiz_button)
 
     @discord.ui.button(label="Frame Data", style=discord.ButtonStyle.primary, custom_id="game_framedata")
     async def framedata_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -757,7 +755,7 @@ class QuizDifficultyView(OwnedView):
             attachments=[],
         )
         fake_message = QuizFakeMessage(interaction)
-        await quiz_module.start_quiz(fake_message, mode=difficulty)
+        await quiz_module.start_quiz(fake_message, mode=difficulty, game=self.game)
 
 
 class BackToGameMenuView(OwnedView):

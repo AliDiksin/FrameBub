@@ -79,6 +79,8 @@ MOVE_COLUMNS = [
     "extraInfo",
 ]
 
+GENEI_JIN_STATE_KEY = "genei_jin"
+
 SIMPLE_TEMPLATE_REPLACEMENTS = {
     "lp": "LP",
     "mp": "MP",
@@ -213,6 +215,19 @@ def compact_move_key(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", "", text)
 
 
+def cache_move_key_for_row(row: dict[str, str], state_key: str = "") -> str:
+    base_key = compact_move_key(row.get("numCmd", ""))
+    if state_key:
+        return compact_move_key(f"{base_key} {state_key}")
+    return base_key
+
+
+def row_starts_yun_genei_jin(row: dict[str, str]) -> bool:
+    if str(row.get("char_key", "")).strip().lower() != "yun":
+        return False
+    return compact_move_key(row.get("moveName", "")) == "geneijin" and "sa3" in compact_move_key(row.get("numCmd", ""))
+
+
 def heading_before(headings: list[dict[str, str | int]], position: int, level: int) -> str:
     selected = ""
     for heading in headings:
@@ -309,6 +324,7 @@ def parse_character(display_name: str, raw_text: str) -> tuple[list[dict[str, st
     media = []
     notes_cache: dict[str, dict[str, str]] = {}
     key = char_key(display_name)
+    in_yun_genei_jin = False
     for move_record in move_records:
         move_type = heading_before(headings, move_record.start, 4) or "Moves"
         move_heading = heading_before(headings, move_record.start, 5)
@@ -321,14 +337,17 @@ def parse_character(display_name: str, raw_text: str) -> tuple[list[dict[str, st
             row = row_from_attack(display_name, page_title, move_record, attack_record, move_type, move_heading)
             if not row["numCmd"]:
                 continue
+            state_key = GENEI_JIN_STATE_KEY if in_yun_genei_jin and key == "yun" else ""
             rows.append(row)
-            move_key = compact_move_key(row["numCmd"])
+            move_key = cache_move_key_for_row(row, state_key=state_key)
             if row["extraInfo"]:
                 notes_cache.setdefault(key, {})[move_key] = row["extraInfo"]
             for filename in images:
                 media.append((key, move_key, "image", filename))
             for filename in hitboxes:
                 media.append((key, move_key, "hitbox", filename))
+            if row_starts_yun_genei_jin(row):
+                in_yun_genei_jin = True
     return rows, media, notes_cache
 
 

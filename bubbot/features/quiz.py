@@ -35,6 +35,7 @@ except ModuleNotFoundError as import_error:
 
 FRAME_DATA = {}
 CHARACTER_ALIASES = {}
+GAME_QUIZ_CONFIGS = {}
 resolve_character_key = None
 normalize_char_name = None
 lookup_frame_data = None
@@ -47,7 +48,12 @@ strip_discord_mentions = None
 
 
 def configure(**deps):
+    global QUIZ_CHARACTER_TERMS_CACHE, QUIZ_MOVE_NAME_TERMS_CACHE, QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE
     globals().update(deps)
+    QUIZ_CHARACTER_TERMS_CACHE = {}
+    QUIZ_MOVE_NAME_TERMS_CACHE = {}
+    QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = {}
+    _ensure_quiz_game_configs()
 
 
 ACTIVE_QUIZZES = {}
@@ -109,14 +115,120 @@ QUIZ_INTRO_DATA_TERM_RE = re.compile(
     r"\b(startup|active|recovery|on\s+hit|on\s+block|damage|range|guard|cancel|total|block\s+advantage|frame\s+advantage)\b",
     re.IGNORECASE,
 )
-QUIZ_CHARACTER_TERMS_CACHE = None
-QUIZ_MOVE_NAME_TERMS_CACHE = None
+QUIZ_CHARACTER_TERMS_CACHE = {}
+QUIZ_MOVE_NAME_TERMS_CACHE = {}
 QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = None
 QUIZ_VALID_MODES = {"easy", "medium", "hard"}
 QUIZ_START_LOCK = asyncio.Lock()
 
 
 # ==================== QUIZ FEATURE ====================
+
+def _ensure_quiz_game_configs():
+    configs = globals().get("GAME_QUIZ_CONFIGS")
+    if not isinstance(configs, dict):
+        configs = {}
+    sf6_config = {
+        "label": "Street Fighter 6",
+        "data": FRAME_DATA,
+        "aliases": CHARACTER_ALIASES,
+        "resolve_character_key": resolve_character_key,
+        "lookup_frame_data": lookup_frame_data,
+        "find_moves_in_text": find_moves_in_text,
+        "build_frame_embed": build_frame_embed,
+        "game_terms": ("sf6", "street fighter 6"),
+    }
+    merged = {"sf6": sf6_config}
+    merged.update(configs)
+    merged["sf6"] = {**sf6_config, **dict(merged.get("sf6") or {})}
+    globals()["GAME_QUIZ_CONFIGS"] = merged
+    return merged
+
+
+def _quiz_game_key(game=None):
+    key = str(game or "sf6").strip().lower().replace("-", "_")
+    aliases = {
+        "2xko": "tuco",
+        "gg": "ggst",
+        "guilty_gear": "ggst",
+        "3s": "third_strike",
+        "thirdstrike": "third_strike",
+        "third_strike": "third_strike",
+        "sf3": "third_strike",
+    }
+    return aliases.get(key, key if key else "sf6")
+
+
+def _quiz_game_config(game=None):
+    configs = _ensure_quiz_game_configs()
+    key = _quiz_game_key(game)
+    return configs.get(key) or configs.get("sf6") or {}
+
+
+def _quiz_game_label(game=None):
+    return str(_quiz_game_config(game).get("label") or _quiz_game_key(game).upper())
+
+
+def _quiz_game_data(game=None):
+    data = _quiz_game_config(game).get("data") or {}
+    return data if isinstance(data, dict) else {}
+
+
+def _quiz_game_resolve_character(game, text):
+    resolver = _quiz_game_config(game).get("resolve_character_key")
+    if callable(resolver):
+        return resolver(text)
+    aliases = _quiz_game_config(game).get("aliases") or {}
+    normalized = _normalize_quiz_words(text)
+    if normalized in aliases:
+        return aliases[normalized]
+    compact = _normalize_quiz_name(text)
+    for key in _quiz_game_data(game).keys():
+        if compact == _normalize_quiz_name(key):
+            return key
+    return None
+
+
+def _quiz_extract_game_from_text(text, default="sf6"):
+    lowered = str(text or "").lower()
+    game_patterns = [
+        ("third_strike", r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b"),
+        ("tuco", r"\b(?:2xko|tuco)\b"),
+        ("bbcf", r"\b(?:bbcf|blazblue|central\s*fiction)\b"),
+        ("cotw", r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b"),
+        ("ggst", r"\b(?:ggst|guilty\s+gear|strive)\b"),
+        ("sf6", r"\b(?:sf6|street\s*fighter\s*6)\b"),
+    ]
+    for game, pattern in game_patterns:
+        if re.search(pattern, lowered):
+            return game
+    return _quiz_game_key(default)
+
+
+def _quiz_parser_query(game, char_key, move_text):
+    terms = _quiz_game_config(game).get("game_terms") or (_quiz_game_key(game),)
+    game_term = str(terms[0] if terms else _quiz_game_key(game)).strip()
+    return f"{game_term} {char_key} {move_text}".strip().lower()
+
+
+def _quiz_rows_for_char(game, char_key):
+    return list((_quiz_game_data(game).get(char_key) or []))
+
+
+def _quiz_row_identity(row):
+    return (
+        str((row or {}).get("numCmd", "")).strip().lower(),
+        _normalize_quiz_name((row or {}).get("moveName", "")),
+        _normalize_quiz_name((row or {}).get("version", "")),
+        _normalize_quiz_name((row or {}).get("state_label", "")),
+    )
+
+
+def _quiz_rows_match(row, correct_row, correct_numcmd, allow_generic=False):
+    if _quiz_row_numcmd_matches_correct(row, correct_numcmd, allow_generic=allow_generic):
+        return True
+    return _quiz_row_identity(row) == _quiz_row_identity(correct_row)
+
 
 def _quiz_row_has_data(row):
     """Return True if a frame data row has enough real values to make a useful question."""
@@ -144,14 +256,14 @@ def _quiz_extract_mode_from_text(text):
     return match.group(1).lower()
 
 
-def _quiz_row_is_shared_mechanic(row):
+def _quiz_row_is_shared_mechanic(row, game="sf6"):
     move_type = str(row.get("moveType", "")).strip().lower()
-    if move_type in {"system", "drive", "throw", "taunt"}:
+    if move_type in {"system", "drive", "throw", "throws", "taunt", "taunts", "universal", "dodge"}:
         return True
 
     combined = " ".join(
         str(row.get(key, "")).lower().strip()
-        for key in ("moveName", "cmnName", "numCmd", "plnCmd")
+        for key in ("moveName", "cmnName", "numCmd", "plnCmd", "version")
     )
     return any(
         re.search(pattern, combined)
@@ -162,45 +274,74 @@ def _quiz_row_is_shared_mechanic(row):
             r"\bdrive parry\b",
             r"\b(?:forward|back)?\s*throw\b",
             r"\btaunt\b",
+            r"\buniversal\s+overheads?\b",
         )
     )
 
 
 def _quiz_row_is_jump_normal(row):
     move_type = str(row.get("moveType", "")).strip().lower()
-    if move_type != "normal":
-        return False
-
     move_name = str(row.get("moveName", "")).lower().strip()
     cmn_name = str(row.get("cmnName", "")).lower().strip()
     num_cmd = str(row.get("numCmd", "")).lower().strip()
     pln_cmd = str(row.get("plnCmd", "")).lower().strip()
-    return (
-        move_name.startswith("jump ")
+    is_jump = (
+        move_type == "jumping normals"
+        or move_name.startswith("jump ")
+        or move_name.startswith("jumping ")
         or cmn_name.startswith("jump ")
-        or num_cmd.startswith(("7", "8", "9"))
+        or cmn_name.startswith("jumping ")
+        or num_cmd.startswith(("7", "8", "9", "j"))
         or pln_cmd.startswith(("u+", "ub+", "uf+", "j"))
+    )
+    if not is_jump:
+        return False
+    if "special" in move_type or "super" in move_type:
+        return False
+    return (
+        "normal" in move_type
+        or move_type in {"", "misc"}
+        or bool(re.fullmatch(r"(?:j\.?|hop\s+)?[a-z0-9. ]{0,8}(?:[lmhpkabcd]|lp|mp|hp|lk|mk|hk)", num_cmd))
     )
 
 
-def _quiz_row_allowed_for_mode(row, mode):
-    mode_key = _quiz_normalize_mode(mode)
+def _quiz_move_type_category(row):
     move_type = str(row.get("moveType", "")).strip().lower()
+    move_name = str(row.get("moveName", "")).strip().lower()
+    num_cmd = str(row.get("numCmd", "")).strip().lower()
+    combined = f"{move_type} {move_name}"
+    if not move_type:
+        if re.fullmatch(r"(?:[1-9]|j\.?)[lmh](?:\s+.*)?", num_cmd):
+            return "normal"
+        if "s" in num_cmd or re.search(r"(?:236|214|623|22|66|44|41236|63214)", num_cmd):
+            return "special"
+    if "normal" in combined or move_type in {"command", "command normal", "command normals", "target combos"}:
+        return "normal"
+    if "special" in combined or move_type in {"command-grab", "movement-special", "drive"}:
+        return "special"
+    if "super" in combined or "astral" in combined or "overdrive" in combined or "exceed accel" in combined:
+        return "super"
+    return move_type or "other"
 
-    if _quiz_row_is_shared_mechanic(row):
+
+def _quiz_row_allowed_for_mode(row, mode, game="sf6"):
+    mode_key = _quiz_normalize_mode(mode)
+    category = _quiz_move_type_category(row)
+
+    if _quiz_row_is_shared_mechanic(row, game=game):
         return False
 
     if _quiz_row_is_jump_normal(row):
         return False
 
     if mode_key == "easy":
-        return move_type == "normal"
+        return category == "normal"
 
     if mode_key == "medium":
-        return move_type in {"normal", "special", "command-grab", "movement-special"}
+        return category in {"normal", "special"}
 
     if mode_key == "hard":
-        return move_type in {"normal", "special", "movement-special", "command-grab", "super"}
+        return category in {"normal", "special", "super", "other", "misc"}
     return True
 
 
@@ -276,16 +417,18 @@ def build_quiz_question_text(round_num, total_rounds, row, mode="hard"):
     return "\n".join(lines)
 
 
-def _quiz_censor_embed_text(value):
-    return _quiz_censor_character_names(str(value or ""))
+def _quiz_censor_embed_text(value, game="sf6"):
+    return _quiz_censor_character_names(str(value or ""), game=game)
 
 
-def build_quiz_frame_embed(row, mode="hard", show_notes=False):
+def build_quiz_frame_embed(row, mode="hard", show_notes=False, game="sf6"):
     """Build a quiz embed using the standard frame table format without answer identity."""
     mode_key = _quiz_normalize_mode(mode)
     mode_label = mode_key.capitalize()
-    embed = build_frame_embed(row, show_notes=show_notes)
-    embed.title = truncate_embed_value(f"FRAME DATA QUIZ ({mode_label})", 256)
+    game_key = _quiz_game_key(game)
+    embed_fn = _quiz_game_config(game_key).get("build_frame_embed") or build_frame_embed
+    embed = embed_fn(row, show_notes=show_notes)
+    embed.title = truncate_embed_value(f"{_quiz_game_label(game_key)} FRAME DATA QUIZ ({mode_label})", 256)
     embed.description = None
     embed.set_image(url=None)
     embed.set_thumbnail(url=None)
@@ -295,31 +438,36 @@ def build_quiz_frame_embed(row, mode="hard", show_notes=False):
             embed.set_field_at(
                 index,
                 name=field.name,
-                value=truncate_embed_value(_quiz_censor_embed_text(field.value), 1024),
+                value=truncate_embed_value(_quiz_censor_embed_text(field.value, game=game_key), 1024),
                 inline=field.inline,
             )
 
     footer_text = getattr(getattr(embed, "footer", None), "text", "")
     if footer_text:
-        censored_footer = _quiz_censor_character_names(footer_text)
+        censored_footer = _quiz_censor_character_names(footer_text, game=game_key)
         embed.set_footer(text=truncate_embed_value(censored_footer, 2048))
 
     return embed
 
 
-def _quiz_row_has_notes(row):
-    notes = clean_embed_value(row.get("extraInfo", ""), strip_brackets=True)
+def _quiz_row_has_notes(row, game="sf6"):
+    notes_fn = _quiz_game_config(game).get("get_notes_text")
+    if callable(notes_fn):
+        notes = str(notes_fn(row) or "").strip()
+    else:
+        notes = clean_embed_value(row.get("extraInfo", ""), strip_brackets=True)
     return bool(notes)
 
 
 class QuizNotesButton(discord.ui.Button):
-    def __init__(self, row, mode="hard"):
+    def __init__(self, row, mode="hard", game="sf6"):
         self.frame_row = row
         self.mode = mode
+        self.game = _quiz_game_key(game)
         super().__init__(
             label="Show Notes",
             style=discord.ButtonStyle.primary,
-            disabled=not _quiz_row_has_notes(row),
+            disabled=not _quiz_row_has_notes(row, self.game),
             row=0,
         )
 
@@ -334,54 +482,64 @@ class QuizNotesButton(discord.ui.Button):
 
 
 class QuizQuestionView(discord.ui.View):
-    def __init__(self, row, mode="hard"):
+    def __init__(self, row, mode="hard", game="sf6"):
         super().__init__(timeout=QUIZ_ACTIVE_TTL_SECONDS)
         self.frame_row = row
         self.mode = mode
+        self.game = _quiz_game_key(game)
         self.show_notes = False
-        self.add_item(QuizNotesButton(row, mode=mode))
+        self.add_item(QuizNotesButton(row, mode=mode, game=self.game))
 
     def build_embed(self):
-        return build_quiz_frame_embed(self.frame_row, mode=self.mode, show_notes=self.show_notes)
+        return build_quiz_frame_embed(self.frame_row, mode=self.mode, show_notes=self.show_notes, game=self.game)
 
 
 def _normalize_quiz_words(text):
     return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
 
 
-def _get_quiz_character_terms():
+def _get_quiz_character_terms(game="sf6"):
     global QUIZ_CHARACTER_TERMS_CACHE
-    if QUIZ_CHARACTER_TERMS_CACHE is not None:
-        return QUIZ_CHARACTER_TERMS_CACHE
+    game = _quiz_game_key(game)
+    if not isinstance(QUIZ_CHARACTER_TERMS_CACHE, dict):
+        QUIZ_CHARACTER_TERMS_CACHE = {}
+    if game in QUIZ_CHARACTER_TERMS_CACHE:
+        return QUIZ_CHARACTER_TERMS_CACHE[game]
 
     terms = set()
-    for name in FRAME_DATA.keys():
+    config = _quiz_game_config(game)
+    data = _quiz_game_data(game)
+    aliases = config.get("aliases") or {}
+    for name in data.keys():
         normalized = _normalize_quiz_words(name)
         if normalized:
             terms.add(normalized)
 
-    for name in CHARACTER_ALIASES.keys():
+    for name in aliases.keys():
         normalized = _normalize_quiz_words(name)
         if normalized:
             terms.add(normalized)
 
-    for name in CHARACTER_ALIASES.values():
+    for name in aliases.values():
         normalized = _normalize_quiz_words(name)
         if normalized:
             terms.add(normalized)
 
-    QUIZ_CHARACTER_TERMS_CACHE = sorted(terms, key=len, reverse=True)
-    return QUIZ_CHARACTER_TERMS_CACHE
+    QUIZ_CHARACTER_TERMS_CACHE[game] = sorted(terms, key=len, reverse=True)
+    return QUIZ_CHARACTER_TERMS_CACHE[game]
 
 
-def _get_quiz_character_censor_patterns():
+def _get_quiz_character_censor_patterns(game="sf6"):
     global QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE
-    if QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE is not None:
-        return QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE
+    game = _quiz_game_key(game)
+    if not isinstance(QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE, dict):
+        QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = {}
+    if game in QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE:
+        return QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE[game]
 
     patterns = []
     seen_patterns = set()
-    for term in _get_quiz_character_terms():
+    for term in _get_quiz_character_terms(game):
         words = [word for word in str(term or "").split() if word]
         if not words:
             continue
@@ -391,11 +549,11 @@ def _get_quiz_character_censor_patterns():
         seen_patterns.add(pattern_text)
         patterns.append(re.compile(pattern_text, re.IGNORECASE))
 
-    QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = patterns
-    return QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE
+    QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE[game] = patterns
+    return QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE[game]
 
 
-def _quiz_censor_character_names(text):
+def _quiz_censor_character_names(text, game="sf6"):
     raw_text = str(text or "")
     if not raw_text:
         return raw_text
@@ -406,18 +564,21 @@ def _quiz_censor_character_names(text):
         return "*" * max(1, alnum_count)
 
     censored = raw_text
-    for pattern in _get_quiz_character_censor_patterns():
+    for pattern in _get_quiz_character_censor_patterns(game):
         censored = pattern.sub(mask_match, censored)
     return censored
 
 
-def _get_quiz_move_name_terms():
+def _get_quiz_move_name_terms(game="sf6"):
     global QUIZ_MOVE_NAME_TERMS_CACHE
-    if QUIZ_MOVE_NAME_TERMS_CACHE is not None:
-        return QUIZ_MOVE_NAME_TERMS_CACHE
+    game = _quiz_game_key(game)
+    if not isinstance(QUIZ_MOVE_NAME_TERMS_CACHE, dict):
+        QUIZ_MOVE_NAME_TERMS_CACHE = {}
+    if game in QUIZ_MOVE_NAME_TERMS_CACHE:
+        return QUIZ_MOVE_NAME_TERMS_CACHE[game]
 
     terms = set()
-    for rows in FRAME_DATA.values():
+    for rows in _quiz_game_data(game).values():
         for row in rows:
             normalized = _normalize_quiz_words(row.get("moveName", ""))
             if not normalized:
@@ -426,11 +587,11 @@ def _get_quiz_move_name_terms():
             if len(words) >= 2 or len(normalized) >= 7:
                 terms.add(normalized)
 
-    QUIZ_MOVE_NAME_TERMS_CACHE = sorted(terms, key=len, reverse=True)
-    return QUIZ_MOVE_NAME_TERMS_CACHE
+    QUIZ_MOVE_NAME_TERMS_CACHE[game] = sorted(terms, key=len, reverse=True)
+    return QUIZ_MOVE_NAME_TERMS_CACHE[game]
 
 
-def _quiz_intro_has_specific_answer_hint(text):
+def _quiz_intro_has_specific_answer_hint(text, game="sf6"):
     normalized = _normalize_quiz_words(text)
     if not normalized:
         return True
@@ -443,28 +604,29 @@ def _quiz_intro_has_specific_answer_hint(text):
         return True
 
     padded = f" {normalized} "
-    for term in _get_quiz_character_terms():
+    for term in _get_quiz_character_terms(game):
         if f" {term} " in padded:
             return True
 
-    for term in _get_quiz_move_name_terms():
+    for term in _get_quiz_move_name_terms(game):
         if f" {term} " in padded:
             return True
     return False
 
 
-async def build_quiz_question_message(channel, round_num, total_rounds, row, mode="hard"):
+async def build_quiz_question_message(channel, round_num, total_rounds, row, mode="hard", game="sf6"):
     """Build quiz prompt text + embed using the standard frame table layout."""
+    game_key = _quiz_game_key(game)
     intro = await build_quiz_persona_intro(
         channel,
         round_num,
         total_rounds,
         mode,
         sanitize_ascii_line,
-        _quiz_intro_has_specific_answer_hint,
+        lambda text: _quiz_intro_has_specific_answer_hint(text, game=game_key),
     )
-    intro = _quiz_censor_character_names(intro)
-    quiz_view = QuizQuestionView(row, mode=mode)
+    intro = _quiz_censor_character_names(intro, game=game_key)
+    quiz_view = QuizQuestionView(row, mode=mode, game=game_key)
     quiz_embed = quiz_view.build_embed()
     prompt_text = f"{intro}\nAnswer by mention or reply with: `Character Move`"
     return prompt_text, quiz_embed, quiz_view
@@ -768,7 +930,7 @@ def _normalize_quiz_name(text):
     return re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
 
 
-def _extract_char_and_move_from_text(text):
+def _extract_char_and_move_from_text(text, game="sf6"):
     """
     Try to parse (char_key, move_text) from a user answer string.
     Tries progressively longer word prefixes for the character name.
@@ -777,13 +939,98 @@ def _extract_char_and_move_from_text(text):
     words = text.strip().lower().split()
     if not words:
         return None, None
-    for prefix_len in range(min(3, len(words)), 0, -1):
+    for prefix_len in range(min(4, len(words)), 0, -1):
         char_candidate = " ".join(words[:prefix_len])
-        char_key = resolve_character_key(char_candidate)
+        char_key = _quiz_game_resolve_character(game, char_candidate)
         if char_key:
             move_text = " ".join(words[prefix_len:]).strip()
             return char_key, move_text
     return None, None
+
+
+def _quiz_lookup_frame_data(game, char_key, move_text):
+    lookup_fn = _quiz_game_config(game).get("lookup_frame_data")
+    if callable(lookup_fn):
+        return lookup_fn(char_key, move_text)
+    return None
+
+
+def _quiz_find_moves_in_text(game, text):
+    find_fn = _quiz_game_config(game).get("find_moves_in_text")
+    if callable(find_fn):
+        return find_fn(text)
+    return {"rows": []}
+
+
+def _quiz_candidate_rows_for_answer(game, char_key, move_text):
+    candidates = []
+    direct_row = _quiz_lookup_frame_data(game, char_key, move_text)
+    if direct_row is not None:
+        candidates.append(direct_row)
+
+    parser_payload = _quiz_find_moves_in_text(game, _quiz_parser_query(game, char_key, move_text))
+    for row in parser_payload.get("rows", []) or []:
+        row_char = str(row.get("char_key", "") or "").strip().lower()
+        if not row_char:
+            row_char = _quiz_game_resolve_character(game, str(row.get("char_name", ""))) or ""
+        if row_char and row_char != char_key:
+            continue
+        if row not in candidates:
+            candidates.append(row)
+
+    normalized_move = _normalize_quiz_name(move_text)
+    normalized_cmd = _normalize_quiz_numcmd(move_text)
+    for row in _quiz_rows_for_char(game, char_key):
+        row_names = {
+            _normalize_quiz_name(row.get("moveName", "")),
+            _normalize_quiz_name(row.get("cmnName", "")),
+            _normalize_quiz_name(row.get("numCmd", "")),
+        }
+        if normalized_move and normalized_move in row_names:
+            if row not in candidates:
+                candidates.append(row)
+            continue
+        if normalized_cmd and _quiz_row_numcmd_matches_correct(row, normalized_cmd, allow_generic=False):
+            if row not in candidates:
+                candidates.append(row)
+    return candidates
+
+
+def _check_quiz_answer_generic(quiz_state, text):
+    game = _quiz_game_key(quiz_state.get("game", "sf6"))
+    correct_char = quiz_state["char_key"]
+    correct_numcmd = quiz_state["numcmd"]
+    correct_row = quiz_state.get("row") or {}
+    char_key, move_text = _extract_char_and_move_from_text(text, game=game)
+    if not char_key or not move_text or char_key != correct_char:
+        return False
+
+    user_move_compact = _normalize_quiz_numcmd(move_text)
+    if user_move_compact and _quiz_row_numcmd_matches_correct({"numCmd": user_move_compact}, correct_numcmd, allow_generic=False):
+        return True
+
+    for row in _quiz_candidate_rows_for_answer(game, char_key, move_text):
+        if _quiz_rows_match(row, correct_row, correct_numcmd, allow_generic=False):
+            return True
+
+    user_move_name = str(move_text or "").strip().lower()
+    if not user_move_name:
+        return False
+    fuzzy_name_candidates = []
+    for row in _quiz_rows_for_char(game, char_key):
+        if not _quiz_row_has_data(row):
+            continue
+        if not _quiz_row_allowed_for_mode(row, quiz_state.get("mode", "hard"), game=game):
+            continue
+        for candidate_name in (str(row.get("moveName", "")).strip().lower(), str(row.get("cmnName", "")).strip().lower()):
+            if len(candidate_name) >= 4:
+                fuzzy_name_candidates.append((candidate_name, row))
+    close_names = difflib.get_close_matches(user_move_name, [name for name, _row in fuzzy_name_candidates], n=2, cutoff=0.84)
+    for close_name in close_names:
+        for candidate_name, row in fuzzy_name_candidates:
+            if candidate_name == close_name and _quiz_rows_match(row, correct_row, correct_numcmd, allow_generic=False):
+                return True
+    return False
 
 
 def check_quiz_answer(quiz_state, text):
@@ -791,6 +1038,10 @@ def check_quiz_answer(quiz_state, text):
     Return True if `text` is a correct answer to the active quiz round.
     Checks character match, then uses lookup_frame_data to match the move.
     """
+    game = _quiz_game_key(quiz_state.get("game", "sf6"))
+    if game != "sf6":
+        return _check_quiz_answer_generic(quiz_state, text)
+
     correct_char = quiz_state["char_key"]
     correct_numcmd = quiz_state["numcmd"]
     correct_row = quiz_state.get("row") or {}
@@ -807,7 +1058,7 @@ def check_quiz_answer(quiz_state, text):
             or bool(re.search(r"\(\s*ca\s*\)", num_cmd))
         )
 
-    char_key, move_text = _extract_char_and_move_from_text(text)
+    char_key, move_text = _extract_char_and_move_from_text(text, game=game)
     if not char_key or not move_text:
         return False
     if char_key != correct_char:
@@ -978,11 +1229,12 @@ def _quiz_build_crown_line(scores, score_names=None):
     )
 
 
-def _quiz_unique_rows_for_char(char_key, asked=None, mode="hard"):
+def _quiz_unique_rows_for_char(char_key, asked=None, mode="hard", game="sf6"):
     """Return mode-filtered rows whose moveName is unique within the character sheet."""
     mode_key = _quiz_normalize_mode(mode)
     asked = asked or set()
-    rows = FRAME_DATA.get(char_key, [])
+    game_key = _quiz_game_key(game)
+    rows = _quiz_rows_for_char(game_key, char_key)
     if not rows:
         return []
 
@@ -990,7 +1242,7 @@ def _quiz_unique_rows_for_char(char_key, asked=None, mode="hard"):
     for row in rows:
         if not _quiz_row_has_data(row):
             continue
-        if not _quiz_row_allowed_for_mode(row, mode_key):
+        if not _quiz_row_allowed_for_mode(row, mode_key, game=game_key):
             continue
         name_key = _normalize_quiz_name(row.get("moveName", ""))
         if not name_key:
@@ -1001,10 +1253,10 @@ def _quiz_unique_rows_for_char(char_key, asked=None, mode="hard"):
     for row in rows:
         if not _quiz_row_has_data(row):
             continue
-        if not _quiz_row_allowed_for_mode(row, mode_key):
+        if not _quiz_row_allowed_for_mode(row, mode_key, game=game_key):
             continue
         numcmd = str(row.get("numCmd", "")).strip().lower()
-        if (char_key, numcmd) in asked:
+        if (game_key, char_key, numcmd) in asked or (char_key, numcmd) in asked:
             continue
         name_key = _normalize_quiz_name(row.get("moveName", ""))
         if name_counts.get(name_key, 0) == 1:
@@ -1013,30 +1265,32 @@ def _quiz_unique_rows_for_char(char_key, asked=None, mode="hard"):
     return unique_rows
 
 
-def pick_quiz_move(asked=None, mode="hard"):
+def pick_quiz_move(asked=None, mode="hard", game="sf6"):
     """
     Pick a random (char_key, row) from FRAME_DATA suitable for a quiz question.
     `asked` is an optional set of (char_key, numcmd) tuples already used this session.
     """
     mode_key = _quiz_normalize_mode(mode)
+    game_key = _quiz_game_key(game)
     asked = asked or set()
-    if not FRAME_DATA:
+    frame_data = _quiz_game_data(game_key)
+    if not frame_data:
         return None, None
-    char_keys = [k for k, rows in FRAME_DATA.items() if rows]
+    char_keys = [k for k, rows in frame_data.items() if rows]
     if not char_keys:
         return None, None
 
     # Try up to 30 random picks, prioritizing rows with unique move names.
     for _ in range(30):
         char_key = random.choice(char_keys)
-        rows = _quiz_unique_rows_for_char(char_key, asked=asked, mode=mode_key)
+        rows = _quiz_unique_rows_for_char(char_key, asked=asked, mode=mode_key, game=game_key)
         if rows:
             return char_key, random.choice(rows)
 
     # Fallback 1: unique move-name rows (ignore asked dedup)
     random.shuffle(char_keys)
     for char_key in char_keys:
-        rows = _quiz_unique_rows_for_char(char_key, asked=set(), mode=mode_key)
+        rows = _quiz_unique_rows_for_char(char_key, asked=set(), mode=mode_key, game=game_key)
         if rows:
             return char_key, random.choice(rows)
 
@@ -1045,8 +1299,8 @@ def pick_quiz_move(asked=None, mode="hard"):
     for char_key in char_keys:
         rows = [
             r
-            for r in FRAME_DATA[char_key]
-            if _quiz_row_has_data(r) and _quiz_row_allowed_for_mode(r, mode_key)
+            for r in frame_data[char_key]
+            if _quiz_row_has_data(r) and _quiz_row_allowed_for_mode(r, mode_key, game=game_key)
         ]
         if rows:
             return char_key, random.choice(rows)
@@ -1056,6 +1310,7 @@ def pick_quiz_move(asked=None, mode="hard"):
 async def start_quiz(
     message,
     mode="hard",
+    game="sf6",
     session_scores=None,
     session_score_names=None,
     session_round=1,
@@ -1064,6 +1319,7 @@ async def start_quiz(
 ):
     """Initialize and send one quiz question in the channel."""
     mode_key = _quiz_normalize_mode(mode)
+    game_key = _quiz_game_key(game)
     channel_id = message.channel.id
     if QUIZ_START_LOCK.locked():
         try:
@@ -1088,10 +1344,10 @@ async def start_quiz(
                 print(f"[quiz] already-running reply error: {e}", flush=True)
             return
 
-        char_key, row = pick_quiz_move(mode=mode_key)
+        char_key, row = pick_quiz_move(mode=mode_key, game=game_key)
         if not char_key:
             try:
-                await message.reply(f"No frame data is available for {mode_key} mode.")
+                await message.reply(f"No {_quiz_game_label(game_key)} frame data is available for {mode_key} mode.")
             except Exception as e:
                 print(f"[quiz] no-data reply error: {e}", flush=True)
             return
@@ -1145,10 +1401,11 @@ async def start_quiz(
             "numcmd": numcmd,
             "row": row,
             "mode": mode_key,
+            "game": game_key,
             "created_at": datetime.datetime.now(datetime.timezone.utc),
             "answered": False,
             "awaiting_choice": False,
-            "asked": {(char_key, numcmd)},
+            "asked": {(game_key, char_key, numcmd)},
             "message_ids": normalized_message_ids,
         }
 
@@ -1156,7 +1413,7 @@ async def start_quiz(
         answer_move = str(row.get("moveName", "?")).strip()
         answer_numcmd = str(row.get("numCmd", "?")).strip()
         print(
-            f"[quiz] answer-key channel_id={channel_id} round={round_num} mode={mode_key} "
+            f"[quiz] answer-key channel_id={channel_id} round={round_num} game={game_key} mode={mode_key} "
             f"char={answer_char} move={answer_move} numcmd={answer_numcmd}",
             flush=True,
         )
@@ -1174,6 +1431,7 @@ async def start_quiz(
             1,
             row,
             mode=mode_key,
+            game=game_key,
         )
         sent = await _quiz_publish_from_placeholder(
             message.channel,
@@ -1193,6 +1451,7 @@ async def start_quiz(
 
 async def prompt_quiz_mode_selection(
     message,
+    game="sf6",
     session_mode=None,
     session_scores=None,
     session_score_names=None,
@@ -1202,8 +1461,9 @@ async def prompt_quiz_mode_selection(
 ):
     """Prompt user to specify quiz difficulty and track pending mode selection."""
     channel_id = message.channel.id
+    game_key = _quiz_game_key(game)
     prompt_text = (
-        "Specify quiz difficulty: `easy`, `medium`, or `hard`. "
+        f"Specify quiz difficulty for {_quiz_game_label(game_key)}: `easy`, `medium`, or `hard`. "
         "Easy = normals only. Medium = normals + specials. Hard = everything."
     )
 
@@ -1223,6 +1483,7 @@ async def prompt_quiz_mode_selection(
         "message_id": None,
         "owner_user_id": owner_user_id,
         "mode": stored_mode,
+        "game": game_key,
         "scores": dict(session_scores or {}),
         "score_names": dict(session_score_names or {}),
         "round": session_round,
@@ -1269,6 +1530,7 @@ async def stop_quiz(message):
             "created_at": datetime.datetime.now(datetime.timezone.utc),
             "message_id": getattr(sent, "id", None),
             "mode": quiz.get("mode", "hard"),
+            "game": quiz.get("game", "sf6"),
             "owner_user_id": quiz.get("owner_user_id"),
             "scores": dict(quiz.get("scores") or {}),
             "score_names": dict(quiz.get("score_names") or {}),
@@ -1283,6 +1545,7 @@ async def stop_quiz(message):
                 "created_at": datetime.datetime.now(datetime.timezone.utc),
                 "message_id": getattr(sent, "id", None),
                 "mode": quiz.get("mode", "hard"),
+                "game": quiz.get("game", "sf6"),
                 "owner_user_id": quiz.get("owner_user_id"),
                 "scores": dict(quiz.get("scores") or {}),
                 "score_names": dict(quiz.get("score_names") or {}),
@@ -1452,6 +1715,7 @@ def _quiz_schedule_active_timeout(channel_id, channel, quiz_state):
                     "created_at": datetime.datetime.now(datetime.timezone.utc),
                     "message_id": getattr(sent, "id", None),
                     "mode": expired_quiz.get("mode", "hard"),
+                    "game": expired_quiz.get("game", "sf6"),
                     "owner_user_id": expired_quiz.get("owner_user_id"),
                     "scores": dict(expired_quiz.get("scores") or {}),
                     "score_names": dict(expired_quiz.get("score_names") or {}),
@@ -1796,6 +2060,7 @@ async def handle_quiz_post_answer_choice(message):
                 "created_at": datetime.datetime.now(datetime.timezone.utc),
                 "message_id": getattr(sent, "id", None),
                 "mode": quiz.get("mode", "hard"),
+                "game": quiz.get("game", "sf6"),
                 "owner_user_id": quiz.get("owner_user_id"),
                 "scores": dict(quiz.get("scores") or {}),
                 "score_names": dict(quiz.get("score_names") or {}),
@@ -1810,6 +2075,7 @@ async def handle_quiz_post_answer_choice(message):
                     "created_at": datetime.datetime.now(datetime.timezone.utc),
                     "message_id": getattr(sent, "id", None),
                     "mode": quiz.get("mode", "hard"),
+                    "game": quiz.get("game", "sf6"),
                     "owner_user_id": quiz.get("owner_user_id"),
                     "scores": dict(quiz.get("scores") or {}),
                     "score_names": dict(quiz.get("score_names") or {}),
@@ -1839,7 +2105,7 @@ async def handle_quiz_answer(message):
     if not text:
         return False
 
-    parsed_char, parsed_move = _extract_char_and_move_from_text(text)
+    parsed_char, parsed_move = _extract_char_and_move_from_text(text, game=quiz.get("game", "sf6"))
     if not parsed_char or not parsed_move:
         return False
 
@@ -1849,7 +2115,7 @@ async def handle_quiz_answer(message):
         wrong_reply = await build_quiz_wrong_guess_message(
             message.channel,
             sanitize_ascii_line,
-            _quiz_intro_has_specific_answer_hint,
+            lambda hint: _quiz_intro_has_specific_answer_hint(hint, game=quiz.get("game", "sf6")),
         )
         wrong_followup = "Try again or give up and find out the answer"
         wrong_text = f"{wrong_reply}\n{wrong_followup}" if wrong_reply else wrong_followup
@@ -1893,6 +2159,7 @@ async def handle_quiz_answer(message):
         "created_at": datetime.datetime.now(datetime.timezone.utc),
         "message_id": getattr(sent, "id", None),
         "mode": quiz.get("mode", "hard"),
+        "game": quiz.get("game", "sf6"),
         "owner_user_id": quiz.get("owner_user_id"),
         "scores": dict(scores),
         "score_names": dict(score_names),
@@ -1912,6 +2179,7 @@ async def route_message(client, message, content_lower):
     in_quiz = channel_id in ACTIVE_QUIZZES
     quiz_state = ACTIVE_QUIZZES.get(channel_id)
     requested_quiz_mode = _quiz_extract_mode_from_text(content_lower)
+    requested_quiz_game = _quiz_extract_game_from_text(content_lower, default=(quiz_state or {}).get("game", "sf6"))
     answer_is_addressed = client.user.mentioned_in(message) or _is_reply_to_quiz_msg(message)
     mode_prompt_reply = _is_reply_to_quiz_mode_prompt(message)
     command_is_addressed = (
@@ -1943,6 +2211,7 @@ async def route_message(client, message, content_lower):
         pending_score_names = dict(pending.get("score_names") or {})
         pending_owner_user_id = pending.get("owner_user_id")
         pending_message_ids = list(pending.get("message_ids") or [])
+        pending_game = _quiz_game_key(pending.get("game", requested_quiz_game))
         try:
             next_round = max(1, int(pending.get("round", 1))) + 1
         except Exception:
@@ -1991,6 +2260,7 @@ async def route_message(client, message, content_lower):
             await start_quiz(
                 message,
                 mode=requested_quiz_mode,
+                game=pending_game,
                 session_scores=pending_scores,
                 session_score_names=pending_score_names,
                 session_round=next_round,
@@ -2006,6 +2276,7 @@ async def route_message(client, message, content_lower):
             if followup_mode not in QUIZ_VALID_MODES:
                 await prompt_quiz_mode_selection(
                     message,
+                    game=pending_game,
                     session_mode=pending.get("mode"),
                     session_scores=pending_scores,
                     session_score_names=pending_score_names,
@@ -2017,6 +2288,7 @@ async def route_message(client, message, content_lower):
             await start_quiz(
                 message,
                 mode=followup_mode,
+                game=pending_game,
                 session_scores=pending_scores,
                 session_score_names=pending_score_names,
                 session_round=next_round,
@@ -2033,12 +2305,14 @@ async def route_message(client, message, content_lower):
         pending_mode_round = pending_mode.get("round", 1)
         pending_mode_owner_user_id = pending_mode.get("owner_user_id")
         pending_mode_message_ids = list(pending_mode.get("message_ids") or [])
+        pending_mode_game = _quiz_game_key(pending_mode.get("game", requested_quiz_game))
 
         if command_is_addressed and requested_quiz_mode in QUIZ_VALID_MODES:
             QUIZ_PENDING_MODE.pop(channel_id, None)
             await start_quiz(
                 message,
                 mode=requested_quiz_mode,
+                game=pending_mode_game,
                 session_scores=pending_mode_scores,
                 session_score_names=pending_mode_score_names,
                 session_round=pending_mode_round,
@@ -2073,6 +2347,7 @@ async def route_message(client, message, content_lower):
             if mode_prompt_reply or QUIZ_INTENT_RE.search(content_lower):
                 await prompt_quiz_mode_selection(
                     message,
+                    game=pending_mode_game,
                     session_mode=pending_mode.get("mode"),
                     session_scores=pending_mode_scores,
                     session_score_names=pending_mode_score_names,
@@ -2166,8 +2441,8 @@ async def route_message(client, message, content_lower):
             await stop_quiz(message)
         else:
             if requested_quiz_mode not in QUIZ_VALID_MODES:
-                await prompt_quiz_mode_selection(message)
+                await prompt_quiz_mode_selection(message, game=requested_quiz_game)
             else:
-                await start_quiz(message, mode=requested_quiz_mode)
+                await start_quiz(message, mode=requested_quiz_mode, game=requested_quiz_game)
         return
     return False

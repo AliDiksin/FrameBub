@@ -4787,6 +4787,69 @@ async def on_ready():
     quiz_module.configure(
         FRAME_DATA=FRAME_DATA,
         CHARACTER_ALIASES=CHARACTER_ALIASES,
+        GAME_QUIZ_CONFIGS={
+            "sf6": {
+                "label": "Street Fighter 6",
+                "data": FRAME_DATA,
+                "aliases": CHARACTER_ALIASES,
+                "resolve_character_key": resolve_character_key,
+                "lookup_frame_data": lookup_frame_data,
+                "find_moves_in_text": find_moves_in_text,
+                "build_frame_embed": build_frame_embed,
+                "get_notes_text": frame_output_module.get_notes_text,
+                "game_terms": ("sf6", "street fighter 6"),
+            },
+            "ggst": {
+                "label": "Guilty Gear Strive",
+                "data": ggst_module.GGST_FRAME_DATA,
+                "aliases": ggst_module.GGST_CHARACTER_ALIASES,
+                "resolve_character_key": ggst_module.resolve_character_key,
+                "find_moves_in_text": ggst_module.find_moves_in_text,
+                "build_frame_embed": ggst_module.build_frame_embed,
+                "get_notes_text": ggst_module.get_notes_text,
+                "game_terms": ("ggst", "guilty gear strive"),
+            },
+            "tuco": {
+                "label": "2XKO",
+                "data": tuco_module.TUCO_FRAME_DATA,
+                "aliases": tuco_module.TUCO_CHARACTER_ALIASES,
+                "resolve_character_key": tuco_module.resolve_character_key,
+                "find_moves_in_text": tuco_module.find_moves_in_text,
+                "build_frame_embed": tuco_module.build_frame_embed,
+                "get_notes_text": tuco_module.get_notes_text,
+                "game_terms": ("2xko", "tuco"),
+            },
+            "bbcf": {
+                "label": "BlazBlue Central Fiction",
+                "data": bbcf_module.BBCF_FRAME_DATA,
+                "aliases": bbcf_module.BBCF_CHARACTER_ALIASES,
+                "resolve_character_key": bbcf_module.resolve_character_key,
+                "find_moves_in_text": bbcf_module.find_moves_in_text,
+                "build_frame_embed": bbcf_module.build_frame_embed,
+                "get_notes_text": bbcf_module.get_notes_text,
+                "game_terms": ("bbcf", "blazblue central fiction"),
+            },
+            "cotw": {
+                "label": "City of the Wolves",
+                "data": cotw_module.COTW_FRAME_DATA,
+                "aliases": cotw_module.COTW_CHARACTER_ALIASES,
+                "resolve_character_key": cotw_module.resolve_character_key,
+                "find_moves_in_text": cotw_module.find_moves_in_text,
+                "build_frame_embed": cotw_module.build_frame_embed,
+                "get_notes_text": cotw_module.get_notes_text,
+                "game_terms": ("cotw", "city of the wolves"),
+            },
+            "third_strike": {
+                "label": "Third Strike",
+                "data": third_strike_module.THIRD_STRIKE_FRAME_DATA,
+                "aliases": third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
+                "resolve_character_key": third_strike_module.resolve_character_key,
+                "find_moves_in_text": third_strike_module.find_moves_in_text,
+                "build_frame_embed": third_strike_module.build_frame_embed,
+                "get_notes_text": third_strike_module.get_notes_text,
+                "game_terms": ("3s", "third strike"),
+            },
+        },
         resolve_character_key=resolve_character_key,
         normalize_char_name=normalize_char_name,
         lookup_frame_data=lookup_frame_data,
@@ -5090,6 +5153,7 @@ async def on_message(message):
                     version_text = f" {option_version}" if option_version else ""
                     source_wants_hitbox = False
                     source_wants_frames = True
+                    prompt_source_text = ""
                     if third_strike_replied_msg.reference and third_strike_replied_msg.reference.message_id:
                         try:
                             if third_strike_replied_msg.reference.cached_message:
@@ -5102,6 +5166,8 @@ async def on_message(message):
                         except Exception:
                             pass
                     third_strike_reply_query = f"3s {third_strike_char_hint} {option_cmd}{version_text}".strip()
+                    if third_strike_module.query_requests_genei_jin(prompt_source_text):
+                        third_strike_reply_query = f"{third_strike_reply_query} genei jin".strip()
                     if source_wants_hitbox:
                         third_strike_reply_query = f"{third_strike_reply_query} hitbox".strip()
                     if source_wants_frames:
@@ -5247,6 +5313,7 @@ async def on_message(message):
         or (
             bbcf_exact_character_query
             and bbcf_module.query_has_bbcf_notation(content_lower)
+            and not third_strike_module.query_has_third_strike_notation(content_lower)
         )
         or (
             bbcf_exact_character_query
@@ -5254,6 +5321,7 @@ async def on_message(message):
             and not sf6_exact_character_query
             and not ggst_exact_character_query
             and not tuco_exact_character_query
+            and not third_strike_exact_character_query
         )
     )
     if client.user.mentioned_in(message) and bbcf_route_allowed and bbcf_lookup_intent and bbcf_rows:
@@ -5309,9 +5377,15 @@ async def on_message(message):
         or third_strike_payload.get("gif_query")
         or third_strike_payload.get("game_query")
         or third_strike_payload.get("notes_query")
+        or third_strike_module.query_has_third_strike_notation(content_lower)
     )
     third_strike_route_allowed = bool(
         third_strike_payload.get("game_query")
+        or (
+            third_strike_exact_character_query
+            and third_strike_module.query_has_third_strike_notation(content_lower)
+            and not sf6_exact_character_query
+        )
         or (
             third_strike_exact_character_query
             and third_strike_rows
@@ -5320,6 +5394,7 @@ async def on_message(message):
             and not tuco_exact_character_query
             and not bbcf_exact_character_query
             and not cotw_exact_character_query
+            and not bbcf_module.query_has_bbcf_notation(content_lower)
         )
     )
     if client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_rows:
@@ -5335,6 +5410,23 @@ async def on_message(message):
         return
     elif client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("needs_disambiguation"):
         await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
+        return
+    elif client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("explicit_move_attempt"):
+        char_label = third_strike_module.display_char_name(third_strike_payload.get("char_key"))
+        await message.reply(f"I have Third Strike scrolls for {char_label}, but I couldn't find that move.")
+        return
+
+    if (
+        client.user.mentioned_in(message)
+        and third_strike_route_allowed
+        and not third_strike_lookup_intent
+        and not message.reference
+        and (third_strike_rows or third_strike_payload.get("needs_disambiguation"))
+    ):
+        if third_strike_payload.get("needs_disambiguation"):
+            await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
+        else:
+            await third_strike_module.send_frame_response(message, third_strike_rows)
         return
 
     if (
@@ -5374,19 +5466,6 @@ async def on_message(message):
             await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
         else:
             await cotw_module.send_frame_response(message, cotw_rows)
-        return
-
-    if (
-        client.user.mentioned_in(message)
-        and third_strike_route_allowed
-        and not third_strike_lookup_intent
-        and not message.reference
-        and (third_strike_rows or third_strike_payload.get("needs_disambiguation"))
-    ):
-        if third_strike_payload.get("needs_disambiguation"):
-            await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
-        else:
-            await third_strike_module.send_frame_response(message, third_strike_rows)
         return
 
     if (

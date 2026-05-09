@@ -7,6 +7,7 @@ import pandas as pd
 
 from bubbot.data.third_strike_aliases import (
     THIRD_STRIKE_CHARACTER_ALIASES,
+    THIRD_STRIKE_CHARACTER_MOVE_ALIASES,
     THIRD_STRIKE_LOOKUP_WORDS,
     THIRD_STRIKE_MOVE_ALIASES,
 )
@@ -47,6 +48,9 @@ def query_has_third_strike_notation(text):
         or re.search(r"(?:^|\s)(?:cl|close|far|f)\s*\.\s*[lmh][pk]\b", lowered)
         or re.search(r"(?:^|\s)(?:[1-9][0-9]{0,5}[lmh]?[pk]|[1-9]?[lmh]?[pk](?:\+[lmh]?[pk])+)(?:\s|$)", lowered)
         or re.search(r"(?:^|\s)sa[123](?:\s|$)", lowered)
+        or re.search(r"\b(?:(?:cr|st|cl|j|nj)\s*(?:lp|mp|hp|lk|mk|hk))\b", lowered)
+        or re.search(r"\b(?:cr|st|cl|j|nj)(?:lp|mp|hp|lk|mk|hk)\b", lowered)
+        or re.search(r"\b(?:lp|mp|hp|lk|mk|hk|ex|od)\s+(?:fireball|hadoken|hadouken|dp|srk|shoryuken|tatsu|tatsumaki|hurricane)\b", lowered)
     )
 
 
@@ -59,6 +63,7 @@ def unique_third_strike_rows(rows):
             normalize_move_token(row.get("moveName", "")),
             normalize_move_token(row.get("numCmd", "")),
             normalize_move_token(row.get("version", "")),
+            normalize_move_token(row.get("state_key", "")),
         )
         if key in seen:
             continue
@@ -142,6 +147,8 @@ def load_frame_data(filename=None):
             row["char_name"] = str(row.get("char_name") or sheet_name[: -len("Normal")]).strip()
             rows.append(row)
         if rows:
+            if rows[0]["char_key"] == "yun":
+                mark_yun_genei_jin_rows(rows)
             THIRD_STRIKE_FRAME_DATA[rows[0]["char_key"]] = rows
             THIRD_STRIKE_CHARACTER_ALIASES.setdefault(rows[0]["char_key"].replace("_", " "), rows[0]["char_key"])
             THIRD_STRIKE_CHARACTER_ALIASES.setdefault(str(rows[0]["char_name"]).lower(), rows[0]["char_key"])
@@ -150,20 +157,117 @@ def load_frame_data(filename=None):
     return bool(THIRD_STRIKE_FRAME_DATA)
 
 
+def mark_yun_genei_jin_rows(rows):
+    in_genei_block = False
+    for row in rows:
+        move_name = normalize_move_token(row.get("moveName", ""))
+        num_cmd = normalize_move_token(row.get("numCmd", ""))
+        if move_name == "geneijin" and "sa3" in num_cmd:
+            in_genei_block = True
+            continue
+        if in_genei_block:
+            row["state_key"] = "genei_jin"
+            row["state_label"] = "Genei Jin"
+
+
 def find_characters_in_text(text):
     return find_alias_positions_in_text(text, THIRD_STRIKE_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA.keys())
 
 
-def normalize_move_query(query):
+def query_requests_genei_jin(value):
+    text = str(value or "").lower()
+    return bool(re.search(r"\b(?:genei\s*jin|genei|geneijin|sa3)\b", text))
+
+
+def strip_genei_jin_terms(value):
+    text = str(value or "").lower()
+    stripped = re.sub(r"\b(?:during|in|with|install|activated|active)\b", " ", text)
+    stripped = re.sub(r"\b(?:genei\s*jin|genei|geneijin|sa3)\b", " ", stripped)
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
+def normalize_move_query(query, char_key=None):
     text = str(query or "").lower().strip()
+    text = re.sub(r"<@!?\d+>", " ", text)
     text = re.sub(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|notes?)\b", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     compact = normalize_move_token(text)
-    if text in THIRD_STRIKE_MOVE_ALIASES:
-        return THIRD_STRIKE_MOVE_ALIASES[text]
-    if compact in THIRD_STRIKE_MOVE_ALIASES:
-        return THIRD_STRIKE_MOVE_ALIASES[compact]
+    if str(char_key or "").strip().lower() == "yun" and compact in {"genei", "geneijin", "sa3"}:
+        return "236236P (SA3)"
+    if str(char_key or "").strip().lower() == "yun" and query_requests_genei_jin(text):
+        state_stripped = strip_genei_jin_terms(text)
+        if state_stripped:
+            text = state_stripped
+    compact = normalize_move_token(text)
+    char_aliases = THIRD_STRIKE_CHARACTER_MOVE_ALIASES.get(str(char_key or "").strip().lower(), {})
+
+    strength_aliases = {
+        "l": "L",
+        "lp": "LP",
+        "light punch": "LP",
+        "m": "M",
+        "mp": "MP",
+        "medium punch": "MP",
+        "h": "H",
+        "hp": "HP",
+        "heavy punch": "HP",
+        "lk": "LK",
+        "light kick": "LK",
+        "mk": "MK",
+        "medium kick": "MK",
+        "hk": "HK",
+        "heavy kick": "HK",
+        "ex": "EX",
+        "od": "EX",
+    }
+
+    def resolve_alias(alias_map):
+        if text in alias_map:
+            return alias_map[text]
+        for alias, target in alias_map.items():
+            if compact == normalize_move_token(alias):
+                return target
+        return None
+
+    def expand_strength_for_target(strength, target):
+        if strength not in {"L", "M", "H"}:
+            return strength
+        target_text = str(target or "").upper()
+        first_command = re.split(r"\s|\(", target_text, maxsplit=1)[0]
+        if "K" in first_command and "P" not in first_command:
+            return f"{strength}K"
+        return f"{strength}P"
+
+    def resolve_strength_alias(alias_map):
+        for strength_text, version in strength_aliases.items():
+            prefix = f"{strength_text} "
+            suffix = f" {strength_text}"
+            remainder = ""
+            if text.startswith(prefix):
+                remainder = text[len(prefix) :].strip()
+            elif text.endswith(suffix):
+                remainder = text[: -len(suffix)].strip()
+            if not remainder:
+                continue
+            remainder_compact = normalize_move_token(remainder)
+            for alias, target in alias_map.items():
+                if remainder == alias or remainder_compact == normalize_move_token(alias):
+                    return f"{expand_strength_for_target(version, target)} {target}"
+        return None
+
+    char_target = resolve_alias(char_aliases)
+    if char_target:
+        return char_target
+    char_strength_target = resolve_strength_alias(char_aliases)
+    if char_strength_target:
+        return char_strength_target
+    global_target = resolve_alias(THIRD_STRIKE_MOVE_ALIASES)
+    if global_target:
+        return global_target
+    global_strength_target = resolve_strength_alias(THIRD_STRIKE_MOVE_ALIASES)
+    if global_strength_target:
+        return global_strength_target
     return text
 
 
@@ -193,18 +297,97 @@ def _version_matches_query(row, query_key):
     version_key = normalize_move_token(row.get("version", ""))
     if not version_key:
         return False
+    if version_key.startswith("ex") and "ex" in query_key:
+        return True
     return version_key and version_key in query_key
 
 
+def row_is_air_variant(row):
+    move_name = str(row.get("moveName") or "").lower()
+    num_cmd = str(row.get("numCmd") or "").lower()
+    return bool(
+        "air" in num_cmd
+        or move_name.startswith(("air ", "aerial "))
+    )
+
+
+def query_requests_air_variant(original_query, normalized_query):
+    text = f"{original_query or ''} {normalized_query or ''}".lower()
+    return bool(
+        re.search(r"\b(?:air|aerial|jump(?:ing)?)\b", text)
+        or re.search(r"\bj\s*\.\s*", text)
+        or "(air" in text
+        or "zanku" in text
+        or "zankuu" in text
+    )
+
+
+def prefer_ground_or_air_rows(rows, original_query, normalized_query):
+    unique = unique_third_strike_rows(rows)
+    if len(unique) <= 1:
+        return unique
+    air_rows = [row for row in unique if row_is_air_variant(row)]
+    ground_rows = [row for row in unique if not row_is_air_variant(row)]
+    if not air_rows or not ground_rows:
+        return unique
+    return air_rows if query_requests_air_variant(original_query, normalized_query) else ground_rows
+
+
+def prefer_state_rows(char_key, rows, original_query, normalized_query):
+    unique = unique_third_strike_rows(rows)
+    if len(unique) <= 1 or str(char_key or "").strip().lower() != "yun":
+        return unique
+    genei_rows = [row for row in unique if str(row.get("state_key") or "").strip().lower() == "genei_jin"]
+    normal_rows = [row for row in unique if str(row.get("state_key") or "").strip().lower() != "genei_jin"]
+    if not genei_rows or not normal_rows:
+        return unique
+    return genei_rows if query_requests_genei_jin(f"{original_query or ''} {normalized_query or ''}") else normal_rows
+
+
+def query_requests_ex_variant(original_query, normalized_query):
+    text = f"{original_query or ''} {normalized_query or ''}".lower()
+    return bool(re.search(r"\b(?:ex|od)\b", text))
+
+
+def row_is_ex_variant(row):
+    version_key = normalize_move_token(row.get("version", ""))
+    num_cmd_key = normalize_move_token(row.get("numCmd", ""))
+    move_name_key = normalize_move_token(row.get("moveName", ""))
+    return bool(
+        version_key.startswith("ex")
+        or num_cmd_key.endswith(("pp", "kk"))
+        or move_name_key.startswith("ex")
+    )
+
+
+def prefer_non_ex_rows(rows, original_query, normalized_query):
+    unique = unique_third_strike_rows(rows)
+    if len(unique) <= 1:
+        return unique
+    ex_rows = [row for row in unique if row_is_ex_variant(row)]
+    if query_requests_ex_variant(original_query, normalized_query):
+        return ex_rows or unique
+    non_ex_rows = [row for row in unique if not row_is_ex_variant(row)]
+    if len(non_ex_rows) == 1 and ex_rows:
+        return non_ex_rows
+    return unique
+
+
+def apply_match_preferences(char_key, rows, original_query, normalized_query):
+    state_rows = prefer_state_rows(char_key, rows, original_query, normalized_query)
+    air_rows = prefer_ground_or_air_rows(state_rows, original_query, normalized_query)
+    return prefer_non_ex_rows(air_rows, original_query, normalized_query)
+
+
 def find_matching_rows(char_key, move_text):
-    query = normalize_move_query(move_text)
+    query = normalize_move_query(move_text, char_key=char_key)
     query_key = normalize_move_token(query)
     if not query_key:
         return []
     rows = THIRD_STRIKE_FRAME_DATA.get(char_key, []) or []
     exact = [row for row in rows if query_key in row_match_keys(row) or query_key in row_version_match_keys(row)]
     if exact:
-        return unique_third_strike_rows(exact)
+        return apply_match_preferences(char_key, exact, move_text, query)
 
     base_matches = []
     for row in rows:
@@ -216,7 +399,7 @@ def find_matching_rows(char_key, move_text):
             base_matches.append(row)
     if base_matches:
         version_filtered = [row for row in base_matches if _version_matches_query(row, query_key)]
-        return unique_third_strike_rows(version_filtered or base_matches)
+        return apply_match_preferences(char_key, version_filtered or base_matches, move_text, query)
 
     normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
     name_matches = []
@@ -230,7 +413,7 @@ def find_matching_rows(char_key, move_text):
             name_matches.append(row)
     if name_matches:
         version_filtered = [row for row in name_matches if _version_matches_query(row, query_key)]
-        return unique_third_strike_rows(version_filtered or name_matches)
+        return apply_match_preferences(char_key, version_filtered or name_matches, move_text, query)
 
     candidates = []
     for row in rows:
@@ -239,7 +422,7 @@ def find_matching_rows(char_key, move_text):
             if key:
                 candidates.append((key, row))
     close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.84)
-    return unique_third_strike_rows(unique_rows([row for key, row in candidates if key in close_keys]))
+    return apply_match_preferences(char_key, unique_rows([row for key, row in candidates if key in close_keys]), move_text, query)
 
 
 def build_disambiguation_prompt(char_key, rows):
@@ -247,7 +430,7 @@ def build_disambiguation_prompt(char_key, rows):
     for row in rows[:12]:
         move_name = str(row.get("moveName") or "Unknown").strip()
         num_cmd = str(row.get("numCmd") or "?").strip()
-        version = str(row.get("version") or "").strip()
+        version = display_version_for_row(row)
         suffix = f" [{version}]" if version else ""
         lines.append(f"- {move_name}: `{num_cmd}`{suffix}")
     return "\n".join(lines)
@@ -264,7 +447,6 @@ def find_moves_in_text(text):
     matched_char_key = char_matches[0][0] if char_matches else None
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
-        move_text = normalize_move_query(move_text)
         if not move_text:
             continue
         matches = find_matching_rows(char_key, move_text)
@@ -302,18 +484,35 @@ def find_moves_in_text(text):
 def get_notes_text(row):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
+    state_key = normalize_move_token(row.get("state_key", ""))
+    if state_key:
+        cached_notes = (THIRD_STRIKE_MOVE_NOTES.get(char_key, {}) or {}).get(normalize_move_token(f"{num_cmd_key} {state_key}"))
+        if cached_notes:
+            return str(cached_notes).strip()
     cached_notes = (THIRD_STRIKE_MOVE_NOTES.get(char_key, {}) or {}).get(num_cmd_key)
     return str(cached_notes or row.get("extraInfo") or "").strip()
 
 
 def get_move_image_url(row):
     char_key = str(row.get("char_key", "")).strip().lower()
-    return THIRD_STRIKE_MOVE_IMAGE_URLS.get((char_key, normalize_move_token(row.get("numCmd", ""))))
+    num_cmd_key = normalize_move_token(row.get("numCmd", ""))
+    state_key = normalize_move_token(row.get("state_key", ""))
+    if state_key:
+        state_url = THIRD_STRIKE_MOVE_IMAGE_URLS.get((char_key, normalize_move_token(f"{num_cmd_key} {state_key}")))
+        if state_url:
+            return state_url
+    return THIRD_STRIKE_MOVE_IMAGE_URLS.get((char_key, num_cmd_key))
 
 
 def get_hitbox_links(row, limit=4):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
+    state_key = normalize_move_token(row.get("state_key", ""))
+    if state_key:
+        state_links = (THIRD_STRIKE_HITBOX_DATA.get(char_key, {}) or {}).get(normalize_move_token(f"{num_cmd_key} {state_key}"), [])
+        clean_state_links = [str(link or "").strip() for link in list(state_links or [])[:limit] if str(link or "").strip()]
+        if clean_state_links:
+            return clean_state_links
     links = (THIRD_STRIKE_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
     return [str(link or "").strip() for link in list(links or [])[:limit] if str(link or "").strip()]
 
@@ -343,14 +542,30 @@ def add_long_embed_field(embed, name, value, inline=False):
         embed.add_field(name=name if index == 0 else f"{name} cont.", value=chunk, inline=inline)
 
 
+def display_version_for_row(row):
+    version = clean_value(row.get("version"))
+    if not version:
+        return ""
+    name_text = str(row.get("moveName", "") or "").lower()
+    cmd_text = str(row.get("numCmd", "") or "").lower()
+    if "air" in version.lower() and ("air" in name_text or "air" in cmd_text):
+        version = re.sub(r"\s*\(\s*air\s*\)\s*", " ", version, flags=re.IGNORECASE)
+        version = re.sub(r"\bair\b", " ", version, flags=re.IGNORECASE)
+        version = re.sub(r"\s+", " ", version).strip()
+    return version
+
+
 def build_frame_embed(row, show_notes=False):
     char_name = clean_value(row.get("char_name"), "Unknown")
     move_name = clean_value(row.get("moveName"), "Unknown")
     num_cmd = clean_value(row.get("numCmd"), "?")
-    version = clean_value(row.get("version"))
+    version = display_version_for_row(row)
     description = f"{move_name} ({num_cmd})"
     if version:
         description = f"{description} [{version}]"
+    state_label = clean_value(row.get("state_label"))
+    if state_label:
+        description = f"{description} - {state_label}"
     embed = discord.Embed(
         title=truncate_value(f"Third Strike - {char_name}", 256),
         description=truncate_value(description, 4096),
@@ -476,7 +691,8 @@ async def send_hitbox_response(message, rows):
 
 
 def format_frame_data(row, include_notes=False):
-    version = f" [{row.get('version')}]" if str(row.get("version") or "").strip() else ""
+    version_text = display_version_for_row(row)
+    version = f" [{version_text}]" if version_text else ""
     text = (
         f"Move: {row.get('moveName') or row.get('numCmd')} ({row.get('numCmd') or '?'}){version}\n"
         f"Startup: {row.get('startup') or '-'} | Active: {row.get('active') or '-'} | Recovery: {row.get('recovery') or '-'}\n"

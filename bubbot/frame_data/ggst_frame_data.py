@@ -240,6 +240,7 @@ def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:ggst|guilty\s+gear|guilty|gear|strive)\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?)\b", " ", text)
+    text = re.sub(r"\bhs\b", "h", text)
     text = re.sub(r"\s+", " ", text).strip()
     compact = normalize_key(text)
     if text in GGST_MOVE_ALIASES:
@@ -406,6 +407,7 @@ def row_matches_move(row, move_query):
         word for word in query_words
         if len(word) >= 3 and not any(char.isdigit() for char in word)
     }
+    button_query_words = {word for word in query_words if word in {"p", "k", "s", "h", "d"}}
     numeric_variant_words = {word for word in query_words if word.isdigit()}
     if query_words and (descriptive_query_words or numeric_variant_words):
         move_words = set()
@@ -413,7 +415,10 @@ def row_matches_move(row, move_query):
             move_words.update(re.findall(r"[a-z0-9]+", str(value or "").lower()))
         if query_words.issubset(move_words):
             return True
-        if not descriptive_query_words or query_words != descriptive_query_words:
+        non_fuzzy_words = query_words - descriptive_query_words - button_query_words - numeric_variant_words
+        if not descriptive_query_words or non_fuzzy_words or numeric_variant_words:
+            return False
+        if button_query_words and not button_query_words.issubset(move_words):
             return False
         if all(
             any(difflib.SequenceMatcher(None, query_word, move_word).ratio() >= 0.74 for move_word in move_words)
