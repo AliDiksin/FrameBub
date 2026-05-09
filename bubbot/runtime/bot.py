@@ -101,6 +101,9 @@ import bubbot.frame_data.gif_lookup as gif_lookup_module
 import bubbot.frame_data.frame_output as frame_output_module
 import bubbot.frame_data.ggst_frame_data as ggst_module
 import bubbot.frame_data.tuco_frame_data as tuco_module
+import bubbot.frame_data.bbcf_frame_data as bbcf_module
+import bubbot.frame_data.cotw_frame_data as cotw_module
+import bubbot.frame_data.third_strike_frame_data as third_strike_module
 import bubbot.features.menu_system as menu_system
 from bubbot.frame_data.frame_output import send_frame_embeds_with_views, send_frame_table_response, send_gif_links_response
 from bubbot.frame_data.gif_lookup import get_frame_row_gif_links
@@ -224,6 +227,18 @@ def _tuco_character_choice_values():
     return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in tuco_module.TUCO_FRAME_DATA.items() if rows}))
 
 
+def _bbcf_character_choice_values():
+    return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in bbcf_module.BBCF_FRAME_DATA.items() if rows}))
+
+
+def _cotw_character_choice_values():
+    return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in cotw_module.COTW_FRAME_DATA.items() if rows}))
+
+
+def _third_strike_character_choice_values():
+    return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in third_strike_module.THIRD_STRIKE_FRAME_DATA.items() if rows}))
+
+
 def _sf6_move_choice_values(char_name):
     char_key = resolve_character_key(char_name)
     if not char_key:
@@ -271,6 +286,39 @@ def _tuco_move_choice_values(char_name):
         return []
     values = []
     for _row, label in shared_move_choices(tuco_module.TUCO_FRAME_DATA.get(char_key, []), label_fn=_move_choice_label, key_fields=("moveName", "numCmd")):
+        if label:
+            values.append(label)
+    return values
+
+
+def _bbcf_move_choice_values(char_name):
+    char_key = bbcf_module.resolve_character_key(char_name)
+    if not char_key:
+        return []
+    values = []
+    for _row, label in shared_move_choices(bbcf_module.BBCF_FRAME_DATA.get(char_key, []), label_fn=_move_choice_label, key_fields=("moveName", "numCmd", "moveType")):
+        if label:
+            values.append(label)
+    return values
+
+
+def _cotw_move_choice_values(char_name):
+    char_key = cotw_module.resolve_character_key(char_name)
+    if not char_key:
+        return []
+    values = []
+    for _row, label in shared_move_choices(cotw_module.COTW_FRAME_DATA.get(char_key, []), label_fn=_move_choice_label, key_fields=("moveName", "numCmd", "moveType")):
+        if label:
+            values.append(label)
+    return values
+
+
+def _third_strike_move_choice_values(char_name):
+    char_key = third_strike_module.resolve_character_key(char_name)
+    if not char_key:
+        return []
+    values = []
+    for _row, label in shared_move_choices(third_strike_module.THIRD_STRIKE_FRAME_DATA.get(char_key, []), label_fn=_move_choice_label, key_fields=("moveName", "numCmd", "version", "moveType")):
         if label:
             values.append(label)
     return values
@@ -357,6 +405,57 @@ async def _send_tuco_slash_frame(interaction, char_name, move_name):
     )
 
 
+async def _send_bbcf_slash_frame(interaction, char_name, move_name):
+    query = f"bbcf {char_name} {_strip_autocomplete_label(move_name)} framedata".strip().lower()
+    await send_slash_frame_result(
+        interaction,
+        char_name=char_name,
+        move_name=move_name,
+        query=query,
+        parse_fn=bbcf_module.find_moves_in_text,
+        embed_fn=bbcf_module.build_frame_embed,
+        view_fn=bbcf_module.BBCFFrameDataView,
+        game_label="BBCF",
+        disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
+    )
+
+
+async def _send_cotw_slash_frame(interaction, char_name, move_name):
+    query = f"cotw {char_name} {_strip_autocomplete_label(move_name)} framedata".strip().lower()
+    payload = cotw_module.find_moves_in_text(query)
+    rows = payload.get("rows", []) or []
+    if payload.get("needs_disambiguation"):
+        await interaction.response.send_message(str(payload.get("data", "Please specify which COTW move you mean."))[:2000])
+        return
+    if not rows:
+        await interaction.response.send_message(f"{char_name} with {move_name} is not a valid character/move combination for COTW")
+        return
+    row = rows[0]
+    view = cotw_module.COTWFrameDataView(row)
+    file, attachment_url = await cotw_module.build_image_attachment(row)
+    if file and attachment_url:
+        view.image_url_override = attachment_url
+        view.cotw_image_bytes = file.fp.getvalue()
+        view.cotw_image_filename = file.filename
+    files = view.active_files()
+    await interaction.response.send_message(embed=view.build_embed(), view=view, files=files)
+
+
+async def _send_third_strike_slash_frame(interaction, char_name, move_name):
+    query = f"3s {char_name} {_strip_autocomplete_label(move_name)} framedata".strip().lower()
+    await send_slash_frame_result(
+        interaction,
+        char_name=char_name,
+        move_name=move_name,
+        query=query,
+        parse_fn=third_strike_module.find_moves_in_text,
+        embed_fn=third_strike_module.build_frame_embed,
+        view_fn=third_strike_module.ThirdStrikeFrameDataView,
+        game_label="Third Strike",
+        disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
+    )
+
+
 @tree.command(name="bub", description="Open Bub's menu")
 async def bub_slash_command(interaction: discord.Interaction):
     await interaction.response.send_message(
@@ -386,6 +485,36 @@ async def ggst(interaction: discord.Interaction, char_name: str, move_name: str,
 async def tuco(interaction: discord.Interaction, char_name: str, move_name: str):
     """Get 2XKO frame data for the specific champion and move."""
     return await _send_tuco_slash_frame(interaction, char_name, move_name)
+
+
+@tree.command(name="bbcf")
+@discord.app_commands.describe(
+    char_name="The character name",
+    move_name="The move name or input",
+)
+async def bbcf(interaction: discord.Interaction, char_name: str, move_name: str):
+    """Get BlazBlue Central Fiction frame data for the specific character and move."""
+    return await _send_bbcf_slash_frame(interaction, char_name, move_name)
+
+
+@tree.command(name="cotw")
+@discord.app_commands.describe(
+    char_name="The character name",
+    move_name="The move name or input",
+)
+async def cotw(interaction: discord.Interaction, char_name: str, move_name: str):
+    """Get Fatal Fury: City of the Wolves frame data for the specific character and move."""
+    return await _send_cotw_slash_frame(interaction, char_name, move_name)
+
+
+@tree.command(name="third-strike")
+@discord.app_commands.describe(
+    char_name="The character name",
+    move_name="The move name or input",
+)
+async def third_strike(interaction: discord.Interaction, char_name: str, move_name: str):
+    """Get Street Fighter III: 3rd Strike frame data for the specific character and move."""
+    return await _send_third_strike_slash_frame(interaction, char_name, move_name)
 
 
 @tree.command(name="sf6")
@@ -454,6 +583,42 @@ async def tuco_move_autocomplete(interaction: discord.Interaction, current: str)
     if not interaction.namespace.char_name:
         return _slash_choices([])
     return _slash_choices(_autocomplete_values(current, _tuco_move_choice_values(interaction.namespace.char_name)))
+
+
+@bbcf.autocomplete("char_name")
+async def bbcf_char_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, _bbcf_character_choice_values()))
+
+
+@bbcf.autocomplete("move_name")
+async def bbcf_move_autocomplete(interaction: discord.Interaction, current: str):
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _bbcf_move_choice_values(interaction.namespace.char_name)))
+
+
+@cotw.autocomplete("char_name")
+async def cotw_char_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, _cotw_character_choice_values()))
+
+
+@cotw.autocomplete("move_name")
+async def cotw_move_autocomplete(interaction: discord.Interaction, current: str):
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _cotw_move_choice_values(interaction.namespace.char_name)))
+
+
+@third_strike.autocomplete("char_name")
+async def third_strike_char_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, _third_strike_character_choice_values()))
+
+
+@third_strike.autocomplete("move_name")
+async def third_strike_move_autocomplete(interaction: discord.Interaction, current: str):
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _third_strike_move_choice_values(interaction.namespace.char_name)))
 
 
 def truncate_message(text, limit=1800):
@@ -4270,6 +4435,7 @@ background_streetfighterdle_task_handle = None
 background_streetfighterdle_leaderboard_task_handle = None
 reminder_task_handle = None
 web_server_task = None
+_TYPING_DISABLED = False
 LAST_DAILY_VIDEO_ID = {}
 SPECIAL_STRENGTH_PROMPT_MODE = {}
 SPECIAL_STRENGTH_PROMPT_MODE_MAX = 300
@@ -4385,11 +4551,25 @@ def is_deleted_message_reference_error(error):
             return True
     return False
 
+
+def ensure_message_queue_started():
+    global message_queue
+    global worker_task
+    if message_queue is None:
+        message_queue = asyncio.Queue()
+    if worker_task is None or worker_task.done():
+        worker_task = asyncio.create_task(worker())
+    return message_queue
+
 async def worker():
+    global _TYPING_DISABLED
     print("Worker started...")
     while True:
         # get msg from queue
-        ctx = await message_queue.get()
+        queue = message_queue
+        if queue is None:
+            queue = asyncio.Queue()
+        ctx = await queue.get()
         if len(ctx) == 6:
             message, llm_messages, fallback_reply, reply_prefix, reply_embeds, reply_embed_rows = ctx
         elif len(ctx) == 5:
@@ -4441,7 +4621,7 @@ async def worker():
             if enable_search:
                 print(f"Google Search enabled for query: {user_query[:50]}...")
 
-            async with message.channel.typing():
+            async def _do_reply_work():
                 if reply_embeds:
                     try:
                         await send_frame_embeds_with_views(
@@ -4449,6 +4629,7 @@ async def worker():
                             reply_embed_rows,
                             embeds=reply_embeds,
                         )
+                        nonlocal embeds_sent
                         embeds_sent = True
                         asyncio.create_task(
                             capture_message_exchange_memory(
@@ -4464,7 +4645,7 @@ async def worker():
                         )
                     except Exception as embed_error:
                         print(f"Embed send failed: {embed_error}", flush=True)
-                    continue
+                    return
 
                 reply_text = await get_llm_response(llm_messages, enable_search=enable_search)
                 final_reply = f"{reply_prefix}\n\n{reply_text}" if reply_prefix else reply_text
@@ -4488,6 +4669,17 @@ async def worker():
                         await send_deleted_message_failsafe(message.channel)
                     else:
                         raise
+
+            if _TYPING_DISABLED:
+                await _do_reply_work()
+            else:
+                try:
+                    async with message.channel.typing():
+                        await _do_reply_work()
+                except Exception as typing_err:
+                    print(f"Typing indicator failed, disabling for session: {typing_err}", flush=True)
+                    _TYPING_DISABLED = True
+                    await _do_reply_work()
         except Exception as e:
             print(f"Worker error: {e}")
             error_detail = str(e)
@@ -4504,15 +4696,15 @@ async def worker():
                             print(f"Worker embed error send failed: {embed_error}", flush=True)
                 else:
                     if fallback_reply:
-                        error_reply = f"{fallback_reply}\n\nLLM error: {error_detail}"
+                        error_reply = f"{fallback_reply}\n\ fuck you Error: {error_detail}"
                         if reply_prefix and fallback_reply != reply_prefix:
                             error_reply = f"{reply_prefix}\n\n{error_reply}"
                         await message.reply(error_reply)
                     else:
                         if reply_prefix:
-                            await message.reply(f"{reply_prefix}\n\nLLM error: {error_detail}")
+                            await message.reply(f"{reply_prefix}\n\ fuck you error: {error_detail}")
                         else:
-                            await message.reply(f"LLM error: {error_detail}")
+                            await message.reply(f" fuck you error: {error_detail}")
             except Exception as reply_error:
                 if not reply_embeds and is_deleted_message_reference_error(reply_error):
                     print("Worker error reply target deleted. Triggering failsafe.", flush=True)
@@ -4520,7 +4712,7 @@ async def worker():
                     continue
                 print(f"Worker fallback reply error: {reply_error}", flush=True)
         finally:
-            message_queue.task_done()
+            queue.task_done()
 
 @client.event
 async def on_ready():
@@ -4549,8 +4741,7 @@ async def on_ready():
     except Exception as e:
         print(f"[menu] Global slash command clear error: {e}", flush=True)
     # create queue in the correct event loop
-    if message_queue is None:
-        message_queue = asyncio.Queue()
+    ensure_message_queue_started()
     # Disabled by request: daily "Hello everyone / How are you today? / Has anyone improved?" batch.
     # Re-enable by uncommenting this block.
     # if background_task_handle is None or background_task_handle.done():
@@ -4569,8 +4760,7 @@ async def on_ready():
     if background_streetfighterdle_leaderboard_task_handle is None or background_streetfighterdle_leaderboard_task_handle.done():
         background_streetfighterdle_leaderboard_task_handle = client.loop.create_task(scheduler_manager.background_streetfighterdle_leaderboard_task())
     # start worker
-    if worker_task is None or worker_task.done():
-        worker_task = client.loop.create_task(worker())
+    ensure_message_queue_started()
     # start web server
     if web_server_task is None or web_server_task.done():
         web_server_task = client.loop.create_task(scheduler_manager.start_web_server())
@@ -4590,6 +4780,9 @@ async def on_ready():
     load_frame_data()
     ggst_module.load_frame_data()
     tuco_module.load_frame_data()
+    bbcf_module.load_frame_data()
+    cotw_module.load_frame_data()
+    third_strike_module.load_frame_data()
     configure_extracted_modules()
     quiz_module.configure(
         FRAME_DATA=FRAME_DATA,
@@ -4616,10 +4809,19 @@ async def on_ready():
         ggst_character_aliases=ggst_module.GGST_CHARACTER_ALIASES,
         tuco_frame_data=tuco_module.TUCO_FRAME_DATA,
         tuco_character_aliases=tuco_module.TUCO_CHARACTER_ALIASES,
+        bbcf_frame_data=bbcf_module.BBCF_FRAME_DATA,
+        bbcf_character_aliases=bbcf_module.BBCF_CHARACTER_ALIASES,
+        cotw_frame_data=cotw_module.COTW_FRAME_DATA,
+        cotw_character_aliases=cotw_module.COTW_CHARACTER_ALIASES,
+        third_strike_frame_data=third_strike_module.THIRD_STRIKE_FRAME_DATA,
+        third_strike_character_aliases=third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
         quiz_module_ref=quiz_module,
         build_sf6_frame_embed_fn=build_frame_embed,
         build_ggst_frame_embed_fn=ggst_module.build_frame_embed,
         build_tuco_frame_embed_fn=tuco_module.build_frame_embed,
+        build_bbcf_frame_embed_fn=bbcf_module.build_frame_embed,
+        build_cotw_frame_embed_fn=cotw_module.build_frame_embed,
+        build_third_strike_frame_embed_fn=third_strike_module.build_frame_embed,
         send_frame_embeds_with_views_fn=send_frame_embeds_with_views,
     )
     print("[menu] Menu system configured.", flush=True)
@@ -4661,8 +4863,35 @@ async def on_message(message):
             tuco_module.TUCO_CHARACTER_ALIASES,
             tuco_module.TUCO_FRAME_DATA.keys(),
         )
+        bbcf_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            bbcf_module.BBCF_CHARACTER_ALIASES,
+            bbcf_module.BBCF_FRAME_DATA.keys(),
+        )
+        cotw_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            cotw_module.COTW_CHARACTER_ALIASES,
+            cotw_module.COTW_FRAME_DATA.keys(),
+        )
+        third_strike_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
+            third_strike_module.THIRD_STRIKE_FRAME_DATA.keys(),
+        )
         explicit_ggst_moves_query = bool(re.search(r"\b(?:ggst|strive|guilty\s+gear|guilty)\b", content_lower))
         explicit_tuco_moves_query = bool(re.search(r"\b(?:2xko|tuco)\b", content_lower))
+        explicit_bbcf_moves_query = bool(re.search(r"\b(?:bbcf|blazblue|central\s*fiction)\b", content_lower))
+        explicit_cotw_moves_query = bool(re.search(r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b", content_lower))
+        explicit_third_strike_moves_query = bool(re.search(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", content_lower))
+        if explicit_third_strike_moves_query and third_strike_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "third_strike", third_strike_char_key, owner_id=message.author.id)
+            return
+        if explicit_cotw_moves_query and cotw_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "cotw", cotw_char_key, owner_id=message.author.id)
+            return
+        if explicit_bbcf_moves_query and bbcf_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "bbcf", bbcf_char_key, owner_id=message.author.id)
+            return
         if explicit_tuco_moves_query and tuco_char_key:
             await menu_system.send_character_moves_menu(message.channel, "tuco", tuco_char_key, owner_id=message.author.id)
             return
@@ -4677,6 +4906,15 @@ async def on_message(message):
             return
         if tuco_char_key:
             await menu_system.send_character_moves_menu(message.channel, "tuco", tuco_char_key, owner_id=message.author.id)
+            return
+        if bbcf_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "bbcf", bbcf_char_key, owner_id=message.author.id)
+            return
+        if cotw_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "cotw", cotw_char_key, owner_id=message.author.id)
+            return
+        if third_strike_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "third_strike", third_strike_char_key, owner_id=message.author.id)
             return
 
     if await reminder_manager.handle_message(message, content_no_mentions, content_lower):
@@ -4792,6 +5030,105 @@ async def on_message(message):
         except Exception as e:
             print(f"GGST reply logic error: {e}", flush=True)
 
+    if message.reference:
+        try:
+            if message.reference.cached_message:
+                third_strike_replied_msg = message.reference.cached_message
+            else:
+                third_strike_replied_msg = await message.channel.fetch_message(message.reference.message_id)
+
+            third_strike_replied_content = third_strike_replied_msg.content or ""
+            if (
+                third_strike_replied_msg.author == client.user
+                and "Multiple Third Strike moves match" in third_strike_replied_content
+            ):
+                third_strike_char_match = re.search(
+                    r"Multiple Third Strike moves match ([^.]+)\. Please specify one:",
+                    third_strike_replied_content,
+                )
+                third_strike_char_hint = third_strike_char_match.group(1).strip() if third_strike_char_match else ""
+                reply_text = (content_no_mentions or "").strip()
+                reply_compact = re.sub(r"[^a-z0-9]", "", reply_text.lower())
+                options = []
+                for raw_line in third_strike_replied_content.splitlines():
+                    line = raw_line.strip()
+                    option_match = re.match(r"^[\-•·]\s*(.+?):\s*`([^`]+)`(?:\s*\[([^\]]+)\])?", line)
+                    if option_match:
+                        options.append(
+                            (
+                                option_match.group(1).strip(),
+                                option_match.group(2).strip(),
+                                (option_match.group(3) or "").strip(),
+                            )
+                        )
+
+                selected_option = None
+                if reply_compact and options:
+                    exact_matches = []
+                    contains_matches = []
+                    for option_name, option_cmd, option_version in options:
+                        option_name_compact = re.sub(r"[^a-z0-9]", "", option_name.lower())
+                        option_cmd_compact = re.sub(r"[^a-z0-9]", "", option_cmd.lower())
+                        option_version_compact = re.sub(r"[^a-z0-9]", "", option_version.lower())
+                        option_terms = {
+                            option_name_compact,
+                            option_cmd_compact,
+                            option_version_compact,
+                        }
+                        option_terms.discard("")
+                        if reply_compact in option_terms:
+                            exact_matches.append((option_name, option_cmd, option_version))
+                        elif any(reply_compact in term for term in option_terms):
+                            contains_matches.append((option_name, option_cmd, option_version))
+                    if len(exact_matches) == 1:
+                        selected_option = exact_matches[0]
+                    elif len(contains_matches) == 1:
+                        selected_option = contains_matches[0]
+
+                if selected_option and third_strike_char_hint:
+                    _option_name, option_cmd, option_version = selected_option
+                    version_text = f" {option_version}" if option_version else ""
+                    source_wants_hitbox = False
+                    source_wants_frames = True
+                    if third_strike_replied_msg.reference and third_strike_replied_msg.reference.message_id:
+                        try:
+                            if third_strike_replied_msg.reference.cached_message:
+                                prompt_source = third_strike_replied_msg.reference.cached_message
+                            else:
+                                prompt_source = await message.channel.fetch_message(third_strike_replied_msg.reference.message_id)
+                            prompt_source_text = strip_discord_mentions(prompt_source.content or "").lower()
+                            source_wants_hitbox = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes)\b", prompt_source_text))
+                            source_wants_frames = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", prompt_source_text)) or not source_wants_hitbox
+                        except Exception:
+                            pass
+                    third_strike_reply_query = f"3s {third_strike_char_hint} {option_cmd}{version_text}".strip()
+                    if source_wants_hitbox:
+                        third_strike_reply_query = f"{third_strike_reply_query} hitbox".strip()
+                    if source_wants_frames:
+                        third_strike_reply_query = f"{third_strike_reply_query} framedata".strip()
+                    third_strike_reply_payload = third_strike_module.find_moves_in_text(third_strike_reply_query.lower())
+                    third_strike_reply_rows = third_strike_reply_payload.get("rows", []) or []
+                    if third_strike_reply_payload.get("needs_disambiguation"):
+                        await message.reply(third_strike_reply_payload.get("data", "Please specify which Third Strike move you mean."))
+                    elif third_strike_reply_rows and source_wants_hitbox and source_wants_frames:
+                        await third_strike_module.send_frame_response(message, third_strike_reply_rows)
+                        await third_strike_module.send_hitbox_response(message, third_strike_reply_rows)
+                    elif third_strike_reply_rows and source_wants_hitbox:
+                        await third_strike_module.send_hitbox_response(message, third_strike_reply_rows)
+                    elif third_strike_reply_rows:
+                        await third_strike_module.send_frame_response(message, third_strike_reply_rows)
+                    else:
+                        await message.reply(third_strike_replied_content)
+                else:
+                    await message.reply(third_strike_replied_content)
+                return
+        except discord.NotFound:
+            pass
+        except discord.Forbidden:
+            pass
+        except Exception as e:
+            print(f"Third Strike reply logic error: {e}", flush=True)
+
     sf6_exact_character_query = text_mentions_character_from_aliases(
         content_lower,
         CHARACTER_ALIASES,
@@ -4807,10 +5144,28 @@ async def on_message(message):
         tuco_module.TUCO_CHARACTER_ALIASES,
         tuco_module.TUCO_FRAME_DATA.keys(),
     )
+    bbcf_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        bbcf_module.BBCF_CHARACTER_ALIASES,
+        bbcf_module.BBCF_FRAME_DATA.keys(),
+    )
+    cotw_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        cotw_module.COTW_CHARACTER_ALIASES,
+        cotw_module.COTW_FRAME_DATA.keys(),
+    )
+    third_strike_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
+        third_strike_module.THIRD_STRIKE_FRAME_DATA.keys(),
+    )
     fd_context_payload = find_moves_in_text(content_lower)
 
     ggst_payload = ggst_module.find_moves_in_text(content_lower)
     tuco_payload = tuco_module.find_moves_in_text(content_lower)
+    bbcf_payload = bbcf_module.find_moves_in_text(content_lower)
+    cotw_payload = cotw_module.find_moves_in_text(content_lower)
+    third_strike_payload = third_strike_module.find_moves_in_text(content_lower)
     ggst_rows = ggst_payload.get("rows", [])
     ggst_lookup_intent = bool(
         ggst_payload.get("frame_query")
@@ -4880,6 +5235,108 @@ async def on_message(message):
         await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
         return
 
+    bbcf_rows = bbcf_payload.get("rows", [])
+    bbcf_lookup_intent = bool(
+        bbcf_payload.get("frame_query")
+        or bbcf_payload.get("gif_query")
+        or bbcf_payload.get("game_query")
+        or bbcf_payload.get("notes_query")
+    )
+    bbcf_route_allowed = bool(
+        bbcf_payload.get("game_query")
+        or (
+            bbcf_exact_character_query
+            and bbcf_module.query_has_bbcf_notation(content_lower)
+        )
+        or (
+            bbcf_exact_character_query
+            and bbcf_rows
+            and not sf6_exact_character_query
+            and not ggst_exact_character_query
+            and not tuco_exact_character_query
+        )
+    )
+    if client.user.mentioned_in(message) and bbcf_route_allowed and bbcf_lookup_intent and bbcf_rows:
+        if bbcf_payload.get("needs_disambiguation"):
+            await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
+        elif bbcf_payload.get("gif_query") and bbcf_payload.get("frame_query"):
+            await bbcf_module.send_frame_response(message, bbcf_rows)
+            await bbcf_module.send_hitbox_response(message, bbcf_rows)
+        elif bbcf_payload.get("gif_query"):
+            await bbcf_module.send_hitbox_response(message, bbcf_rows)
+        else:
+            await bbcf_module.send_frame_response(message, bbcf_rows)
+        return
+    elif client.user.mentioned_in(message) and bbcf_route_allowed and bbcf_lookup_intent and bbcf_payload.get("needs_disambiguation"):
+        await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
+        return
+
+    cotw_rows = cotw_payload.get("rows", [])
+    cotw_lookup_intent = bool(
+        cotw_payload.get("frame_query")
+        or cotw_payload.get("gif_query")
+        or cotw_payload.get("game_query")
+        or cotw_payload.get("notes_query")
+    )
+    cotw_route_allowed = bool(
+        cotw_payload.get("game_query")
+        or (
+            cotw_exact_character_query
+            and cotw_module.query_has_cotw_notation(content_lower)
+        )
+        or (
+            cotw_exact_character_query
+            and cotw_rows
+            and not sf6_exact_character_query
+            and not ggst_exact_character_query
+            and not tuco_exact_character_query
+            and not bbcf_exact_character_query
+        )
+    )
+    if client.user.mentioned_in(message) and cotw_route_allowed and cotw_lookup_intent and cotw_rows:
+        if cotw_payload.get("needs_disambiguation"):
+            await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
+        else:
+            await cotw_module.send_frame_response(message, cotw_rows)
+        return
+    elif client.user.mentioned_in(message) and cotw_route_allowed and cotw_lookup_intent and cotw_payload.get("needs_disambiguation"):
+        await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
+        return
+
+    third_strike_rows = third_strike_payload.get("rows", [])
+    third_strike_lookup_intent = bool(
+        third_strike_payload.get("frame_query")
+        or third_strike_payload.get("gif_query")
+        or third_strike_payload.get("game_query")
+        or third_strike_payload.get("notes_query")
+    )
+    third_strike_route_allowed = bool(
+        third_strike_payload.get("game_query")
+        or (
+            third_strike_exact_character_query
+            and third_strike_rows
+            and not sf6_exact_character_query
+            and not ggst_exact_character_query
+            and not tuco_exact_character_query
+            and not bbcf_exact_character_query
+            and not cotw_exact_character_query
+        )
+    )
+    if client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_rows:
+        if third_strike_payload.get("needs_disambiguation"):
+            await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
+        elif third_strike_payload.get("gif_query") and third_strike_payload.get("frame_query"):
+            await third_strike_module.send_frame_response(message, third_strike_rows)
+            await third_strike_module.send_hitbox_response(message, third_strike_rows)
+        elif third_strike_payload.get("gif_query"):
+            await third_strike_module.send_hitbox_response(message, third_strike_rows)
+        else:
+            await third_strike_module.send_frame_response(message, third_strike_rows)
+        return
+    elif client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("needs_disambiguation"):
+        await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
+        return
+
     if (
         client.user.mentioned_in(message)
         and tuco_route_allowed
@@ -4891,6 +5348,45 @@ async def on_message(message):
             await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
         else:
             await tuco_module.send_frame_response(message, tuco_rows)
+        return
+
+    if (
+        client.user.mentioned_in(message)
+        and bbcf_route_allowed
+        and not bbcf_lookup_intent
+        and not message.reference
+        and (bbcf_rows or bbcf_payload.get("needs_disambiguation"))
+    ):
+        if bbcf_payload.get("needs_disambiguation"):
+            await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
+        else:
+            await bbcf_module.send_frame_response(message, bbcf_rows)
+        return
+
+    if (
+        client.user.mentioned_in(message)
+        and cotw_route_allowed
+        and not cotw_lookup_intent
+        and not message.reference
+        and (cotw_rows or cotw_payload.get("needs_disambiguation"))
+    ):
+        if cotw_payload.get("needs_disambiguation"):
+            await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
+        else:
+            await cotw_module.send_frame_response(message, cotw_rows)
+        return
+
+    if (
+        client.user.mentioned_in(message)
+        and third_strike_route_allowed
+        and not third_strike_lookup_intent
+        and not message.reference
+        and (third_strike_rows or third_strike_payload.get("needs_disambiguation"))
+    ):
+        if third_strike_payload.get("needs_disambiguation"):
+            await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
+        else:
+            await third_strike_module.send_frame_response(message, third_strike_rows)
         return
 
     if (
@@ -5992,7 +6488,8 @@ async def on_message(message):
                     llm_messages.append(user_message)
                 
                 # push to queue
-                await message_queue.put((message, llm_messages, fallback_reply, None, frame_reply_embeds, frame_reply_rows))
+                queue = ensure_message_queue_started()
+                await queue.put((message, llm_messages, fallback_reply, None, frame_reply_embeds, frame_reply_rows))
 
              except Exception as e:
                 await message.reply(f"Error generating response: {e}")

@@ -4,3 +4,4 @@ aiohttp
 pandas
 odfpy
 openpyxl
+beautifulsoup4

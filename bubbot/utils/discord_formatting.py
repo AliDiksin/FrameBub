@@ -1,3 +1,18 @@
+import re
+
+
+def _strip_html(value):
+    text = str(value if value is not None else "")
+    match = re.match(r"^<span\s+class=['\"]tooltip['\"]>([^<]*?)<span[^>]*>([^<]*)</span></span>$", text)
+    if match:
+        main = match.group(1).strip()
+        detail = match.group(2).strip()
+        if main and detail:
+            return f"{main} ({detail})"
+        return main or detail
+    return re.sub(r"<[^>]*>", "", text)
+
+
 def truncate_value(value, limit):
     """Safely truncate text to a Discord field/name limit."""
     text = str(value or "").strip()
@@ -15,7 +30,7 @@ def is_missing_value(value):
 
 def clean_value(value, default="", *, strip_brackets=False):
     """Clean spreadsheet/Discord display values while preserving existing project behavior."""
-    text = str(value if value is not None else "").replace("*", ",").strip()
+    text = _strip_html(value).replace("*", ",").strip()
     if strip_brackets:
         text = text.replace("[", "").replace("]", "").replace('"', "")
     if is_missing_value(text):

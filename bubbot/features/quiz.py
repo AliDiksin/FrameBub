@@ -190,8 +190,11 @@ def _quiz_row_allowed_for_mode(row, mode):
     if _quiz_row_is_shared_mechanic(row):
         return False
 
+    if _quiz_row_is_jump_normal(row):
+        return False
+
     if mode_key == "easy":
-        return move_type == "normal" and not _quiz_row_is_jump_normal(row)
+        return move_type == "normal"
 
     if mode_key == "medium":
         return move_type in {"normal", "special", "command-grab", "movement-special"}

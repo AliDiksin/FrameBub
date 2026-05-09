@@ -1,0 +1,493 @@
+import difflib
+import os
+import re
+
+import discord
+import pandas as pd
+
+from bubbot.data.third_strike_aliases import (
+    THIRD_STRIKE_CHARACTER_ALIASES,
+    THIRD_STRIKE_LOOKUP_WORDS,
+    THIRD_STRIKE_MOVE_ALIASES,
+)
+from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
+from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.row_utils import unique_rows
+from bubbot.utils.text_utils import compact_key
+
+
+THIRD_STRIKE_FRAME_DATA_FILE = "Third Strike Frame Data.ods"
+THIRD_STRIKE_FRAME_DATA = {}
+THIRD_STRIKE_MOVE_IMAGE_URLS = {}
+THIRD_STRIKE_HITBOX_DATA = {}
+THIRD_STRIKE_MOVE_NOTES = {}
+THIRD_STRIKE_MOVE_IMAGES_MODULE = "bubbot.data.third_strike_move_images"
+
+
+def normalize_key(value):
+    return compact_key(value).replace("thirdstrike", "")
+
+
+def normalize_move_token(value):
+    text = str(value or "").lower().strip()
+    text = text.replace("jumping", "j")
+    text = re.sub(r"\b(?:jump|air)\s*\.?,?", "j.", text)
+    text = text.replace("[", "hold")
+    text = re.sub(r"\bclose\b", "cl", text)
+    text = re.sub(r"\bfar\b", "far", text)
+    text = re.sub(r"\bcrouch(?:ing)?\b", "2", text)
+    text = re.sub(r"\bcr\b", "2", text)
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def query_has_third_strike_notation(text):
+    lowered = str(text or "").lower()
+    return bool(
+        re.search(r"(?:^|\s)j\s*\.\s*[lmh][pk]\b", lowered)
+        or re.search(r"(?:^|\s)(?:cl|close|far|f)\s*\.\s*[lmh][pk]\b", lowered)
+        or re.search(r"(?:^|\s)(?:[1-9][0-9]{0,5}[lmh]?[pk]|[1-9]?[lmh]?[pk](?:\+[lmh]?[pk])+)(?:\s|$)", lowered)
+        or re.search(r"(?:^|\s)sa[123](?:\s|$)", lowered)
+    )
+
+
+def unique_third_strike_rows(rows):
+    seen = set()
+    unique = []
+    for row in rows or []:
+        key = (
+            str(row.get("char_key", "")).strip().lower(),
+            normalize_move_token(row.get("moveName", "")),
+            normalize_move_token(row.get("numCmd", "")),
+            normalize_move_token(row.get("version", "")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique
+
+
+def load_move_image_urls(module_name=THIRD_STRIKE_MOVE_IMAGES_MODULE):
+    image_module = import_cache_module(module_name, "third-strike-images")
+    if not image_module:
+        return False
+    normal_loaded = merge_nested_url_cache(
+        THIRD_STRIKE_MOVE_IMAGE_URLS,
+        getattr(image_module, "THIRD_STRIKE_MOVE_IMAGE_URLS", {}),
+        char_key_fn=lambda value: str(value or "").strip().lower(),
+        move_key_fn=normalize_move_token,
+    )
+    THIRD_STRIKE_HITBOX_DATA.clear()
+    hitbox_loaded = 0
+    for char_key, moves in (getattr(image_module, "THIRD_STRIKE_HITBOX_DATA", {}) or {}).items():
+        if not isinstance(moves, dict):
+            continue
+        normalized_char = str(char_key or "").strip().lower()
+        char_links = THIRD_STRIKE_HITBOX_DATA.setdefault(normalized_char, {})
+        for move_key, links in moves.items():
+            if isinstance(links, str):
+                links = [links]
+            clean_links = [str(link or "").strip() for link in (links or []) if str(link or "").strip()]
+            if clean_links:
+                char_links[normalize_move_token(move_key)] = clean_links
+                hitbox_loaded += len(clean_links)
+    THIRD_STRIKE_MOVE_NOTES.clear()
+    notes_loaded = 0
+    for char_key, moves in (getattr(image_module, "THIRD_STRIKE_MOVE_NOTES", {}) or {}).items():
+        if not isinstance(moves, dict):
+            continue
+        normalized_char = str(char_key or "").strip().lower()
+        char_notes = THIRD_STRIKE_MOVE_NOTES.setdefault(normalized_char, {})
+        for move_key, notes in moves.items():
+            clean_notes = str(notes or "").strip()
+            if clean_notes:
+                char_notes[normalize_move_token(move_key)] = clean_notes
+                notes_loaded += 1
+    print(f"[third-strike-images] loaded {normal_loaded} move image links, {hitbox_loaded} hitbox links, and {notes_loaded} notes", flush=True)
+    return True
+
+
+def resolve_character_key(text):
+    return resolve_alias_key(text, THIRD_STRIKE_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA.keys(), normalize_fn=normalize_key)
+
+
+def display_char_name(char_key):
+    rows = THIRD_STRIKE_FRAME_DATA.get(char_key) or []
+    if rows:
+        return str(rows[0].get("char_name") or char_key).strip()
+    return str(char_key or "Unknown").replace("_", " ").title()
+
+
+def load_frame_data(filename=None):
+    global THIRD_STRIKE_FRAME_DATA
+    THIRD_STRIKE_FRAME_DATA = {}
+    filename = filename or THIRD_STRIKE_FRAME_DATA_FILE
+    if not os.path.exists(filename):
+        print(f"[third-strike] frame data file not found: {filename}", flush=True)
+        return False
+    xls = pd.ExcelFile(filename, engine="odf")
+    loaded = 0
+    for sheet_name in xls.sheet_names:
+        if not sheet_name.endswith("Normal"):
+            continue
+        df = pd.read_excel(xls, sheet_name=sheet_name).fillna("")
+        rows = []
+        for row in df.to_dict("records"):
+            char_key = str(row.get("char_key") or row.get("char_name") or sheet_name[: -len("Normal")]).strip().lower()
+            move_name = str(row.get("moveName", "")).strip()
+            num_cmd = str(row.get("numCmd", "")).strip()
+            if not move_name and not num_cmd:
+                continue
+            row["char_key"] = char_key
+            row["char_name"] = str(row.get("char_name") or sheet_name[: -len("Normal")]).strip()
+            rows.append(row)
+        if rows:
+            THIRD_STRIKE_FRAME_DATA[rows[0]["char_key"]] = rows
+            THIRD_STRIKE_CHARACTER_ALIASES.setdefault(rows[0]["char_key"].replace("_", " "), rows[0]["char_key"])
+            THIRD_STRIKE_CHARACTER_ALIASES.setdefault(str(rows[0]["char_name"]).lower(), rows[0]["char_key"])
+            loaded += 1
+    print(f"[third-strike] Total characters loaded: {loaded}", flush=True)
+    return bool(THIRD_STRIKE_FRAME_DATA)
+
+
+def find_characters_in_text(text):
+    return find_alias_positions_in_text(text, THIRD_STRIKE_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA.keys())
+
+
+def normalize_move_query(query):
+    text = str(query or "").lower().strip()
+    text = re.sub(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", " ", text)
+    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|notes?)\b", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    compact = normalize_move_token(text)
+    if text in THIRD_STRIKE_MOVE_ALIASES:
+        return THIRD_STRIKE_MOVE_ALIASES[text]
+    if compact in THIRD_STRIKE_MOVE_ALIASES:
+        return THIRD_STRIKE_MOVE_ALIASES[compact]
+    return text
+
+
+def row_match_keys(row):
+    keys = set()
+    for value in (row.get("numCmd"), row.get("moveName")):
+        if str(value or "").strip():
+            keys.add(normalize_move_token(value))
+    return {key for key in keys if key}
+
+
+def row_version_match_keys(row):
+    keys = set()
+    num_cmd = str(row.get("numCmd") or "").strip()
+    version = str(row.get("version") or "").strip()
+    if num_cmd and version:
+        keys.add(normalize_move_token(f"{version} {num_cmd}"))
+        keys.add(normalize_move_token(f"{num_cmd} {version}"))
+    move_name = str(row.get("moveName") or "").strip()
+    if move_name and version:
+        keys.add(normalize_move_token(f"{version} {move_name}"))
+        keys.add(normalize_move_token(f"{move_name} {version}"))
+    return {key for key in keys if key}
+
+
+def _version_matches_query(row, query_key):
+    version_key = normalize_move_token(row.get("version", ""))
+    if not version_key:
+        return False
+    return version_key and version_key in query_key
+
+
+def find_matching_rows(char_key, move_text):
+    query = normalize_move_query(move_text)
+    query_key = normalize_move_token(query)
+    if not query_key:
+        return []
+    rows = THIRD_STRIKE_FRAME_DATA.get(char_key, []) or []
+    exact = [row for row in rows if query_key in row_match_keys(row) or query_key in row_version_match_keys(row)]
+    if exact:
+        return unique_third_strike_rows(exact)
+
+    base_matches = []
+    for row in rows:
+        row_keys = row_match_keys(row)
+        version_keys = row_version_match_keys(row)
+        if any(key and (key in query_key or (len(query_key) >= 3 and query_key in key)) for key in row_keys):
+            base_matches.append(row)
+        elif any(key and key in query_key for key in version_keys):
+            base_matches.append(row)
+    if base_matches:
+        version_filtered = [row for row in base_matches if _version_matches_query(row, query_key)]
+        return unique_third_strike_rows(version_filtered or base_matches)
+
+    normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
+    name_matches = []
+    notation_query = bool(re.fullmatch(r"(?:j)?[1-9]?[0-9]*(?:[lmh]?[pk]|sa[123])", query_key))
+    for row in rows:
+        move_name = re.sub(r"[^a-z0-9]+", " ", str(row.get("moveName", "")).lower()).strip()
+        num_cmd = re.sub(r"[^a-z0-9]+", " ", str(row.get("numCmd", "")).lower()).strip()
+        version = re.sub(r"[^a-z0-9]+", " ", str(row.get("version", "")).lower()).strip()
+        haystack = " ".join(part for part in (move_name, num_cmd if not notation_query else "", version) if part)
+        if normalized_query_words and normalized_query_words in haystack:
+            name_matches.append(row)
+    if name_matches:
+        version_filtered = [row for row in name_matches if _version_matches_query(row, query_key)]
+        return unique_third_strike_rows(version_filtered or name_matches)
+
+    candidates = []
+    for row in rows:
+        for value in (row.get("moveName"), row.get("numCmd"), row.get("version")):
+            key = normalize_move_token(value)
+            if key:
+                candidates.append((key, row))
+    close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.84)
+    return unique_third_strike_rows(unique_rows([row for key, row in candidates if key in close_keys]))
+
+
+def build_disambiguation_prompt(char_key, rows):
+    lines = [f"Multiple Third Strike moves match {display_char_name(char_key)}. Please specify one:"]
+    for row in rows[:12]:
+        move_name = str(row.get("moveName") or "Unknown").strip()
+        num_cmd = str(row.get("numCmd") or "?").strip()
+        version = str(row.get("version") or "").strip()
+        suffix = f" [{version}]" if version else ""
+        lines.append(f"- {move_name}: `{num_cmd}`{suffix}")
+    return "\n".join(lines)
+
+
+def find_moves_in_text(text):
+    lowered = str(text or "").lower()
+    image_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
+    frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
+    game_query = bool(re.search(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", lowered))
+    notes_query = bool(re.search(r"\bnotes?\b", lowered))
+    char_matches = find_characters_in_text(lowered)
+    rows = []
+    matched_char_key = char_matches[0][0] if char_matches else None
+    for char_key, start, end, _alias in char_matches:
+        move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
+        move_text = normalize_move_query(move_text)
+        if not move_text:
+            continue
+        matches = find_matching_rows(char_key, move_text)
+        if len(matches) > 1:
+            return {
+                "mode": "options",
+                "rows": matches,
+                "data": build_disambiguation_prompt(char_key, matches),
+                "gif_query": image_query,
+                "frame_query": frame_query,
+                "game_query": game_query,
+                "notes_query": notes_query,
+                "needs_disambiguation": True,
+                "char_found": True,
+                "char_key": char_key,
+            }
+        if matches:
+            rows.append(matches[0])
+            break
+    return {
+        "mode": "gif" if image_query else "frame" if rows else "none",
+        "rows": rows,
+        "data": "\n\n".join(format_frame_data(row, include_notes=notes_query) for row in rows),
+        "gif_query": image_query,
+        "frame_query": frame_query,
+        "game_query": game_query,
+        "notes_query": notes_query,
+        "char_found": bool(char_matches),
+        "char_key": matched_char_key,
+        "explicit_move_attempt": bool(char_matches and (frame_query or image_query or game_query or query_has_third_strike_notation(lowered))),
+        "missing_scrolls_query": bool(char_matches and not rows and (frame_query or image_query or game_query)),
+    }
+
+
+def get_notes_text(row):
+    char_key = str(row.get("char_key", "")).strip().lower()
+    num_cmd_key = normalize_move_token(row.get("numCmd", ""))
+    cached_notes = (THIRD_STRIKE_MOVE_NOTES.get(char_key, {}) or {}).get(num_cmd_key)
+    return str(cached_notes or row.get("extraInfo") or "").strip()
+
+
+def get_move_image_url(row):
+    char_key = str(row.get("char_key", "")).strip().lower()
+    return THIRD_STRIKE_MOVE_IMAGE_URLS.get((char_key, normalize_move_token(row.get("numCmd", ""))))
+
+
+def get_hitbox_links(row, limit=4):
+    char_key = str(row.get("char_key", "")).strip().lower()
+    num_cmd_key = normalize_move_token(row.get("numCmd", ""))
+    links = (THIRD_STRIKE_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
+    return [str(link or "").strip() for link in list(links or [])[:limit] if str(link or "").strip()]
+
+
+def clean_value(value, default=""):
+    text = str(value or "").strip()
+    return text if text else default
+
+
+def truncate_value(value, limit):
+    text = str(value or "")
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def add_embed_field(embed, name, value, inline=True):
+    clean = clean_value(value)
+    if clean:
+        embed.add_field(name=name, value=truncate_value(clean, 1024), inline=inline)
+
+
+def add_long_embed_field(embed, name, value, inline=False):
+    clean = clean_value(value)
+    if not clean:
+        return
+    chunks = [clean[index : index + 1024] for index in range(0, len(clean), 1024)]
+    for index, chunk in enumerate(chunks[:3]):
+        embed.add_field(name=name if index == 0 else f"{name} cont.", value=chunk, inline=inline)
+
+
+def build_frame_embed(row, show_notes=False):
+    char_name = clean_value(row.get("char_name"), "Unknown")
+    move_name = clean_value(row.get("moveName"), "Unknown")
+    num_cmd = clean_value(row.get("numCmd"), "?")
+    version = clean_value(row.get("version"))
+    description = f"{move_name} ({num_cmd})"
+    if version:
+        description = f"{description} [{version}]"
+    embed = discord.Embed(
+        title=truncate_value(f"Third Strike - {char_name}", 256),
+        description=truncate_value(description, 4096),
+        colour=0xC0392B,
+    )
+    add_embed_field(embed, "Startup", row.get("startup"), inline=True)
+    add_embed_field(embed, "Active", row.get("active"), inline=True)
+    add_embed_field(embed, "Recovery", row.get("recovery"), inline=True)
+    add_embed_field(embed, "On Block", row.get("onBlock"), inline=True)
+    add_embed_field(embed, "On Hit", row.get("onHit"), inline=True)
+    add_embed_field(embed, "Crouch Hit", row.get("onHitCrouch"), inline=True)
+    add_embed_field(embed, "Damage", row.get("dmg"), inline=True)
+    add_embed_field(embed, "Stun", row.get("stun"), inline=True)
+    add_embed_field(embed, "Guard", row.get("guardLevel"), inline=True)
+    add_embed_field(embed, "Parry", row.get("parry"), inline=True)
+    add_embed_field(embed, "Cancel", row.get("cancel"), inline=True)
+    add_embed_field(embed, "Kara Distance", row.get("karaDistance"), inline=True)
+    if show_notes:
+        add_long_embed_field(embed, "Notes", get_notes_text(row), inline=False)
+    image_url = get_move_image_url(row)
+    if image_url:
+        embed.set_image(url=image_url)
+    return embed
+
+
+class ThirdStrikeHitboxButton(discord.ui.Button):
+    def __init__(self, row, showing_hitbox=False):
+        self.frame_row = row
+        self.hitbox_links = get_hitbox_links(row)
+        self.original_image_url = get_move_image_url(row)
+        self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
+        super().__init__(
+            label="Show Image" if self.showing_hitbox else "Show Hitbox",
+            style=discord.ButtonStyle.secondary if self.showing_hitbox else discord.ButtonStyle.primary,
+            disabled=not self.hitbox_links,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if not self.hitbox_links:
+            await interaction.response.send_message("No dedicated Third Strike hitbox image found; the embed uses the move image when one exists.", ephemeral=True)
+            return
+        self.showing_hitbox = not self.showing_hitbox
+        self.label = "Show Image" if self.showing_hitbox else "Show Hitbox"
+        self.style = discord.ButtonStyle.secondary if self.showing_hitbox else discord.ButtonStyle.primary
+        embed = self.view.build_embed() if hasattr(self.view, "build_embed") else build_frame_embed(self.frame_row)
+        image_url = self.hitbox_links[0] if self.showing_hitbox else self.original_image_url
+        if image_url:
+            embed.set_image(url=image_url)
+        await interaction.response.edit_message(embed=embed, view=self.view)
+
+
+class ThirdStrikeNotesButton(discord.ui.Button):
+    def __init__(self, row):
+        self.frame_row = row
+        self.notes_text = get_notes_text(row)
+        super().__init__(label="Show Notes", style=discord.ButtonStyle.primary, disabled=not self.notes_text, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        if not hasattr(self.view, "build_embed"):
+            await interaction.response.defer()
+            return
+        self.view.show_notes = not self.view.show_notes
+        self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
+        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
+        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
+
+
+class ReturnToMenuButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="third_strike_frame_return_menu", row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        from bubbot.features import menu_system
+        await interaction.response.send_message(embed=menu_system._main_menu_embed(), view=menu_system.MainMenuView(interaction.user.id))
+
+
+class ThirdStrikeFrameDataView(discord.ui.View):
+    def __init__(self, row, include_menu_button=True):
+        super().__init__(timeout=3600)
+        self.row = row
+        self.show_notes = False
+        self.hitbox_button = ThirdStrikeHitboxButton(row, showing_hitbox=True)
+        self.notes_button = ThirdStrikeNotesButton(row)
+        self.add_item(self.hitbox_button)
+        self.add_item(self.notes_button)
+        if include_menu_button:
+            self.add_item(ReturnToMenuButton())
+
+    def build_embed(self):
+        embed = build_frame_embed(self.row, show_notes=self.show_notes)
+        if self.hitbox_button.showing_hitbox and self.hitbox_button.hitbox_links:
+            embed.set_image(url=self.hitbox_button.hitbox_links[0])
+        return embed
+
+
+async def send_frame_response(message, rows):
+    if not rows:
+        return False
+    for row in rows[:4]:
+        view = ThirdStrikeFrameDataView(row)
+        await message.channel.send(embed=view.build_embed(), view=view)
+    return True
+
+
+async def send_hitbox_response(message, rows):
+    if not rows:
+        return False
+    links = []
+    fallback_links = []
+    for row in rows[:4]:
+        links.extend(get_hitbox_links(row))
+        image_url = get_move_image_url(row)
+        if image_url:
+            fallback_links.append(image_url)
+    if links:
+        await message.reply("\n".join(links[:4]))
+        return True
+    if fallback_links:
+        await message.reply("No dedicated Third Strike hitbox image found; showing the move image instead.\n" + "\n".join(fallback_links[:4]))
+        return True
+    await message.reply("I have Third Strike frame data for this move but no image link yet.")
+    return True
+
+
+def format_frame_data(row, include_notes=False):
+    version = f" [{row.get('version')}]" if str(row.get("version") or "").strip() else ""
+    text = (
+        f"Move: {row.get('moveName') or row.get('numCmd')} ({row.get('numCmd') or '?'}){version}\n"
+        f"Startup: {row.get('startup') or '-'} | Active: {row.get('active') or '-'} | Recovery: {row.get('recovery') or '-'}\n"
+        f"On Block: {row.get('onBlock') or '-'} | On Hit: {row.get('onHit') or '-'} | Crouch Hit: {row.get('onHitCrouch') or '-'}\n"
+        f"Damage: {row.get('dmg') or '-'} | Stun: {row.get('stun') or '-'} | Guard: {row.get('guardLevel') or '-'} | Parry: {row.get('parry') or '-'}\n"
+        f"Cancel: {row.get('cancel') or '-'} | Kara Distance: {row.get('karaDistance') or '-'}"
+    )
+    notes = get_notes_text(row)
+    if include_notes and notes:
+        text += f"\nNotes: {notes}"
+    return text
+
+
+load_move_image_urls()
