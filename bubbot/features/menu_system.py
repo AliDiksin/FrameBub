@@ -11,6 +11,8 @@ FRAME_DATA = {}
 CHARACTER_ALIASES = {}
 GGST_FRAME_DATA = {}
 GGST_CHARACTER_ALIASES = {}
+GGST_SUPPLEMENTAL_FRAME_DATA = {}
+GGST_STATE_FRAME_DATA = {}
 TUCO_FRAME_DATA = {}
 TUCO_CHARACTER_ALIASES = {}
 BBCF_FRAME_DATA = {}
@@ -19,6 +21,9 @@ COTW_FRAME_DATA = {}
 COTW_CHARACTER_ALIASES = {}
 THIRD_STRIKE_FRAME_DATA = {}
 THIRD_STRIKE_CHARACTER_ALIASES = {}
+MK1_FRAME_DATA = {}
+MK1_CHARACTER_ALIASES = {}
+MK1_COMBO_DATA = {}
 
 quiz_module = None
 build_sf6_frame_embed = None
@@ -35,6 +40,8 @@ def configure(
     character_aliases=None,
     ggst_frame_data=None,
     ggst_character_aliases=None,
+    ggst_supplemental_frame_data=None,
+    ggst_state_frame_data=None,
     tuco_frame_data=None,
     tuco_character_aliases=None,
     bbcf_frame_data=None,
@@ -43,6 +50,9 @@ def configure(
     cotw_character_aliases=None,
     third_strike_frame_data=None,
     third_strike_character_aliases=None,
+    mk1_frame_data=None,
+    mk1_character_aliases=None,
+    mk1_combo_data=None,
     quiz_module_ref=None,
     build_sf6_frame_embed_fn=None,
     build_ggst_frame_embed_fn=None,
@@ -52,12 +62,14 @@ def configure(
     build_third_strike_frame_embed_fn=None,
     send_frame_embeds_with_views_fn=None,
 ):
-    global FRAME_DATA, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES
+    global FRAME_DATA, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES, MK1_COMBO_DATA
     global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, send_frame_embeds_with_views
     FRAME_DATA = frame_data or {}
     CHARACTER_ALIASES = character_aliases or {}
     GGST_FRAME_DATA = ggst_frame_data or {}
     GGST_CHARACTER_ALIASES = ggst_character_aliases or {}
+    GGST_SUPPLEMENTAL_FRAME_DATA = ggst_supplemental_frame_data or {}
+    GGST_STATE_FRAME_DATA = ggst_state_frame_data or {}
     TUCO_FRAME_DATA = tuco_frame_data or {}
     TUCO_CHARACTER_ALIASES = tuco_character_aliases or {}
     BBCF_FRAME_DATA = bbcf_frame_data or {}
@@ -66,6 +78,9 @@ def configure(
     COTW_CHARACTER_ALIASES = cotw_character_aliases or {}
     THIRD_STRIKE_FRAME_DATA = third_strike_frame_data or {}
     THIRD_STRIKE_CHARACTER_ALIASES = third_strike_character_aliases or {}
+    MK1_FRAME_DATA = mk1_frame_data or {}
+    MK1_CHARACTER_ALIASES = mk1_character_aliases or {}
+    MK1_COMBO_DATA = mk1_combo_data or {}
     quiz_module = quiz_module_ref
     build_sf6_frame_embed = build_sf6_frame_embed_fn
     build_ggst_frame_embed = build_ggst_frame_embed_fn
@@ -118,6 +133,15 @@ def _third_strike_character_list():
     return character_choices(THIRD_STRIKE_FRAME_DATA)
 
 
+def _mk1_character_list():
+    from bubbot.frame_data.mk1_frame_data import display_char_name
+    return character_choices(MK1_FRAME_DATA, display_fn=lambda char_key, _rows: display_char_name(char_key))
+
+
+def _mk1_combo_character_list():
+    return character_choices(MK1_COMBO_DATA)
+
+
 def _game_label(game):
     if game == "sf6":
         return "Street Fighter 6"
@@ -131,6 +155,8 @@ def _game_label(game):
         return "City of the Wolves"
     if game == "third_strike":
         return "Third Strike"
+    if game == "mk1":
+        return "Mortal Kombat 1"
     return str(game).upper()
 
 
@@ -147,6 +173,8 @@ def _game_colour(game):
         return 0xD8A234
     if game == "third_strike":
         return 0xC0392B
+    if game == "mk1":
+        return 0x7E1616
     return 0xAAAAAA
 
 
@@ -163,6 +191,8 @@ def _character_list(game):
         return _cotw_character_list()
     if game == "third_strike":
         return _third_strike_character_list()
+    if game == "mk1":
+        return _mk1_character_list()
     return []
 
 
@@ -181,7 +211,24 @@ def _ggst_move_list(char_key):
             return f"{move_name} ({num_cmd})"
         return move_name
 
-    return move_choices(GGST_FRAME_DATA.get(char_key, []), label_fn=label_fn, key_fields=("moveName", "numCmd", "state_label"))
+    normal_rows = GGST_FRAME_DATA.get(char_key, [])
+    supplemental_rows = GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, [])
+    state_rows = GGST_STATE_FRAME_DATA.get(char_key, {})
+    state_row_list = []
+    for state_key_rows in state_rows.values():
+        state_row_list.extend(state_key_rows)
+    all_rows = normal_rows + supplemental_rows + state_row_list
+    if not supplemental_rows and not state_row_list:
+        return move_choices(normal_rows, label_fn=label_fn, key_fields=("moveName", "numCmd", "state_label"))
+    seen = set()
+    deduped = []
+    for row in all_rows:
+        key = (str(row.get("moveName", "")), str(row.get("numCmd", "")), str(row.get("state_key", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return move_choices(deduped, label_fn=label_fn, key_fields=("moveName", "numCmd", "state_label"))
 
 
 def _tuco_move_list(char_key):
@@ -200,6 +247,10 @@ def _third_strike_move_list(char_key):
     return move_choices(THIRD_STRIKE_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "version", "moveType"))
 
 
+def _mk1_move_list(char_key):
+    return move_choices(MK1_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "moveType"))
+
+
 def _move_list(game, char_key):
     if game == "sf6":
         return _sf6_move_list(char_key)
@@ -213,6 +264,8 @@ def _move_list(game, char_key):
         return _cotw_move_list(char_key)
     if game == "third_strike":
         return _third_strike_move_list(char_key)
+    if game == "mk1":
+        return _mk1_move_list(char_key)
     return []
 
 
@@ -301,6 +354,14 @@ class MainMenuView(OwnedView):
             attachments=[],
         )
 
+    @discord.ui.button(label="MK1", style=discord.ButtonStyle.danger, custom_id="menu_mk1", row=2)
+    async def mk1_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=_game_menu_embed("Mortal Kombat 1", 0x7E1616),
+            view=GameMenuView("mk1", self.owner_id),
+            attachments=[],
+        )
+
 
 class GameMenuView(OwnedView):
     def __init__(self, game, owner_id):
@@ -330,6 +391,17 @@ class GameMenuView(OwnedView):
 
     @discord.ui.button(label="Combos", style=discord.ButtonStyle.secondary, custom_id="game_combos")
     async def combos_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.game == "mk1":
+            chars = _mk1_combo_character_list()
+            if not chars:
+                await interaction.response.send_message("No MK1 combo data loaded.", ephemeral=True)
+                return
+            await interaction.response.edit_message(
+                embed=_combo_character_select_embed(page=0, total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))),
+                view=ComboCharacterSelectView(chars, self.owner_id, page=0),
+                attachments=[],
+            )
+            return
         await interaction.response.edit_message(
             embed=discord.Embed(
                 title="Combos",
@@ -644,6 +716,10 @@ class FrameResultView(OwnedView):
             self.notes_button = ThirdStrikeNotesButton(row)
             self.add_item(self.hitbox_button)
             self.add_item(self.notes_button)
+        elif game == "mk1":
+            from bubbot.frame_data.mk1_frame_data import MK1NotesButton
+            self.notes_button = MK1NotesButton(row)
+            self.add_item(self.notes_button)
         else:
             from bubbot.frame_data.cotw_frame_data import COTWNotesButton
             self.image_url_override = ""
@@ -670,6 +746,8 @@ class FrameResultView(OwnedView):
             from bubbot.frame_data.bbcf_frame_data import build_frame_embed
         elif self.game == "third_strike":
             from bubbot.frame_data.third_strike_frame_data import build_frame_embed
+        elif self.game == "mk1":
+            from bubbot.frame_data.mk1_frame_data import build_frame_embed
         else:
             from bubbot.frame_data.cotw_frame_data import build_frame_embed
         embed = build_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
@@ -774,6 +852,75 @@ class BackToGameMenuView(OwnedView):
         )
 
 
+class ComboCharacterSelectView(OwnedView):
+    def __init__(self, chars, owner_id, page=0):
+        super().__init__(owner_id=owner_id, timeout=300)
+        self.chars = chars
+        self.page = page
+        self._add_select()
+        self._update_page_buttons()
+
+    def _page_count(self):
+        return max(1, math.ceil(len(self.chars) / MENU_SELECT_LIMIT))
+
+    def _update_page_buttons(self):
+        page_count = self._page_count()
+        previous_page = self.page - 1 if self.page > 0 else page_count - 1
+        next_page = self.page + 1 if self.page < page_count - 1 else 0
+        self.previous_button.label = f"Previous ({previous_page + 1}/{page_count})"
+        self.next_button.label = f"Next ({next_page + 1}/{page_count})"
+
+    def _add_select(self):
+        start = self.page * MENU_SELECT_LIMIT
+        options = [discord.SelectOption(label=display, value=char_key) for char_key, display in self.chars[start : start + MENU_SELECT_LIMIT]]
+        self.add_item(ComboCharacterSelect(self.chars, self.page, options))
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, row=4)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
+        new_page = self.page - 1 if self.page > 0 else max_page
+        await interaction.response.edit_message(
+            embed=_combo_character_select_embed(page=new_page, total_pages=max_page + 1),
+            view=ComboCharacterSelectView(self.chars, self.owner_id, page=new_page),
+            attachments=[],
+        )
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=4)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
+        new_page = self.page + 1 if self.page < max_page else 0
+        await interaction.response.edit_message(
+            embed=_combo_character_select_embed(page=new_page, total_pages=max_page + 1),
+            view=ComboCharacterSelectView(self.chars, self.owner_id, page=new_page),
+            attachments=[],
+        )
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=_game_menu_embed("Mortal Kombat 1", 0x7E1616),
+            view=GameMenuView("mk1", self.owner_id),
+            attachments=[],
+        )
+
+
+class ComboCharacterSelect(discord.ui.Select):
+    def __init__(self, chars, page, options):
+        self.chars = chars
+        self.page = page
+        super().__init__(placeholder="Select a character", options=options, custom_id=f"mk1_combo_char_select:{page}")
+
+    async def callback(self, interaction: discord.Interaction):
+        from bubbot.frame_data.mk1_frame_data import build_combo_embed
+        char_key = self.values[0]
+        rows = MK1_COMBO_DATA.get(char_key, [])[:8]
+        await interaction.response.edit_message(
+            embed=build_combo_embed(char_key, rows),
+            view=BackToGameMenuView("mk1", self.view.owner_id),
+            attachments=[],
+        )
+
+
 class QuizFakeMessage:
     def __init__(self, interaction):
         self.channel = interaction.channel
@@ -833,6 +980,15 @@ def _quiz_difficulty_embed(game_label):
         title=f"{game_label} - Quiz",
         description="Select a difficulty level.",
         colour=0x00FF00,
+    )
+
+
+def _combo_character_select_embed(page=None, total_pages=None):
+    page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
+    return discord.Embed(
+        title="Mortal Kombat 1 - Combos",
+        description=f"Select a character to see available combo routes.{page_text}",
+        colour=0x7E1616,
     )
 
 

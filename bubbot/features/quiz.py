@@ -155,6 +155,9 @@ def _quiz_game_key(game=None):
         "thirdstrike": "third_strike",
         "third_strike": "third_strike",
         "sf3": "third_strike",
+        "mk": "mk1",
+        "mortal_kombat": "mk1",
+        "mortal_kombat_1": "mk1",
     }
     return aliases.get(key, key if key else "sf6")
 
@@ -193,6 +196,7 @@ def _quiz_extract_game_from_text(text, default="sf6"):
     lowered = str(text or "").lower()
     game_patterns = [
         ("third_strike", r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b"),
+        ("mk1", r"\b(?:mk1|mortal\s+kombat\s*(?:1|one)?|kombat)\b"),
         ("tuco", r"\b(?:2xko|tuco)\b"),
         ("bbcf", r"\b(?:bbcf|blazblue|central\s*fiction)\b"),
         ("cotw", r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b"),

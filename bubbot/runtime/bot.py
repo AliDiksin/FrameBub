@@ -104,6 +104,7 @@ import bubbot.frame_data.tuco_frame_data as tuco_module
 import bubbot.frame_data.bbcf_frame_data as bbcf_module
 import bubbot.frame_data.cotw_frame_data as cotw_module
 import bubbot.frame_data.third_strike_frame_data as third_strike_module
+import bubbot.frame_data.mk1_frame_data as mk1_module
 import bubbot.features.menu_system as menu_system
 from bubbot.frame_data.frame_output import send_frame_embeds_with_views, send_frame_table_response, send_gif_links_response
 from bubbot.frame_data.gif_lookup import get_frame_row_gif_links
@@ -239,6 +240,10 @@ def _third_strike_character_choice_values():
     return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in third_strike_module.THIRD_STRIKE_FRAME_DATA.items() if rows}))
 
 
+def _mk1_character_choice_values():
+    return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in mk1_module.MK1_FRAME_DATA.items() if rows}, display_fn=lambda char_key, _rows: mk1_module.display_char_name(char_key)))
+
+
 def _sf6_move_choice_values(char_name):
     char_key = resolve_character_key(char_name)
     if not char_key:
@@ -322,6 +327,21 @@ def _third_strike_move_choice_values(char_name):
         if label:
             values.append(label)
     return values
+
+
+def _mk1_move_choice_values(char_name):
+    char_key = mk1_module.resolve_character_key(char_name)
+    if not char_key:
+        return []
+    values = []
+    for _row, label in shared_move_choices(mk1_module.MK1_FRAME_DATA.get(char_key, []), label_fn=_move_choice_label, key_fields=("moveName", "numCmd", "moveType")):
+        if label:
+            values.append(label)
+    return values
+
+
+def _mk1_combo_character_choice_values():
+    return sorted(display for _char_key, display in shared_character_choices({key: rows for key, rows in mk1_module.MK1_COMBO_DATA.items() if rows}))
 
 
 def _ggst_char_state_choice_values(char_name):
@@ -456,6 +476,32 @@ async def _send_third_strike_slash_frame(interaction, char_name, move_name):
     )
 
 
+async def _send_mk1_slash_frame(interaction, char_name, move_name):
+    query = f"mk1 {char_name} {_strip_autocomplete_label(move_name)} framedata".strip().lower()
+    await send_slash_frame_result(
+        interaction,
+        char_name=char_name,
+        move_name=move_name,
+        query=query,
+        parse_fn=mk1_module.find_moves_in_text,
+        embed_fn=mk1_module.build_frame_embed,
+        view_fn=mk1_module.MK1FrameDataView,
+        game_label="MK1",
+        disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
+    )
+
+
+async def _send_mk1_slash_combos(interaction, char_name, difficulty=None, position=None):
+    query_parts = ["mk1", char_name, difficulty or "", position or "", "combos"]
+    payload = mk1_module.find_moves_in_text(" ".join(part for part in query_parts if part).lower())
+    rows = payload.get("combo_rows", []) or []
+    char_key = mk1_module.resolve_character_key(char_name)
+    if not rows or not char_key:
+        await interaction.response.send_message(f"No MK1 combos found for {char_name} with those filters.")
+        return
+    await interaction.response.send_message(embed=mk1_module.build_combo_embed(char_key, rows))
+
+
 @tree.command(name="bub", description="Open Bub's menu")
 async def bub_slash_command(interaction: discord.Interaction):
     await interaction.response.send_message(
@@ -515,6 +561,27 @@ async def cotw(interaction: discord.Interaction, char_name: str, move_name: str)
 async def third_strike(interaction: discord.Interaction, char_name: str, move_name: str):
     """Get Street Fighter III: 3rd Strike frame data for the specific character and move."""
     return await _send_third_strike_slash_frame(interaction, char_name, move_name)
+
+
+@tree.command(name="mk1")
+@discord.app_commands.describe(
+    char_name="The character or kameo name",
+    move_name="The move name or input",
+)
+async def mk1(interaction: discord.Interaction, char_name: str, move_name: str):
+    """Get Mortal Kombat 1 frame data for the specific character or kameo move."""
+    return await _send_mk1_slash_frame(interaction, char_name, move_name)
+
+
+@tree.command(name="mk1-combos")
+@discord.app_commands.describe(
+    char_name="The character name",
+    difficulty="Optional difficulty filter: easy, medium, or hard",
+    position="Optional position filter: midscreen or corner",
+)
+async def mk1_combos(interaction: discord.Interaction, char_name: str, difficulty: str = None, position: str = None):
+    """Get Mortal Kombat 1 combo routes for a character."""
+    return await _send_mk1_slash_combos(interaction, char_name, difficulty, position)
 
 
 @tree.command(name="sf6")
@@ -619,6 +686,33 @@ async def third_strike_move_autocomplete(interaction: discord.Interaction, curre
     if not interaction.namespace.char_name:
         return _slash_choices([])
     return _slash_choices(_autocomplete_values(current, _third_strike_move_choice_values(interaction.namespace.char_name)))
+
+
+@mk1.autocomplete("char_name")
+async def mk1_char_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, _mk1_character_choice_values()))
+
+
+@mk1.autocomplete("move_name")
+async def mk1_move_autocomplete(interaction: discord.Interaction, current: str):
+    if not interaction.namespace.char_name:
+        return _slash_choices([])
+    return _slash_choices(_autocomplete_values(current, _mk1_move_choice_values(interaction.namespace.char_name)))
+
+
+@mk1_combos.autocomplete("char_name")
+async def mk1_combo_char_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, _mk1_combo_character_choice_values()))
+
+
+@mk1_combos.autocomplete("difficulty")
+async def mk1_combo_difficulty_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, ["easy", "medium", "hard"]))
+
+
+@mk1_combos.autocomplete("position")
+async def mk1_combo_position_autocomplete(interaction: discord.Interaction, current: str):
+    return _slash_choices(_autocomplete_values(current, ["midscreen", "corner"]))
 
 
 def truncate_message(text, limit=1800):
@@ -4783,6 +4877,7 @@ async def on_ready():
     bbcf_module.load_frame_data()
     cotw_module.load_frame_data()
     third_strike_module.load_frame_data()
+    mk1_module.load_frame_data()
     configure_extracted_modules()
     quiz_module.configure(
         FRAME_DATA=FRAME_DATA,
@@ -4849,6 +4944,16 @@ async def on_ready():
                 "get_notes_text": third_strike_module.get_notes_text,
                 "game_terms": ("3s", "third strike"),
             },
+            "mk1": {
+                "label": "Mortal Kombat 1",
+                "data": mk1_module.MK1_FRAME_DATA,
+                "aliases": mk1_module.MK1_CHARACTER_ALIASES,
+                "resolve_character_key": mk1_module.resolve_character_key,
+                "find_moves_in_text": mk1_module.find_moves_in_text,
+                "build_frame_embed": mk1_module.build_frame_embed,
+                "get_notes_text": mk1_module.get_notes_text,
+                "game_terms": ("mk1", "mortal kombat 1"),
+            },
         },
         resolve_character_key=resolve_character_key,
         normalize_char_name=normalize_char_name,
@@ -4870,6 +4975,8 @@ async def on_ready():
         character_aliases=CHARACTER_ALIASES,
         ggst_frame_data=ggst_module.GGST_FRAME_DATA,
         ggst_character_aliases=ggst_module.GGST_CHARACTER_ALIASES,
+        ggst_supplemental_frame_data=ggst_module.GGST_SUPPLEMENTAL_FRAME_DATA,
+        ggst_state_frame_data=ggst_module.GGST_STATE_FRAME_DATA,
         tuco_frame_data=tuco_module.TUCO_FRAME_DATA,
         tuco_character_aliases=tuco_module.TUCO_CHARACTER_ALIASES,
         bbcf_frame_data=bbcf_module.BBCF_FRAME_DATA,
@@ -4878,6 +4985,9 @@ async def on_ready():
         cotw_character_aliases=cotw_module.COTW_CHARACTER_ALIASES,
         third_strike_frame_data=third_strike_module.THIRD_STRIKE_FRAME_DATA,
         third_strike_character_aliases=third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
+        mk1_frame_data=mk1_module.MK1_FRAME_DATA,
+        mk1_character_aliases=mk1_module.MK1_CHARACTER_ALIASES,
+        mk1_combo_data=mk1_module.MK1_COMBO_DATA,
         quiz_module_ref=quiz_module,
         build_sf6_frame_embed_fn=build_frame_embed,
         build_ggst_frame_embed_fn=ggst_module.build_frame_embed,
@@ -5225,6 +5335,11 @@ async def on_message(message):
         third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
         third_strike_module.THIRD_STRIKE_FRAME_DATA.keys(),
     )
+    mk1_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        mk1_module.MK1_CHARACTER_ALIASES,
+        mk1_module.MK1_FRAME_DATA.keys(),
+    )
     fd_context_payload = find_moves_in_text(content_lower)
 
     ggst_payload = ggst_module.find_moves_in_text(content_lower)
@@ -5232,6 +5347,7 @@ async def on_message(message):
     bbcf_payload = bbcf_module.find_moves_in_text(content_lower)
     cotw_payload = cotw_module.find_moves_in_text(content_lower)
     third_strike_payload = third_strike_module.find_moves_in_text(content_lower)
+    mk1_payload = mk1_module.find_moves_in_text(content_lower)
     ggst_rows = ggst_payload.get("rows", [])
     ggst_lookup_intent = bool(
         ggst_payload.get("frame_query")
@@ -5394,6 +5510,7 @@ async def on_message(message):
             and not tuco_exact_character_query
             and not bbcf_exact_character_query
             and not cotw_exact_character_query
+            and not mk1_exact_character_query
             and not bbcf_module.query_has_bbcf_notation(content_lower)
         )
     )
@@ -5414,6 +5531,69 @@ async def on_message(message):
     elif client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("explicit_move_attempt"):
         char_label = third_strike_module.display_char_name(third_strike_payload.get("char_key"))
         await message.reply(f"I have Third Strike scrolls for {char_label}, but I couldn't find that move.")
+        return
+
+    mk1_rows = mk1_payload.get("rows", [])
+    mk1_combo_rows = mk1_payload.get("combo_rows", []) or []
+    mk1_lookup_intent = bool(
+        mk1_payload.get("frame_query")
+        or mk1_payload.get("gif_query")
+        or mk1_payload.get("game_query")
+        or mk1_payload.get("notes_query")
+        or mk1_payload.get("combo_query")
+        or mk1_module.query_has_mk1_notation(content_lower)
+    )
+    mk1_route_allowed = bool(
+        mk1_payload.get("game_query")
+        or (
+            mk1_exact_character_query
+            and mk1_module.query_has_mk1_notation(content_lower)
+            and not sf6_exact_character_query
+        )
+        or (
+            mk1_exact_character_query
+            and (mk1_rows or mk1_combo_rows)
+            and not sf6_exact_character_query
+            and not ggst_exact_character_query
+            and not tuco_exact_character_query
+            and not bbcf_exact_character_query
+            and not cotw_exact_character_query
+            and not third_strike_exact_character_query
+        )
+    )
+    if client.user.mentioned_in(message) and mk1_route_allowed and mk1_lookup_intent and mk1_combo_rows:
+        await mk1_module.send_combo_response(message, mk1_combo_rows)
+        return
+    if client.user.mentioned_in(message) and mk1_route_allowed and mk1_lookup_intent and mk1_rows:
+        if mk1_payload.get("needs_disambiguation"):
+            await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
+        elif mk1_payload.get("gif_query") and mk1_payload.get("frame_query"):
+            await mk1_module.send_frame_response(message, mk1_rows)
+            await mk1_module.send_hitbox_response(message, mk1_rows)
+        elif mk1_payload.get("gif_query"):
+            await mk1_module.send_hitbox_response(message, mk1_rows)
+        else:
+            await mk1_module.send_frame_response(message, mk1_rows)
+        return
+    elif client.user.mentioned_in(message) and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("needs_disambiguation"):
+        await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
+        return
+    elif client.user.mentioned_in(message) and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("explicit_move_attempt"):
+        char_label = mk1_module.display_char_name(mk1_payload.get("char_key"))
+        await message.reply(f"I have MK1 scrolls for {char_label}, but I couldn't find that move.")
+        return
+
+    if (
+        client.user.mentioned_in(message)
+        and mk1_route_allowed
+        and not mk1_lookup_intent
+        and not message.reference
+        and (mk1_rows or mk1_payload.get("needs_disambiguation"))
+    ):
+        if mk1_payload.get("needs_disambiguation"):
+            await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
+        else:
+            await mk1_module.send_frame_response(message, mk1_rows)
         return
 
     if (

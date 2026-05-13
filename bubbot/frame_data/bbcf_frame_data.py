@@ -9,7 +9,7 @@ from bubbot.data.bbcf_aliases import BBCF_CHARACTER_ALIASES, BBCF_LOOKUP_WORDS, 
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key
+from bubbot.utils.text_utils import compact_key, strip_noise_words
 
 
 BBCF_FRAME_DATA_FILE = "BBCF Frame Data.ods"
@@ -132,7 +132,7 @@ def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:bbcf|blazblue|central\s*fiction)\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?)\b", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    text = strip_noise_words(text)
     compact = normalize_move_token(text)
     if text in BBCF_MOVE_ALIASES:
         return BBCF_MOVE_ALIASES[text]

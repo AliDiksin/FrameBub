@@ -26,7 +26,7 @@ from bubbot.data.ggst_aliases import (
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.row_utils import row_key
-from bubbot.utils.text_utils import compact_key, word_tokens
+from bubbot.utils.text_utils import compact_key, strip_noise_words, word_tokens
 
 
 GGST_FRAME_DATA_FILE = "GGST Frame Data.ods"
@@ -241,7 +241,7 @@ def normalize_move_query(query):
     text = re.sub(r"\b(?:ggst|guilty\s+gear|guilty|gear|strive)\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?)\b", " ", text)
     text = re.sub(r"\bhs\b", "h", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    text = strip_noise_words(text)
     compact = normalize_key(text)
     if text in GGST_MOVE_ALIASES:
         return GGST_MOVE_ALIASES[text]
@@ -435,8 +435,10 @@ def row_primary_command_matches_move(row, move_query):
     query_norm = normalize_move_token(query)
     if not query_norm:
         return False
-    for value in (row.get("numCmd", ""), row.get("cmnName", ""), row.get("plnCmd", "")):
-        value_text = str(value or "").lower().strip()
+    values = (row.get("numCmd", ""), row.get("cmnName", ""), row.get("plnCmd", ""),
+              row.get("moveName", ""))
+    for value_text in values:
+        value_text = str(value_text or "").lower().strip()
         if query.lower() == value_text or query_norm == normalize_move_token(value_text):
             return True
         for alternative in expand_or_command_alternatives(value_text):
@@ -533,6 +535,25 @@ def find_matching_rows(character, move_input, state_key=None):
     query = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(str(move_input or "").lower().strip())
     if not query:
         query = normalize_move_query(move_input)
+
+    # Exact moveName match: if query matches exactly one move's moveName,
+    # return it directly (avoids ambiguous disambiguation when the same
+    # name like "Thrust" appears with different numCmds such as 41236K vs 41236K 4).
+    exact_name_matches = []
+    for search_rows in (GGST_FRAME_DATA.get(char_key, []), GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, [])):
+        for row in search_rows:
+            if query.lower() == str(row.get("moveName", "")).lower().strip():
+                exact_name_matches.append(row)
+    # Also search state data
+    for state_key_name, state_rows in GGST_STATE_FRAME_DATA.get(char_key, {}).items():
+        for row in state_rows:
+            if query.lower() == str(row.get("moveName", "")).lower().strip():
+                exact_name_matches.append(row)
+    if len(exact_name_matches) == 1:
+        return dedupe_equivalent_frame_rows(exact_name_matches)
+    if len(exact_name_matches) > 1:
+        return dedupe_equivalent_frame_rows(exact_name_matches)
+
     if state_key:
         state_matches = []
         seen = set()

@@ -14,7 +14,7 @@ from bubbot.data.third_strike_aliases import (
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key
+from bubbot.utils.text_utils import compact_key, strip_noise_words
 
 
 THIRD_STRIKE_FRAME_DATA_FILE = "Third Strike Frame Data.ods"
@@ -191,7 +191,7 @@ def normalize_move_query(query, char_key=None):
     text = re.sub(r"<@!?\d+>", " ", text)
     text = re.sub(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|notes?)\b", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
+    text = strip_noise_words(text)
     compact = normalize_move_token(text)
     if str(char_key or "").strip().lower() == "yun" and compact in {"genei", "geneijin", "sa3"}:
         return "236236P (SA3)"
