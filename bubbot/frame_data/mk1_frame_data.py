@@ -7,6 +7,7 @@ import discord
 
 from bubbot.data.mk1_aliases import MK1_CHARACTER_ALIASES, MK1_LOOKUP_WORDS, MK1_MOVE_ALIASES
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
+from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.discord_formatting import (
     add_embed_field as shared_add_embed_field,
     add_long_embed_field as shared_add_long_embed_field,
@@ -39,7 +40,8 @@ def normalize_move_token(value):
         "enhanced": "ex",
         "meter burn": "ex",
         "meterburn": "ex",
-        "fatal blow": "fb",
+        "fatal blow": "ss ex",
+        "fb": "ss ex",
         "kameo": "kameo",
     }
     for old, new in replacements.items():
@@ -199,7 +201,10 @@ def find_characters_in_text(text):
 
 def query_has_mk1_notation(text):
     lowered = str(text or "").lower()
-    return bool(re.search(r"\b(?:[bfdu]\s*\+?\s*)?[1-4](?:\s*,\s*(?:[bfdu]\s*\+?\s*)?[1-4])*\b|\b(?:db|df|bf|bb|ff|du|dd|uf|ub)\s*\+?\s*[1-4]\b|\bkameo\b", lowered))
+    return bool(
+        re.search(r"\b(?:[bfdu]\s*\+?\s*)?[1-4](?:\s*,\s*(?:[bfdu]\s*\+?\s*)?[1-4])*\b|\b(?:db|df|bf|bb|ff|du|dd|uf|ub)\s*\+?\s*[1-4]\b|\bkameo\b", lowered)
+        or re.search(r"\b(?:fatal\s+blow|fb)\b", lowered)
+    )
 
 
 def normalize_move_query(query):
@@ -336,6 +341,44 @@ def find_moves_in_text(text):
     char_matches = find_characters_in_text(lowered)
     rows = []
     matched_char_key = char_matches[0][0] if char_matches else None
+    comparison_result = find_comparison_rows(
+        lowered,
+        char_matches,
+        find_characters_in_text=find_characters_in_text,
+        find_rows_for_char=find_matching_rows,
+    )
+    if comparison_result and comparison_result.get("needs_disambiguation"):
+        char_key = comparison_result["char_key"]
+        matches = comparison_result["rows"]
+        return {
+            "mode": "options",
+            "rows": matches,
+            "data": build_disambiguation_prompt(char_key, matches),
+            "gif_query": gif_query,
+            "frame_query": frame_query,
+            "notes_query": notes_query,
+            "game_query": game_query,
+            "needs_disambiguation": True,
+            "char_found": True,
+            "char_key": char_key,
+            "wants_comparison": True,
+        }
+    if comparison_result:
+        rows = comparison_result["rows"]
+        return {
+            "mode": "gif" if gif_query else "frame",
+            "rows": rows,
+            "data": "\n\n".join(format_frame_data(row) for row in rows),
+            "gif_query": gif_query,
+            "frame_query": frame_query,
+            "notes_query": notes_query,
+            "game_query": game_query,
+            "char_found": True,
+            "char_key": comparison_result.get("char_key") or matched_char_key,
+            "wants_comparison": True,
+            "explicit_move_attempt": True,
+            "missing_scrolls_query": False,
+        }
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
         move_text = normalize_move_query(move_text)
@@ -368,6 +411,7 @@ def find_moves_in_text(text):
         "game_query": game_query,
         "char_found": bool(char_matches),
         "char_key": matched_char_key,
+        "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_matches and (frame_query or gif_query or notes_query or game_query or query_has_mk1_notation(lowered))),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or gif_query or notes_query or game_query)),
     }

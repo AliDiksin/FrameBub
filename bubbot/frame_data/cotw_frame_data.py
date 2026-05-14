@@ -10,6 +10,7 @@ import pandas as pd
 
 from bubbot.data.cotw_aliases import COTW_CHARACTER_ALIASES, COTW_MOVE_ALIASES
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
+from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, strip_noise_words
@@ -206,6 +207,44 @@ def find_moves_in_text(text):
     char_matches = find_characters_in_text(lowered)
     rows = []
     matched_char_key = char_matches[0][0] if char_matches else None
+    comparison_result = find_comparison_rows(
+        lowered,
+        char_matches,
+        find_characters_in_text=find_characters_in_text,
+        find_rows_for_char=find_matching_rows,
+    )
+    if comparison_result and comparison_result.get("needs_disambiguation"):
+        char_key = comparison_result["char_key"]
+        matches = comparison_result["rows"]
+        return {
+            "mode": "options",
+            "rows": matches,
+            "data": build_disambiguation_prompt(char_key, matches),
+            "gif_query": image_query,
+            "frame_query": frame_query,
+            "game_query": game_query,
+            "notes_query": notes_query,
+            "needs_disambiguation": True,
+            "char_found": True,
+            "char_key": char_key,
+            "wants_comparison": True,
+        }
+    if comparison_result:
+        rows = comparison_result["rows"]
+        return {
+            "mode": "gif" if image_query else "frame",
+            "rows": rows,
+            "data": "\n\n".join(format_frame_data(row, include_notes=notes_query) for row in rows),
+            "gif_query": image_query,
+            "frame_query": frame_query,
+            "game_query": game_query,
+            "notes_query": notes_query,
+            "char_found": True,
+            "char_key": comparison_result.get("char_key") or matched_char_key,
+            "wants_comparison": True,
+            "explicit_move_attempt": True,
+            "missing_scrolls_query": False,
+        }
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
         move_text = normalize_move_query(move_text)
@@ -238,6 +277,7 @@ def find_moves_in_text(text):
         "notes_query": notes_query,
         "char_found": bool(char_matches),
         "char_key": matched_char_key,
+        "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_matches and (frame_query or image_query or game_query or query_has_cotw_notation(lowered))),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or image_query or game_query)),
     }

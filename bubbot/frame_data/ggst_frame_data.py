@@ -7,6 +7,7 @@ import discord
 import pandas as pd
 
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
+from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.discord_formatting import (
     add_embed_field as shared_add_embed_field,
     add_long_embed_field as shared_add_long_embed_field,
@@ -675,6 +676,32 @@ def find_characters_in_text(text):
     return find_alias_positions_in_text(text, GGST_CHARACTER_ALIASES, GGST_FRAME_DATA.keys())
 
 
+def find_comparison_matching_rows(char_key, move_text):
+    state_key = None
+    query_text = str(move_text or "")
+    if char_key == "nagoriyuki":
+        state_key, query_text = extract_nagoriyuki_blood_state(query_text)
+    elif char_key == "goldlewis":
+        state_key, query_text = extract_goldlewis_security_state(query_text)
+    elif char_key == "ky":
+        state_key, query_text = extract_ky_dragon_install_state(query_text)
+    elif char_key == "bedman":
+        state_key, query_text = extract_bedman_install_state(query_text)
+    char_alias_text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?)\b", " ", query_text)
+    char_alias_text = re.sub(r"\s+", " ", char_alias_text).strip()
+    char_move_alias = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(char_alias_text)
+    if char_move_alias:
+        query_text = char_move_alias
+    else:
+        query_text = normalize_move_query(query_text)
+        char_move_alias = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(query_text)
+        if char_move_alias:
+            query_text = char_move_alias
+    if not query_text:
+        return []
+    return find_matching_rows(char_key, query_text, state_key=state_key)
+
+
 def find_moves_in_text(text):
     lowered = str(text or "").lower()
     gif_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes)\b", lowered))
@@ -691,6 +718,43 @@ def find_moves_in_text(text):
     rows = []
     char_found = bool(char_matches)
     matched_char_key = char_matches[0][0] if char_matches else None
+    comparison_result = find_comparison_rows(
+        lowered,
+        char_matches,
+        find_characters_in_text=find_characters_in_text,
+        find_rows_for_char=find_comparison_matching_rows,
+    )
+    if comparison_result and comparison_result.get("needs_disambiguation"):
+        char_key = comparison_result["char_key"]
+        matches = comparison_result["rows"]
+        return {
+            "mode": "options",
+            "rows": matches,
+            "data": build_disambiguation_prompt(char_key, matches),
+            "gif_query": gif_query,
+            "frame_query": frame_query,
+            "game_query": game_query,
+            "needs_disambiguation": True,
+            "char_found": char_found,
+            "char_key": char_key,
+            "wants_comparison": True,
+        }
+    if comparison_result:
+        rows = comparison_result["rows"]
+        data = "\n\n".join(format_frame_data(row) for row in rows)
+        return {
+            "mode": "gif" if gif_query else "frame",
+            "rows": rows,
+            "data": data,
+            "gif_query": gif_query,
+            "frame_query": frame_query,
+            "game_query": game_query,
+            "char_found": char_found,
+            "char_key": comparison_result.get("char_key") or matched_char_key,
+            "wants_comparison": True,
+            "explicit_move_attempt": True,
+            "missing_scrolls_query": False,
+        }
     for char_key, start, end, _alias in char_matches:
         if start >= 0 and end >= 0:
             move_text = (lowered[:start] + " " + lowered[end:]).strip()
@@ -759,6 +823,7 @@ def find_moves_in_text(text):
         "game_query": game_query,
         "char_found": char_found,
         "char_key": matched_char_key,
+        "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_found and (frame_query or gif_query or game_query)),
         "missing_scrolls_query": bool(char_found and not rows and (frame_query or gif_query or game_query)),
     }
