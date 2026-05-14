@@ -219,6 +219,7 @@ def find_moves_in_text(text):
             "lookup_frame_data": lookup_frame_data,
             "normalize_char_name": normalize_char_name,
             "resolve_character_key": resolve_character_key,
+            "normalize_num_cmd_token": normalize_num_cmd_token,
             "is_missing_attack_range_value": is_missing_attack_range_value,
             "get_attack_range_details": get_attack_range_details,
             "format_attack_range_for_table": format_attack_range_for_table,
