@@ -37,8 +37,10 @@ def normalize_move_token(value):
 def query_has_cotw_notation(text):
     lowered = str(text or "").lower()
     return bool(
-        re.search(r"(?:^|\s)j\s*\.\s*[abcd]\b", lowered)
-        or re.search(r"(?:^|\s)(?:cl|f)\s*\.\s*[abcd]\b", lowered)
+        re.search(r"(?:^|\s)(?:j|jump|jumping|air)\s*\.?\s*[abcd]\b", lowered)
+        or re.search(r"(?:^|\s)(?:cl|close)\s*\.?\s*[abcd]\b", lowered)
+        or re.search(r"(?:^|\s)(?:f|far)\s*\.?\s*[abcd]\b", lowered)
+        or re.search(r"(?:^|\s)(?:cr|crouch|crouching)\s*\.?\s*[abcd]\b", lowered)
         or re.search(r"(?:^|\s)(?:[1-9][0-9]{0,5}[abcd]|[1-9]?[abcd](?:\+[abcd])+)(?:\s|$)", lowered)
     )
 

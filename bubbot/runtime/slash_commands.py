@@ -1,0 +1,368 @@
+import re
+
+import discord
+
+from bubbot.utils.choice_utils import autocomplete_values, character_choices, move_choices
+from bubbot.utils.slash_frame_flow import send_slash_frame_result
+
+
+def register_slash_commands(tree, deps):
+    """Register public slash commands and autocomplete handlers."""
+
+    frame_data = deps["frame_data"]
+    resolve_character_key = deps["resolve_character_key"]
+    find_moves_in_text = deps["find_moves_in_text"]
+    build_frame_embed = deps["build_frame_embed"]
+    frame_output_module = deps["frame_output_module"]
+    ggst_module = deps["ggst_module"]
+    tuco_module = deps["tuco_module"]
+    bbcf_module = deps["bbcf_module"]
+    cotw_module = deps["cotw_module"]
+    third_strike_module = deps["third_strike_module"]
+    mk1_module = deps["mk1_module"]
+    menu_system = deps["menu_system"]
+
+    def slash_choices(values):
+        return [discord.app_commands.Choice(name=str(value)[:100], value=str(value)[:100]) for value in values[:25]]
+
+    def move_choice_label(row):
+        move_name = str(row.get("moveName", "")).strip()
+        num_cmd = str(row.get("numCmd", "")).strip()
+        move_type = str(row.get("moveType", "")).strip().lower()
+        label = f"{move_name} ({num_cmd})" if move_name and num_cmd else move_name or num_cmd
+        if move_type and move_type not in {"normal", ""}:
+            label = f"{label} [{move_type}]"
+        return label
+
+    def sf6_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in frame_data.items() if rows}))
+
+    def ggst_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in ggst_module.GGST_FRAME_DATA.items() if rows}))
+
+    def tuco_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in tuco_module.TUCO_FRAME_DATA.items() if rows}))
+
+    def bbcf_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in bbcf_module.BBCF_FRAME_DATA.items() if rows}))
+
+    def cotw_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in cotw_module.COTW_FRAME_DATA.items() if rows}))
+
+    def third_strike_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in third_strike_module.THIRD_STRIKE_FRAME_DATA.items() if rows}))
+
+    def mk1_character_choice_values():
+        return sorted(
+            display
+            for _char_key, display in character_choices(
+                {key: rows for key, rows in mk1_module.MK1_FRAME_DATA.items() if rows},
+                display_fn=lambda char_key, _rows: mk1_module.display_char_name(char_key),
+            )
+        )
+
+    def sf6_move_choice_values(char_name):
+        char_key = resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [
+            label
+            for _row, label in move_choices(
+                frame_data.get(char_key, []),
+                label_fn=move_choice_label,
+                key_fields=("moveName", "numCmd", "moveType"),
+            )
+            if label
+        ]
+
+    def sf6_char_state_choice_values(char_name):
+        char_key = resolve_character_key(char_name)
+        state_map = {
+            "ryu": ["denjin"],
+            "jamie": ["drink 1", "drink 2", "drink 3", "drink 4"],
+            "lily": ["stocked"],
+            "mai": ["stocked"],
+            "juri": ["stocked"],
+        }
+        return state_map.get(char_key, [])
+
+    def ggst_move_choice_values(char_name):
+        char_key = ggst_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        rows = []
+        rows.extend(ggst_module.GGST_FRAME_DATA.get(char_key, []))
+        rows.extend(ggst_module.GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, []))
+        for state_rows in ggst_module.GGST_STATE_FRAME_DATA.get(char_key, {}).values():
+            rows.extend(state_rows)
+        values = []
+        seen = set()
+        for _row, label in move_choices(rows, label_fn=move_choice_label, key_fields=("moveName", "numCmd", "moveType")):
+            if label and label not in seen:
+                seen.add(label)
+                values.append(label)
+        return values
+
+    def tuco_move_choice_values(char_name):
+        char_key = tuco_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [label for _row, label in move_choices(tuco_module.TUCO_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd")) if label]
+
+    def bbcf_move_choice_values(char_name):
+        char_key = bbcf_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [label for _row, label in move_choices(bbcf_module.BBCF_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "moveType")) if label]
+
+    def cotw_move_choice_values(char_name):
+        char_key = cotw_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [label for _row, label in move_choices(cotw_module.COTW_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "moveType")) if label]
+
+    def third_strike_move_choice_values(char_name):
+        char_key = third_strike_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [label for _row, label in move_choices(third_strike_module.THIRD_STRIKE_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "version", "moveType")) if label]
+
+    def mk1_move_choice_values(char_name):
+        char_key = mk1_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [label for _row, label in move_choices(mk1_module.MK1_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "moveType")) if label]
+
+    def mk1_combo_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in mk1_module.MK1_COMBO_DATA.items() if rows}))
+
+    def ggst_char_state_choice_values(char_name):
+        char_key = ggst_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        values = []
+        seen = set()
+        for row_map in ggst_module.GGST_STATE_FRAME_DATA.get(char_key, {}).values():
+            for row in row_map:
+                for value in (str(row.get("state_label", "")).strip(), str(row.get("state_key", "")).strip()):
+                    if value and value not in seen:
+                        seen.add(value)
+                        values.append(value)
+        for row in ggst_module.GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, []):
+            for value in (str(row.get("state_label", "")).strip(), str(row.get("state_key", "")).strip()):
+                if value and value not in seen:
+                    seen.add(value)
+                    values.append(value)
+        return values
+
+    def strip_autocomplete_label(value):
+        text = str(value or "").strip()
+        text = re.sub(r"\s+\[[^\]]+\]$", "", text).strip()
+        match = re.match(r"^(.+)\s+\(([^()]*)\)$", text)
+        if match:
+            return match.group(2).strip() or match.group(1).strip()
+        return text
+
+    async def send_sf6_slash_frame(interaction, char_name, move_name, char_state=None):
+        if char_state and char_state not in sf6_char_state_choice_values(char_name):
+            await interaction.response.send_message(f"{char_name} does not use the `{char_state}` state for SF6 lookups.")
+            return
+        query = f"{char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(
+            interaction,
+            char_name=char_name,
+            move_name=move_name,
+            query=query,
+            parse_fn=find_moves_in_text,
+            embed_fn=build_frame_embed,
+            view_fn=frame_output_module.FrameDataGifView,
+            game_label="SF6",
+            prompt_predicate=lambda payload: "Special Strength Options" in str(payload.get("data", "") or "") or "Target Combo Options" in str(payload.get("data", "") or ""),
+        )
+
+    async def send_ggst_slash_frame(interaction, char_name, move_name, char_state=None):
+        query = f"ggst {char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=ggst_module.find_moves_in_text, embed_fn=ggst_module.build_frame_embed, view_fn=ggst_module.GGSTFrameDataView, game_label="GGST", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
+    async def send_tuco_slash_frame(interaction, char_name, move_name):
+        query = f"2xko {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=tuco_module.find_moves_in_text, embed_fn=tuco_module.build_frame_embed, view_fn=tuco_module.TUCOFrameDataView, game_label="2XKO", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
+    async def send_bbcf_slash_frame(interaction, char_name, move_name):
+        query = f"bbcf {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=bbcf_module.find_moves_in_text, embed_fn=bbcf_module.build_frame_embed, view_fn=bbcf_module.BBCFFrameDataView, game_label="BBCF", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
+    async def send_cotw_slash_frame(interaction, char_name, move_name):
+        query = f"cotw {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        payload = cotw_module.find_moves_in_text(query)
+        rows = payload.get("rows", []) or []
+        if payload.get("needs_disambiguation"):
+            await interaction.response.send_message(str(payload.get("data", "Please specify which COTW move you mean."))[:2000])
+            return
+        if not rows:
+            await interaction.response.send_message(f"{char_name} with {move_name} is not a valid character/move combination for COTW")
+            return
+        row = rows[0]
+        view = cotw_module.COTWFrameDataView(row)
+        file, attachment_url = await cotw_module.build_image_attachment(row)
+        if file and attachment_url:
+            view.image_url_override = attachment_url
+            view.cotw_image_bytes = file.fp.getvalue()
+            view.cotw_image_filename = file.filename
+        await interaction.response.send_message(embed=view.build_embed(), view=view, files=view.active_files())
+
+    async def send_third_strike_slash_frame(interaction, char_name, move_name):
+        query = f"3s {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=third_strike_module.find_moves_in_text, embed_fn=third_strike_module.build_frame_embed, view_fn=third_strike_module.ThirdStrikeFrameDataView, game_label="Third Strike", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
+    async def send_mk1_slash_frame(interaction, char_name, move_name):
+        query = f"mk1 {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=mk1_module.find_moves_in_text, embed_fn=mk1_module.build_frame_embed, view_fn=mk1_module.MK1FrameDataView, game_label="MK1", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
+    async def send_mk1_slash_combos(interaction, char_name, difficulty=None, position=None):
+        query_parts = ["mk1", char_name, difficulty or "", position or "", "combos"]
+        payload = mk1_module.find_moves_in_text(" ".join(part for part in query_parts if part).lower())
+        rows = payload.get("combo_rows", []) or []
+        char_key = mk1_module.resolve_character_key(char_name)
+        if not rows or not char_key:
+            await interaction.response.send_message(f"No MK1 combos found for {char_name} with those filters.")
+            return
+        await interaction.response.send_message(embed=mk1_module.build_combo_embed(char_key, rows))
+
+    @tree.command(name="bub", description="Open Bub's menu")
+    async def bub_slash_command(interaction: discord.Interaction):
+        await interaction.response.send_message(embed=menu_system._main_menu_embed(), view=menu_system.MainMenuView(interaction.user.id))
+
+    @tree.command(name="ggst")
+    @discord.app_commands.describe(char_name="The characters name", move_name="The move name", char_state="Optional char specific states like Installs.")
+    async def ggst(interaction: discord.Interaction, char_name: str, move_name: str, char_state: str = None):
+        return await send_ggst_slash_frame(interaction, char_name, move_name, char_state)
+
+    @tree.command(name="2xko")
+    @discord.app_commands.describe(char_name="The champion name", move_name="The move name or input")
+    async def tuco(interaction: discord.Interaction, char_name: str, move_name: str):
+        return await send_tuco_slash_frame(interaction, char_name, move_name)
+
+    @tree.command(name="bbcf")
+    @discord.app_commands.describe(char_name="The character name", move_name="The move name or input")
+    async def bbcf(interaction: discord.Interaction, char_name: str, move_name: str):
+        return await send_bbcf_slash_frame(interaction, char_name, move_name)
+
+    @tree.command(name="cotw")
+    @discord.app_commands.describe(char_name="The character name", move_name="The move name or input")
+    async def cotw(interaction: discord.Interaction, char_name: str, move_name: str):
+        return await send_cotw_slash_frame(interaction, char_name, move_name)
+
+    @tree.command(name="third-strike")
+    @discord.app_commands.describe(char_name="The character name", move_name="The move name or input")
+    async def third_strike(interaction: discord.Interaction, char_name: str, move_name: str):
+        return await send_third_strike_slash_frame(interaction, char_name, move_name)
+
+    @tree.command(name="mk1")
+    @discord.app_commands.describe(char_name="The character or kameo name", move_name="The move name or input")
+    async def mk1(interaction: discord.Interaction, char_name: str, move_name: str):
+        return await send_mk1_slash_frame(interaction, char_name, move_name)
+
+    @tree.command(name="mk1-combos")
+    @discord.app_commands.describe(char_name="The character name", difficulty="Optional difficulty filter: easy, medium, or hard", position="Optional position filter: midscreen or corner")
+    async def mk1_combos(interaction: discord.Interaction, char_name: str, difficulty: str = None, position: str = None):
+        return await send_mk1_slash_combos(interaction, char_name, difficulty, position)
+
+    @tree.command(name="sf6")
+    @discord.app_commands.describe(char_name="The characters name", move_name="The move name", char_state="Optional char specific states like Installs.")
+    async def sf6(interaction: discord.Interaction, char_name: str, move_name: str, char_state: str = None):
+        return await send_sf6_slash_frame(interaction, char_name, move_name, char_state)
+
+    @sf6.autocomplete("char_state")
+    async def sf6_char_state_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, sf6_char_state_choice_values(interaction.namespace.char_name)))
+
+    @sf6.autocomplete("char_name")
+    async def sf6_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, sf6_character_choice_values()))
+
+    @sf6.autocomplete("move_name")
+    async def sf6_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, sf6_move_choice_values(interaction.namespace.char_name)))
+
+    @ggst.autocomplete("char_name")
+    async def ggst_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, ggst_character_choice_values()))
+
+    @ggst.autocomplete("char_state")
+    async def ggst_char_state_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, ggst_char_state_choice_values(interaction.namespace.char_name)))
+
+    @ggst.autocomplete("move_name")
+    async def ggst_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, ggst_move_choice_values(interaction.namespace.char_name)))
+
+    @tuco.autocomplete("char_name")
+    async def tuco_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, tuco_character_choice_values()))
+
+    @tuco.autocomplete("move_name")
+    async def tuco_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, tuco_move_choice_values(interaction.namespace.char_name)))
+
+    @bbcf.autocomplete("char_name")
+    async def bbcf_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, bbcf_character_choice_values()))
+
+    @bbcf.autocomplete("move_name")
+    async def bbcf_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, bbcf_move_choice_values(interaction.namespace.char_name)))
+
+    @cotw.autocomplete("char_name")
+    async def cotw_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, cotw_character_choice_values()))
+
+    @cotw.autocomplete("move_name")
+    async def cotw_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, cotw_move_choice_values(interaction.namespace.char_name)))
+
+    @third_strike.autocomplete("char_name")
+    async def third_strike_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, third_strike_character_choice_values()))
+
+    @third_strike.autocomplete("move_name")
+    async def third_strike_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, third_strike_move_choice_values(interaction.namespace.char_name)))
+
+    @mk1.autocomplete("char_name")
+    async def mk1_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, mk1_character_choice_values()))
+
+    @mk1.autocomplete("move_name")
+    async def mk1_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, mk1_move_choice_values(interaction.namespace.char_name)))
+
+    @mk1_combos.autocomplete("char_name")
+    async def mk1_combo_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, mk1_combo_character_choice_values()))
+
+    @mk1_combos.autocomplete("difficulty")
+    async def mk1_combo_difficulty_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, ["easy", "medium", "hard"]))
+
+    @mk1_combos.autocomplete("position")
+    async def mk1_combo_position_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, ["midscreen", "corner"]))

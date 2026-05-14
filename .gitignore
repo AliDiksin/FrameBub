@@ -57,6 +57,7 @@ GGST - Dustloop Frame Data test.ods
 GGST - Dustloop Frame Data.ods
 /sf6frames
 /bubbot/features/bub_llm.py
+/buenavista/
 /scripts/send_bub_message_gui.py
 /bubbot/features/scheduler.py
 
@@ -66,3 +67,4 @@ GGST Frame Data.backup.ods
 /wiki
 inspo.md
 /regressions
+bubbot/runtime/buenavista_extension.py

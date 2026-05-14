@@ -8,30 +8,38 @@ import re
 
 import discord
 
-try:
-    from bubbot.features.bub_llm import (
-        build_quiz_cheating_warning_message,
-        build_quiz_correct_guess_message,
-        build_quiz_decline_message,
-        build_quiz_persona_intro,
-        build_quiz_wrong_guess_message,
-        classify_quiz_another_question_intent,
-        classify_quiz_post_answer_choice_intent,
-        sanitize_ascii_line,
-    )
-except ModuleNotFoundError as import_error:
-    if import_error.name != "bub_llm":
-        raise
-    from bubbot.features.bub_llm_fallback import (
-        build_quiz_cheating_warning_message,
-        build_quiz_correct_guess_message,
-        build_quiz_decline_message,
-        build_quiz_persona_intro,
-        build_quiz_wrong_guess_message,
-        classify_quiz_another_question_intent,
-        classify_quiz_post_answer_choice_intent,
-        sanitize_ascii_line,
-    )
+
+def sanitize_ascii_line(text):
+    return re.sub(r"[^\x00-\x7F]+", "", str(text or "")).strip()
+
+
+async def build_quiz_persona_intro(channel, round_num, total_rounds, mode, sanitize_ascii_func, has_hint_func):
+    mode_key = str(mode or "hard").strip().lower()
+    return f"Quiz question {round_num}/{total_rounds} ({mode_key}). Guess the character and move from the data."
+
+
+async def build_quiz_wrong_guess_message(channel, sanitize_ascii_func, has_hint_func):
+    return "Incorrect."
+
+
+async def build_quiz_correct_guess_message(channel, sanitize_ascii_func):
+    return "Correct."
+
+
+async def build_quiz_decline_message(channel, sanitize_ascii_func):
+    return "Quiz ended."
+
+
+async def build_quiz_cheating_warning_message(channel, sanitize_ascii_func, has_hint_func):
+    return "No framedata or gif lookups during the quiz. Answer directly."
+
+
+async def classify_quiz_another_question_intent(channel, text):
+    return None
+
+
+async def classify_quiz_post_answer_choice_intent(channel, text):
+    return None
 
 FRAME_DATA = {}
 CHARACTER_ALIASES = {}
