@@ -639,7 +639,7 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         )
         base_chargeless_input = re.sub(r"\s+", " ", base_chargeless_input).strip()
         if base_chargeless_input and base_chargeless_input != move_input:
-            base_row = lookup_frame_data(character, base_chargeless_input, _seen_inputs=_seen_inputs)
+            base_row = lookup_frame_data(deps, character, base_chargeless_input, _seen_inputs=_seen_inputs)
             if base_row:
                 base_token = normalize_num_cmd_token(base_row.get("numCmd", ""))
                 base_suffix = extract_button_suffix(base_token)
@@ -683,7 +683,7 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
                     return generic_charged_candidates[0]
 
     for strengthless_input in build_strengthless_lookup_variants(move_input):
-        strengthless_row = lookup_frame_data(character, strengthless_input, _seen_inputs=_seen_inputs)
+        strengthless_row = lookup_frame_data(deps, character, strengthless_input, _seen_inputs=_seen_inputs)
         if strengthless_row is not None:
             return strengthless_row
 
@@ -695,7 +695,7 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         )
         base_stockless_input = re.sub(r"\s+", " ", base_stockless_input).strip()
         if base_stockless_input and base_stockless_input != move_input:
-            base_row = lookup_frame_data(character, base_stockless_input, _seen_inputs=_seen_inputs)
+            base_row = lookup_frame_data(deps, character, base_stockless_input, _seen_inputs=_seen_inputs)
             if base_row:
                 base_token = normalize_num_cmd_token(base_row.get("numCmd", ""))
                 base_suffix = extract_button_suffix(base_token)
@@ -736,7 +736,7 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
 
     fuzzy_alias_target = resolve_fuzzy_alias_target(move_input)
     if fuzzy_alias_target and fuzzy_alias_target != move_input:
-        fuzzy_alias_row = lookup_frame_data(character, fuzzy_alias_target, _seen_inputs=_seen_inputs)
+        fuzzy_alias_row = lookup_frame_data(deps, character, fuzzy_alias_target, _seen_inputs=_seen_inputs)
         if fuzzy_alias_row is not None:
             return fuzzy_alias_row
 

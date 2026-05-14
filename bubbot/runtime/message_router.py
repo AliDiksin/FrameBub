@@ -1445,6 +1445,7 @@ async def _handle_message(message):
                     content_no_mentions,
                     frame_rows=gif_frame_rows,
                     limit=gif_limit,
+                    prefer_frame_rows=wants_comparison,
                 )
                 if gif_links:
                     await send_gif_links_response(
@@ -1506,6 +1507,7 @@ async def _handle_message(message):
                 content_no_mentions,
                 frame_rows=gif_frame_rows,
                 limit=gif_limit,
+                prefer_frame_rows=wants_comparison,
             )
             if gif_links:
                 await send_gif_links_response(

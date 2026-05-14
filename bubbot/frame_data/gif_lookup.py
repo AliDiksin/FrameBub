@@ -964,7 +964,7 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=3):
     return []
 
 
-def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
+def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3, prefer_frame_rows=False):
     links = []
     seen = set()
     has_frame_rows = bool(frame_rows)
@@ -1074,6 +1074,13 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3):
         return False
 
     if has_frame_rows:
+        if prefer_frame_rows:
+            add_frame_row_links()
+            if links:
+                return links
+            add_query_links()
+            return links
+
         if len(frame_rows or []) > 1:
             add_query_links()
             if links:
