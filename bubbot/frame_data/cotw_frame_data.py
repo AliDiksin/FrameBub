@@ -13,7 +13,7 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words
 
 
 COTW_FRAME_DATA_FILE = "COTW Frame Data.ods"
@@ -129,6 +129,14 @@ def normalize_move_query(query):
         return COTW_MOVE_ALIASES[text]
     if compact in COTW_MOVE_ALIASES:
         return COTW_MOVE_ALIASES[compact]
+    corrected_text = correct_alias_typos(text, COTW_MOVE_ALIASES)
+    if corrected_text != text:
+        corrected_compact = normalize_move_token(corrected_text)
+        if corrected_text in COTW_MOVE_ALIASES:
+            return COTW_MOVE_ALIASES[corrected_text]
+        if corrected_compact in COTW_MOVE_ALIASES:
+            return COTW_MOVE_ALIASES[corrected_compact]
+        return corrected_text
     return text
 
 

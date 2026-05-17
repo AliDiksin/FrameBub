@@ -159,6 +159,10 @@ def _quiz_game_key(game=None):
         "2xko": "tuco",
         "gg": "ggst",
         "guilty_gear": "ggst",
+        "sfv": "sfv",
+        "sf5": "sfv",
+        "street_fighter_v": "sfv",
+        "street_fighter_5": "sfv",
         "3s": "third_strike",
         "thirdstrike": "third_strike",
         "third_strike": "third_strike",
@@ -204,6 +208,7 @@ def _quiz_extract_game_from_text(text, default="sf6"):
     lowered = str(text or "").lower()
     game_patterns = [
         ("third_strike", r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b"),
+        ("sfv", r"\b(?:sfv|sf5|street\s*fighter\s*(?:v|5))\b"),
         ("mk1", r"\b(?:mk1|mortal\s+kombat\s*(?:1|one)?|kombat)\b"),
         ("tuco", r"\b(?:2xko|tuco)\b"),
         ("bbcf", r"\b(?:bbcf|blazblue|central\s*fiction)\b"),
@@ -700,6 +705,9 @@ def _quiz_has_explicit_strength(text):
         "kk",
         "od",
         "ex",
+        "l",
+        "m",
+        "h",
         "light",
         "medium",
         "heavy",

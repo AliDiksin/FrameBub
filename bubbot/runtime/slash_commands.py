@@ -15,6 +15,7 @@ def register_slash_commands(tree, deps):
     build_frame_embed = deps["build_frame_embed"]
     frame_output_module = deps["frame_output_module"]
     ggst_module = deps["ggst_module"]
+    sfv_module = deps["sfv_module"]
     tuco_module = deps["tuco_module"]
     bbcf_module = deps["bbcf_module"]
     cotw_module = deps["cotw_module"]
@@ -39,6 +40,16 @@ def register_slash_commands(tree, deps):
 
     def ggst_character_choice_values():
         return sorted(display for _char_key, display in character_choices({key: rows for key, rows in ggst_module.GGST_FRAME_DATA.items() if rows}))
+
+
+    def sfv_character_choice_values():
+        return sorted(
+            display
+            for _char_key, display in character_choices(
+                {key: rows for key, rows in sfv_module.SFV_FRAME_DATA.items() if rows},
+                display_fn=lambda char_key, _rows: sfv_module.display_char_name(char_key),
+            )
+        )
 
     def tuco_character_choice_values():
         return sorted(display for _char_key, display in character_choices({key: rows for key, rows in tuco_module.TUCO_FRAME_DATA.items() if rows}))
@@ -103,6 +114,16 @@ def register_slash_commands(tree, deps):
                 values.append(label)
         return values
 
+
+    def sfv_move_choice_values(char_name):
+        char_key = sfv_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        rows = list(sfv_module.SFV_FRAME_DATA.get(char_key, []) or [])
+        for state_rows in (sfv_module.SFV_TRIGGER_FRAME_DATA.get(char_key, {}) or {}).values():
+            rows.extend(state_rows)
+        return [label for _row, label in move_choices(rows, label_fn=move_choice_label, key_fields=("moveName", "numCmd", "state_label")) if label]
+
     def tuco_move_choice_values(char_name):
         char_key = tuco_module.resolve_character_key(char_name)
         if not char_key:
@@ -155,6 +176,19 @@ def register_slash_commands(tree, deps):
                     values.append(value)
         return values
 
+
+    def sfv_char_state_choice_values(char_name):
+        char_key = sfv_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        states = sfv_module.SFV_TRIGGER_FRAME_DATA.get(char_key, {}) or {}
+        labels = []
+        if "trigger1" in states:
+            labels.append("vt1")
+        if "trigger2" in states:
+            labels.append("vt2")
+        return labels
+
     def strip_autocomplete_label(value):
         text = str(value or "").strip()
         text = re.sub(r"\s+\[[^\]]+\]$", "", text).strip()
@@ -183,6 +217,17 @@ def register_slash_commands(tree, deps):
     async def send_ggst_slash_frame(interaction, char_name, move_name, char_state=None):
         query = f"ggst {char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
         await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=ggst_module.find_moves_in_text, embed_fn=ggst_module.build_frame_embed, view_fn=ggst_module.GGSTFrameDataView, game_label="GGST", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
+
+    async def send_sfv_slash_frame(interaction, char_name, move_name, char_state=None):
+        if not char_state:
+            if re.search(r"\[\s*v-?trigger\s*1\s*\]", str(move_name or ""), re.IGNORECASE):
+                char_state = "vt1"
+            elif re.search(r"\[\s*v-?trigger\s*2\s*\]", str(move_name or ""), re.IGNORECASE):
+                char_state = "vt2"
+        query = f"sfv {char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=sfv_module.find_moves_in_text, embed_fn=sfv_module.build_frame_embed, view_fn=sfv_module.SFVFrameDataView, game_label="SFV", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
 
     async def send_tuco_slash_frame(interaction, char_name, move_name):
         query = f"2xko {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
@@ -237,6 +282,11 @@ def register_slash_commands(tree, deps):
     @discord.app_commands.describe(char_name="The characters name", move_name="The move name", char_state="Optional char specific states like Installs.")
     async def ggst(interaction: discord.Interaction, char_name: str, move_name: str, char_state: str = None):
         return await send_ggst_slash_frame(interaction, char_name, move_name, char_state)
+
+    @tree.command(name="sfv")
+    @discord.app_commands.describe(char_name="The character name", move_name="The move name or input", char_state="Optional V-Trigger state: vt1 or vt2")
+    async def sfv(interaction: discord.Interaction, char_name: str, move_name: str, char_state: str = None):
+        return await send_sfv_slash_frame(interaction, char_name, move_name, char_state)
 
     @tree.command(name="2xko")
     @discord.app_commands.describe(char_name="The champion name", move_name="The move name or input")
@@ -304,6 +354,22 @@ def register_slash_commands(tree, deps):
         if not interaction.namespace.char_name:
             return slash_choices([])
         return slash_choices(autocomplete_values(current, ggst_move_choice_values(interaction.namespace.char_name)))
+
+    @sfv.autocomplete("char_name")
+    async def sfv_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, sfv_character_choice_values()))
+
+    @sfv.autocomplete("char_state")
+    async def sfv_char_state_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, sfv_char_state_choice_values(interaction.namespace.char_name)))
+
+    @sfv.autocomplete("move_name")
+    async def sfv_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, sfv_move_choice_values(interaction.namespace.char_name)))
 
     @tuco.autocomplete("char_name")
     async def tuco_char_autocomplete(interaction: discord.Interaction, current: str):

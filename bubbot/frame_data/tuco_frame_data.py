@@ -16,7 +16,7 @@ from bubbot.utils.discord_formatting import (
 )
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words
 
 
 TUCO_FRAME_DATA_FILE = "2XKO Frame Data.ods"
@@ -132,6 +132,14 @@ def normalize_move_query(query):
         return TUCO_MOVE_ALIASES[text]
     if compact in TUCO_MOVE_ALIASES:
         return TUCO_MOVE_ALIASES[compact]
+    corrected_text = correct_alias_typos(text, TUCO_MOVE_ALIASES)
+    if corrected_text != text:
+        corrected_compact = normalize_move_token(corrected_text)
+        if corrected_text in TUCO_MOVE_ALIASES:
+            return TUCO_MOVE_ALIASES[corrected_text]
+        if corrected_compact in TUCO_MOVE_ALIASES:
+            return TUCO_MOVE_ALIASES[corrected_compact]
+        return corrected_text
     return text
 
 
@@ -393,18 +401,13 @@ class TUCOFrameDataView(discord.ui.View):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
-        self.hitbox_button = TUCOHitboxButton(row, showing_hitbox=True)
         self.notes_button = TUCONotesButton(row)
-        self.add_item(self.hitbox_button)
         self.add_item(self.notes_button)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
     def build_embed(self):
-        embed = build_frame_embed(self.row, show_notes=self.show_notes)
-        if self.hitbox_button.showing_hitbox and self.hitbox_button.hitbox_links:
-            embed.set_image(url=self.hitbox_button.hitbox_links[0])
-        return embed
+        return build_frame_embed(self.row, show_notes=self.show_notes)
 
 
 async def send_frame_response(message, rows):

@@ -15,7 +15,7 @@ from bubbot.utils.discord_formatting import (
     truncate_value as shared_truncate_value,
 )
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words
 
 
 MK1_MOVE_LIST_FILE = os.path.join("mk1", "move_list.json")
@@ -219,6 +219,14 @@ def normalize_move_query(query):
         return MK1_MOVE_ALIASES[normalized_words]
     if compact in MK1_MOVE_ALIASES:
         return MK1_MOVE_ALIASES[compact]
+    corrected_words = correct_alias_typos(normalized_words, MK1_MOVE_ALIASES)
+    if corrected_words != normalized_words:
+        corrected_compact = normalize_move_token(corrected_words)
+        if corrected_words in MK1_MOVE_ALIASES:
+            return MK1_MOVE_ALIASES[corrected_words]
+        if corrected_compact in MK1_MOVE_ALIASES:
+            return MK1_MOVE_ALIASES[corrected_compact]
+        return corrected_words
     return normalized_words
 
 

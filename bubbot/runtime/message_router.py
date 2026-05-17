@@ -23,6 +23,7 @@ import bubbot.frame_data.sf6_lookup as sf6_lookup
 import bubbot.frame_data.sf6_parser as sf6_parser
 import bubbot.frame_data.sf6_prompt_replies as sf6_prompt_replies
 import bubbot.frame_data.ggst_frame_data as ggst_module
+import bubbot.frame_data.sfv_frame_data as sfv_module
 import bubbot.frame_data.tuco_frame_data as tuco_module
 import bubbot.frame_data.bbcf_frame_data as bbcf_module
 import bubbot.frame_data.cotw_frame_data as cotw_module
@@ -75,6 +76,214 @@ def has_explicit_gif_lookup_intent(text):
         or re.search(r"\bhit\s*box(?:es)?\b", cleaned)
         or re.search(r"\bhitbox(?:es)?\b", cleaned)
     )
+
+
+DISAMBIGUATION_GAME_CONFIGS = [
+    {
+        "label": "SFV",
+        "prefix": "sfv",
+        "module": sfv_module,
+        "prompt_re": re.compile(r"Multiple SFV moves match (.+?)\. Please specify one:"),
+    },
+    {
+        "label": "GGST",
+        "prefix": "ggst",
+        "module": ggst_module,
+        "prompt_re": re.compile(r"Multiple GGST moves match (.+?)\. Please specify one:"),
+    },
+    {
+        "label": "2XKO",
+        "prefix": "2xko",
+        "module": tuco_module,
+        "prompt_re": re.compile(r"Multiple 2XKO moves match (.+?)\. Please specify one:"),
+    },
+    {
+        "label": "BBCF",
+        "prefix": "bbcf",
+        "module": bbcf_module,
+        "prompt_re": re.compile(r"Multiple BBCF moves match (.+?)\. Please specify one:"),
+    },
+    {
+        "label": "COTW",
+        "prefix": "cotw",
+        "module": cotw_module,
+        "prompt_re": re.compile(r"Multiple COTW moves match (.+?)\. Please specify one:"),
+    },
+    {
+        "label": "Third Strike",
+        "prefix": "3s",
+        "module": third_strike_module,
+        "prompt_re": re.compile(r"Multiple Third Strike moves match (.+?)\. Please specify one:"),
+    },
+    {
+        "label": "MK1",
+        "prefix": "mk1",
+        "module": mk1_module,
+        "prompt_re": re.compile(r"Multiple MK1 moves match (.+?)\. Please specify one:"),
+    },
+]
+
+
+def _compact_disambiguation_text(text):
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+def _parse_disambiguation_options(prompt_text):
+    options = []
+    for raw_line in str(prompt_text or "").splitlines():
+        line = raw_line.strip()
+        option_match = re.match(r"^[\-•·]\s*(.+?):\s*`([^`]+)`(?:\s*\[([^\]]+)\])?", line)
+        if option_match:
+            options.append(
+                {
+                    "name": option_match.group(1).strip(),
+                    "cmd": option_match.group(2).strip(),
+                    "version": (option_match.group(3) or "").strip(),
+                }
+            )
+    return options
+
+
+def _select_disambiguation_option(reply_text, options):
+    reply_compact = _compact_disambiguation_text(reply_text)
+    if not reply_compact or not options:
+        return None
+
+    exact_matches = []
+    contains_matches = []
+    for option in options:
+        terms = {
+            _compact_disambiguation_text(option.get("name")),
+            _compact_disambiguation_text(option.get("cmd")),
+            _compact_disambiguation_text(option.get("version")),
+        }
+        terms.discard("")
+        if reply_compact in terms:
+            exact_matches.append(option)
+        elif any(reply_compact in term for term in terms):
+            contains_matches.append(option)
+
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(contains_matches) == 1:
+        return contains_matches[0]
+    return None
+
+
+def _row_matches_disambiguation_option(row, option):
+    row_name = _compact_disambiguation_text(row.get("moveName"))
+    row_char_name = _compact_disambiguation_text(row.get("char_name"))
+    row_cmd = _compact_disambiguation_text(row.get("numCmd"))
+    row_version = _compact_disambiguation_text(row.get("version"))
+    row_state_label = _compact_disambiguation_text(row.get("state_label"))
+    option_name = _compact_disambiguation_text(option.get("name"))
+    option_cmd = _compact_disambiguation_text(option.get("cmd"))
+    option_version = _compact_disambiguation_text(option.get("version"))
+    if option_name and row_name != option_name and option_name != f"{row_char_name}{row_name}":
+        return False
+    if option_cmd and row_cmd != option_cmd:
+        return False
+    if option_version and option_version not in {row_version, row_state_label}:
+        return False
+    return True
+
+
+def _find_selected_disambiguation_row(rows, option):
+    if not option:
+        return None
+    matches = [row for row in rows or [] if _row_matches_disambiguation_option(row, option)]
+    return matches[0] if len(matches) == 1 else None
+
+
+async def _fetch_referenced_message(message):
+    if not message.reference or not message.reference.message_id:
+        return None
+    if message.reference.cached_message:
+        return message.reference.cached_message
+    return await message.channel.fetch_message(message.reference.message_id)
+
+
+def _reply_output_mode_from_source_text(source_text):
+    source_lower = strip_discord_mentions(source_text or "").lower()
+    wants_hitbox = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", source_lower))
+    wants_frames = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data|notes?)\b", source_lower)) or not wants_hitbox
+    if wants_hitbox and wants_frames:
+        return "both"
+    if wants_hitbox:
+        return "gif"
+    return "frame"
+
+
+async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
+    if not message.reference:
+        return False
+    try:
+        replied_msg = await _fetch_referenced_message(message)
+    except (discord.NotFound, discord.Forbidden):
+        return False
+    if not replied_msg or replied_msg.author != client.user:
+        return False
+
+    replied_content = replied_msg.content or ""
+    config = None
+    char_hint = ""
+    for candidate in DISAMBIGUATION_GAME_CONFIGS:
+        prompt_match = candidate["prompt_re"].search(replied_content)
+        if prompt_match:
+            config = candidate
+            char_hint = prompt_match.group(1).strip()
+            break
+    if not config:
+        return False
+
+    selected_option = _select_disambiguation_option(content_no_mentions, _parse_disambiguation_options(replied_content))
+    if not selected_option:
+        await message.reply(replied_content)
+        return True
+
+    source_text = ""
+    if replied_msg.reference and replied_msg.reference.message_id:
+        try:
+            prompt_source = await _fetch_referenced_message(replied_msg)
+            source_text = prompt_source.content if prompt_source else ""
+        except (discord.NotFound, discord.Forbidden):
+            source_text = ""
+
+    output_mode = _reply_output_mode_from_source_text(source_text)
+    module = config["module"]
+
+    source_payload = module.find_moves_in_text(strip_discord_mentions(source_text).lower()) if source_text else {}
+    selected_row = _find_selected_disambiguation_row(source_payload.get("rows", []) or [], selected_option)
+    if selected_row:
+        rows = [selected_row]
+        payload = {"rows": rows}
+    else:
+        option_name = selected_option.get("name") or selected_option.get("cmd") or ""
+        version_text = f" {selected_option.get('version')}" if selected_option.get("version") else ""
+        reply_query = f"{config['prefix']} {char_hint} {option_name}{version_text}".strip()
+        if config["label"] == "Third Strike" and third_strike_module.query_requests_genei_jin(source_text):
+            reply_query = f"{reply_query} genei jin".strip()
+        if output_mode == "gif":
+            reply_query = f"{reply_query} hitbox".strip()
+        elif output_mode == "both":
+            reply_query = f"{reply_query} hitbox framedata".strip()
+        else:
+            reply_query = f"{reply_query} framedata".strip()
+        payload = module.find_moves_in_text(reply_query.lower())
+        rows = payload.get("rows", []) or []
+
+    if payload.get("needs_disambiguation"):
+        await message.reply(payload.get("data", f"Please specify which {config['label']} move you mean."))
+    elif rows and output_mode == "gif":
+        await module.send_hitbox_response(message, rows)
+    elif rows and output_mode == "both":
+        await module.send_frame_response(message, rows)
+        await module.send_hitbox_response(message, rows)
+    elif rows:
+        await module.send_frame_response(message, rows)
+    else:
+        await message.reply(replied_content)
+    return True
 
 buenavista_extension.log_status()
 
@@ -446,6 +655,7 @@ async def on_ready():
             "menu_system": menu_system,
             "frame_output_module": frame_output_module,
             "ggst_module": ggst_module,
+            "sfv_module": sfv_module,
             "tuco_module": tuco_module,
             "bbcf_module": bbcf_module,
             "cotw_module": cotw_module,
@@ -512,6 +722,11 @@ async def _handle_message(message):
             ggst_module.GGST_CHARACTER_ALIASES,
             ggst_module.GGST_FRAME_DATA.keys(),
         )
+        sfv_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            sfv_module.SFV_CHARACTER_ALIASES,
+            sfv_module.SFV_FRAME_DATA.keys(),
+        )
         tuco_char_key = resolve_character_from_aliases_in_text(
             content_lower,
             tuco_module.TUCO_CHARACTER_ALIASES,
@@ -533,6 +748,7 @@ async def _handle_message(message):
             third_strike_module.THIRD_STRIKE_FRAME_DATA.keys(),
         )
         explicit_ggst_moves_query = bool(re.search(r"\b(?:ggst|strive|guilty\s+gear|guilty)\b", content_lower))
+        explicit_sfv_moves_query = bool(re.search(r"\b(?:sfv|sf5|street\s*fighter\s*(?:v|5))\b", content_lower))
         explicit_tuco_moves_query = bool(re.search(r"\b(?:2xko|tuco)\b", content_lower))
         explicit_bbcf_moves_query = bool(re.search(r"\b(?:bbcf|blazblue|central\s*fiction)\b", content_lower))
         explicit_cotw_moves_query = bool(re.search(r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b", content_lower))
@@ -552,11 +768,17 @@ async def _handle_message(message):
         if explicit_ggst_moves_query and ggst_char_key:
             await menu_system.send_character_moves_menu(message.channel, "ggst", ggst_char_key, owner_id=message.author.id)
             return
+        if explicit_sfv_moves_query and sfv_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "sfv", sfv_char_key, owner_id=message.author.id)
+            return
         if sf6_char_key:
             await menu_system.send_character_moves_menu(message.channel, "sf6", sf6_char_key, owner_id=message.author.id)
             return
         if ggst_char_key:
             await menu_system.send_character_moves_menu(message.channel, "ggst", ggst_char_key, owner_id=message.author.id)
+            return
+        if sfv_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "sfv", sfv_char_key, owner_id=message.author.id)
             return
         if tuco_char_key:
             await menu_system.send_character_moves_menu(message.channel, "tuco", tuco_char_key, owner_id=message.author.id)
@@ -576,6 +798,9 @@ async def _handle_message(message):
 
     quiz_result = await quiz_module.route_message(client, message, content_lower)
     if quiz_result is not False:
+        return
+
+    if await _handle_cross_game_disambiguation_reply(message, content_no_mentions):
         return
 
     if await buenavista_extension.maybe_handle_private_message(
@@ -804,6 +1029,11 @@ async def _handle_message(message):
         ggst_module.GGST_CHARACTER_ALIASES,
         ggst_module.GGST_FRAME_DATA.keys(),
     )
+    sfv_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        sfv_module.SFV_CHARACTER_ALIASES,
+        sfv_module.SFV_FRAME_DATA.keys(),
+    )
     tuco_exact_character_query = text_mentions_character_from_aliases(
         content_lower,
         tuco_module.TUCO_CHARACTER_ALIASES,
@@ -832,6 +1062,7 @@ async def _handle_message(message):
     fd_context_payload = find_moves_in_text(content_lower)
 
     ggst_payload = ggst_module.find_moves_in_text(content_lower)
+    sfv_payload = sfv_module.find_moves_in_text(content_lower)
     tuco_payload = tuco_module.find_moves_in_text(content_lower)
     bbcf_payload = bbcf_module.find_moves_in_text(content_lower)
     cotw_payload = cotw_module.find_moves_in_text(content_lower)
@@ -881,6 +1112,59 @@ async def _handle_message(message):
         await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
         return
 
+    sfv_rows = sfv_payload.get("rows", [])
+    sfv_character_query = bool(sfv_exact_character_query or sfv_payload.get("char_found"))
+    sfv_lookup_intent = bool(
+        sfv_payload.get("frame_query")
+        or sfv_payload.get("gif_query")
+        or sfv_payload.get("game_query")
+        or sfv_payload.get("notes_query")
+        or sfv_module.query_has_sfv_notation(content_lower)
+    )
+    sfv_route_allowed = bool(
+        sfv_payload.get("game_query")
+        or (
+            sfv_character_query
+            and sfv_module.query_has_sfv_notation(content_lower)
+            and not sf6_exact_character_query
+            and not ggst_exact_character_query
+            and not tuco_exact_character_query
+            and not bbcf_exact_character_query
+            and not cotw_exact_character_query
+            and not third_strike_exact_character_query
+            and not mk1_exact_character_query
+        )
+        or (
+            sfv_character_query
+            and sfv_rows
+            and not sf6_exact_character_query
+            and not ggst_exact_character_query
+            and not tuco_exact_character_query
+            and not bbcf_exact_character_query
+            and not cotw_exact_character_query
+            and not third_strike_exact_character_query
+            and not mk1_exact_character_query
+        )
+    )
+    if client.user.mentioned_in(message) and sfv_route_allowed and sfv_lookup_intent and sfv_rows:
+        if sfv_payload.get("needs_disambiguation"):
+            await message.reply(sfv_payload.get("data", "Please specify which SFV move you mean."))
+        elif sfv_payload.get("gif_query") and sfv_payload.get("frame_query"):
+            await sfv_module.send_frame_response(message, sfv_rows)
+            await sfv_module.send_hitbox_response(message, sfv_rows)
+        elif sfv_payload.get("gif_query"):
+            await sfv_module.send_hitbox_response(message, sfv_rows)
+        else:
+            await sfv_module.send_frame_response(message, sfv_rows)
+        return
+    elif client.user.mentioned_in(message) and sfv_route_allowed and sfv_lookup_intent and sfv_payload.get("needs_disambiguation"):
+        await message.reply(sfv_payload.get("data", "Please specify which SFV move you mean."))
+        return
+    elif client.user.mentioned_in(message) and sfv_route_allowed and sfv_lookup_intent and sfv_payload.get("explicit_move_attempt"):
+        char_label = sfv_module.display_char_name(sfv_payload.get("char_key"))
+        await message.reply(f"I have SFV scrolls for {char_label}, but I couldn't find that move.")
+        return
+
     tuco_rows = tuco_payload.get("rows", [])
     tuco_lookup_intent = bool(
         tuco_payload.get("frame_query")
@@ -889,7 +1173,7 @@ async def _handle_message(message):
     )
     tuco_route_allowed = bool(
         tuco_payload.get("game_query")
-        or (tuco_exact_character_query and not sf6_exact_character_query and not ggst_exact_character_query)
+        or (tuco_exact_character_query and not sf6_exact_character_query and not ggst_exact_character_query and not sfv_exact_character_query)
     )
     if client.user.mentioned_in(message) and tuco_route_allowed and tuco_lookup_intent and tuco_rows:
         if tuco_payload.get("needs_disambiguation"):
@@ -925,6 +1209,7 @@ async def _handle_message(message):
             and bbcf_rows
             and not sf6_exact_character_query
             and not ggst_exact_character_query
+            and not sfv_exact_character_query
             and not tuco_exact_character_query
             and not third_strike_exact_character_query
         )
@@ -1044,6 +1329,7 @@ async def _handle_message(message):
             and (mk1_rows or mk1_combo_rows)
             and not sf6_exact_character_query
             and not ggst_exact_character_query
+            and not sfv_exact_character_query
             and not tuco_exact_character_query
             and not bbcf_exact_character_query
             and not cotw_exact_character_query
@@ -1083,6 +1369,19 @@ async def _handle_message(message):
             await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
         else:
             await mk1_module.send_frame_response(message, mk1_rows)
+        return
+
+    if (
+        client.user.mentioned_in(message)
+        and sfv_route_allowed
+        and not sfv_lookup_intent
+        and not message.reference
+        and (sfv_rows or sfv_payload.get("needs_disambiguation"))
+    ):
+        if sfv_payload.get("needs_disambiguation"):
+            await message.reply(sfv_payload.get("data", "Please specify which SFV move you mean."))
+        else:
+            await sfv_module.send_frame_response(message, sfv_rows)
         return
 
     if (
@@ -1764,6 +2063,7 @@ register_slash_commands(
         "build_frame_embed": build_frame_embed,
         "frame_output_module": frame_output_module,
         "ggst_module": ggst_module,
+        "sfv_module": sfv_module,
         "tuco_module": tuco_module,
         "bbcf_module": bbcf_module,
         "cotw_module": cotw_module,

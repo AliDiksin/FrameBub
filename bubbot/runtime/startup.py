@@ -12,6 +12,7 @@ async def handle_ready(deps):
     menu_system = deps["menu_system"]
     frame_output_module = deps["frame_output_module"]
     ggst_module = deps["ggst_module"]
+    sfv_module = deps["sfv_module"]
     tuco_module = deps["tuco_module"]
     bbcf_module = deps["bbcf_module"]
     cotw_module = deps["cotw_module"]
@@ -45,6 +46,7 @@ async def handle_ready(deps):
 
     def _load_all_game_data():
         load_frame_data()
+        sfv_module.load_frame_data()
         ggst_module.load_frame_data()
         tuco_module.load_frame_data()
         bbcf_module.load_frame_data()
@@ -93,6 +95,19 @@ async def handle_ready(deps):
                 "build_frame_embed": ggst_module.build_frame_embed,
                 "get_notes_text": ggst_module.get_notes_text,
                 "game_terms": ("ggst", "guilty gear strive"),
+            },
+            "sfv": {
+                "label": "Street Fighter V",
+                "data": {
+                    char_key: list(rows or []) + [trigger_row for state_rows in (sfv_module.SFV_TRIGGER_FRAME_DATA.get(char_key, {}) or {}).values() for trigger_row in state_rows]
+                    for char_key, rows in sfv_module.SFV_FRAME_DATA.items()
+                },
+                "aliases": sfv_module.SFV_CHARACTER_ALIASES,
+                "resolve_character_key": sfv_module.resolve_character_key,
+                "find_moves_in_text": sfv_module.find_moves_in_text,
+                "build_frame_embed": sfv_module.build_frame_embed,
+                "get_notes_text": sfv_module.get_notes_text,
+                "game_terms": ("sfv", "street fighter v"),
             },
             "tuco": {
                 "label": "2XKO",
@@ -165,6 +180,9 @@ async def handle_ready(deps):
         ggst_character_aliases=ggst_module.GGST_CHARACTER_ALIASES,
         ggst_supplemental_frame_data=ggst_module.GGST_SUPPLEMENTAL_FRAME_DATA,
         ggst_state_frame_data=ggst_module.GGST_STATE_FRAME_DATA,
+        sfv_frame_data=sfv_module.SFV_FRAME_DATA,
+        sfv_character_aliases=sfv_module.SFV_CHARACTER_ALIASES,
+        sfv_trigger_frame_data=sfv_module.SFV_TRIGGER_FRAME_DATA,
         tuco_frame_data=tuco_module.TUCO_FRAME_DATA,
         tuco_character_aliases=tuco_module.TUCO_CHARACTER_ALIASES,
         bbcf_frame_data=bbcf_module.BBCF_FRAME_DATA,
@@ -179,6 +197,7 @@ async def handle_ready(deps):
         quiz_module_ref=quiz_module,
         build_sf6_frame_embed_fn=build_frame_embed,
         build_ggst_frame_embed_fn=ggst_module.build_frame_embed,
+        build_sfv_frame_embed_fn=sfv_module.build_frame_embed,
         build_tuco_frame_embed_fn=tuco_module.build_frame_embed,
         build_bbcf_frame_embed_fn=bbcf_module.build_frame_embed,
         build_cotw_frame_embed_fn=cotw_module.build_frame_embed,

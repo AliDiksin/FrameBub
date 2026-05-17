@@ -1,3 +1,4 @@
+import difflib
 import re
 
 
@@ -72,3 +73,34 @@ def strip_noise_words(text):
     """Remove common English filler words and possessives from query text."""
     text = _NOISE_PATTERN.sub(" ", str(text or "").lower())
     return re.sub(r"\s+", " ", text).strip()
+
+
+def alias_word_vocabulary(*alias_maps, min_word_len=4):
+    """Build typo-correction vocabulary from human-readable alias words."""
+    words = set()
+    for alias_map in alias_maps:
+        for alias in (alias_map or {}).keys():
+            for word in word_tokens(alias):
+                if len(word) >= min_word_len:
+                    words.add(word)
+    return sorted(words)
+
+
+def correct_alias_typos(text, *alias_maps, min_word_len=4, cutoff=0.8):
+    """Correct one-token typos against alias words without touching short buttons."""
+    words = alias_word_vocabulary(*alias_maps, min_word_len=min_word_len)
+    if not words:
+        return text
+    corrected_tokens = []
+    changed = False
+    for token in str(text or "").split():
+        if len(token) < min_word_len or token in words:
+            corrected_tokens.append(token)
+            continue
+        matches = difflib.get_close_matches(token, words, n=2, cutoff=cutoff)
+        if len(matches) == 1:
+            corrected_tokens.append(matches[0])
+            changed = True
+        else:
+            corrected_tokens.append(token)
+    return " ".join(corrected_tokens) if changed else text

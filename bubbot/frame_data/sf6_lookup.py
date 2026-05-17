@@ -1,6 +1,8 @@
 import difflib
 import re
 
+from bubbot.utils.text_utils import correct_alias_typos
+
 
 def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     frame_data = deps["FRAME_DATA"]
@@ -372,6 +374,17 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         if resolved_candidate != candidate or candidate in char_aliases or candidate in input_aliases:
             move_input = resolved_candidate
             break
+
+    if move_input not in char_aliases and move_input not in input_aliases:
+        corrected_move_input = correct_alias_typos(move_input, char_aliases, input_aliases)
+        if corrected_move_input != move_input:
+            corrected_move_input = normalize_motion_strength_aliases(corrected_move_input)
+            corrected_move_input = resolve_strength_special_input(corrected_move_input)
+            corrected_candidate = resolve_input_alias_chain(corrected_move_input)
+            if corrected_candidate != corrected_move_input or corrected_move_input in char_aliases or corrected_move_input in input_aliases:
+                move_input = corrected_candidate
+            else:
+                move_input = corrected_move_input
 
     def resolve_fuzzy_alias_target(raw_input):
         raw_compact = re.sub(r"[^a-z0-9]", "", str(raw_input or "").lower())

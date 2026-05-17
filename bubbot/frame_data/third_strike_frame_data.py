@@ -15,7 +15,7 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words
 
 
 THIRD_STRIKE_FRAME_DATA_FILE = "Third Strike Frame Data.ods"
@@ -202,6 +202,10 @@ def normalize_move_query(query, char_key=None):
             text = state_stripped
     compact = normalize_move_token(text)
     char_aliases = THIRD_STRIKE_CHARACTER_MOVE_ALIASES.get(str(char_key or "").strip().lower(), {})
+    corrected_text = correct_alias_typos(text, char_aliases, THIRD_STRIKE_MOVE_ALIASES)
+    if corrected_text != text:
+        text = corrected_text
+        compact = normalize_move_token(text)
 
     strength_aliases = {
         "l": "L",
@@ -550,11 +554,12 @@ def get_hitbox_links(row, limit=4):
     state_key = normalize_move_token(row.get("state_key", ""))
     if state_key:
         state_links = (THIRD_STRIKE_HITBOX_DATA.get(char_key, {}) or {}).get(normalize_move_token(f"{num_cmd_key} {state_key}"), [])
-        clean_state_links = [str(link or "").strip() for link in list(state_links or [])[:limit] if str(link or "").strip()]
+        clean_state_links = [str(link or "").strip() for link in list(state_links or []) if str(link or "").strip()]
         if clean_state_links:
-            return clean_state_links
+            return clean_state_links[:limit] if limit is not None else clean_state_links
     links = (THIRD_STRIKE_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
-    return [str(link or "").strip() for link in list(links or [])[:limit] if str(link or "").strip()]
+    clean_links = [str(link or "").strip() for link in list(links or []) if str(link or "").strip()]
+    return clean_links[:limit] if limit is not None else clean_links
 
 
 def clean_value(value, default=""):
@@ -657,6 +662,22 @@ class ThirdStrikeHitboxButton(discord.ui.Button):
         await interaction.response.edit_message(embed=embed, view=self.view)
 
 
+class ThirdStrikeAllHitboxImagesButton(discord.ui.Button):
+    def __init__(self, row):
+        self.hitbox_links = get_hitbox_links(row, limit=None)
+        super().__init__(
+            label="Show All Images",
+            style=discord.ButtonStyle.secondary,
+            disabled=len(self.hitbox_links) <= 1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if len(self.hitbox_links) <= 1:
+            await interaction.response.defer()
+            return
+        await interaction.response.send_message("\n".join(self.hitbox_links))
+
+
 class ThirdStrikeNotesButton(discord.ui.Button):
     def __init__(self, row):
         self.frame_row = row
@@ -687,16 +708,24 @@ class ThirdStrikeFrameDataView(discord.ui.View):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
-        self.hitbox_button = ThirdStrikeHitboxButton(row, showing_hitbox=True)
+        self.all_hitbox_images_button = ThirdStrikeAllHitboxImagesButton(row)
+        if len(self.all_hitbox_images_button.hitbox_links) > 1:
+            self.hitbox_button = None
+            self.add_item(self.all_hitbox_images_button)
+        else:
+            self.hitbox_button = ThirdStrikeHitboxButton(row, showing_hitbox=True)
+            self.add_item(self.hitbox_button)
         self.notes_button = ThirdStrikeNotesButton(row)
-        self.add_item(self.hitbox_button)
         self.add_item(self.notes_button)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
     def build_embed(self):
         embed = build_frame_embed(self.row, show_notes=self.show_notes)
-        if self.hitbox_button.showing_hitbox and self.hitbox_button.hitbox_links:
+        if len(self.all_hitbox_images_button.hitbox_links) > 1:
+            embed.set_image(url=self.all_hitbox_images_button.hitbox_links[0])
+            return embed
+        if self.hitbox_button and self.hitbox_button.showing_hitbox and self.hitbox_button.hitbox_links:
             embed.set_image(url=self.hitbox_button.hitbox_links[0])
         return embed
 

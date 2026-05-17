@@ -27,7 +27,7 @@ from bubbot.data.ggst_aliases import (
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.row_utils import row_key
-from bubbot.utils.text_utils import compact_key, strip_noise_words, word_tokens
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words, word_tokens
 
 
 GGST_FRAME_DATA_FILE = "GGST Frame Data.ods"
@@ -248,6 +248,14 @@ def normalize_move_query(query):
         return GGST_MOVE_ALIASES[text]
     if compact in GGST_MOVE_ALIASES:
         return GGST_MOVE_ALIASES[compact]
+    corrected_text = correct_alias_typos(text, GGST_MOVE_ALIASES)
+    if corrected_text != text:
+        corrected_compact = normalize_key(corrected_text)
+        if corrected_text in GGST_MOVE_ALIASES:
+            return GGST_MOVE_ALIASES[corrected_text]
+        if corrected_compact in GGST_MOVE_ALIASES:
+            return GGST_MOVE_ALIASES[corrected_compact]
+        return corrected_text
     return text
 
 
@@ -932,7 +940,8 @@ def get_hitbox_links(row, limit=4):
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
     char_links = GGST_HITBOX_DATA.get(char_key, {})
     links = char_links.get(num_cmd_key, []) if isinstance(char_links, dict) else []
-    return [resize_mediawiki_thumb_url(link) for link in list(links or [])[:limit]]
+    clean_links = [resize_mediawiki_thumb_url(link) for link in list(links or []) if str(link or "").strip()]
+    return clean_links[:limit] if limit is not None else clean_links
 
 
 class GGSTHitboxButton(discord.ui.Button):
@@ -968,6 +977,22 @@ class GGSTHitboxButton(discord.ui.Button):
         if target_image_url:
             embed.set_image(url=target_image_url)
         await interaction.response.edit_message(embed=embed, view=self.view)
+
+
+class GGSTAllHitboxImagesButton(discord.ui.Button):
+    def __init__(self, row):
+        self.hitbox_links = get_hitbox_links(row, limit=None)
+        super().__init__(
+            label="Show All Images",
+            style=discord.ButtonStyle.secondary,
+            disabled=len(self.hitbox_links) <= 1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if len(self.hitbox_links) <= 1:
+            await interaction.response.defer()
+            return
+        await interaction.response.send_message("\n".join(self.hitbox_links))
 
 
 class GGSTNotesButton(discord.ui.Button):
@@ -1008,16 +1033,24 @@ class GGSTFrameDataView(discord.ui.View):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
-        self.hitbox_button = GGSTHitboxButton(row, showing_hitbox=True)
+        self.all_hitbox_images_button = GGSTAllHitboxImagesButton(row)
+        if len(self.all_hitbox_images_button.hitbox_links) > 1:
+            self.hitbox_button = None
+            self.add_item(self.all_hitbox_images_button)
+        else:
+            self.hitbox_button = GGSTHitboxButton(row, showing_hitbox=True)
+            self.add_item(self.hitbox_button)
         self.notes_button = GGSTNotesButton(row)
-        self.add_item(self.hitbox_button)
         self.add_item(self.notes_button)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
     def build_embed(self):
         embed = build_frame_embed(self.row, show_notes=self.show_notes)
-        if self.hitbox_button.showing_hitbox and self.hitbox_button.hitbox_links:
+        if len(self.all_hitbox_images_button.hitbox_links) > 1:
+            embed.set_image(url=self.all_hitbox_images_button.hitbox_links[0])
+            return embed
+        if self.hitbox_button and self.hitbox_button.showing_hitbox and self.hitbox_button.hitbox_links:
             embed.set_image(url=self.hitbox_button.hitbox_links[0])
         return embed
 

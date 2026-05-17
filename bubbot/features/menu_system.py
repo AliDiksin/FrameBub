@@ -13,6 +13,9 @@ GGST_FRAME_DATA = {}
 GGST_CHARACTER_ALIASES = {}
 GGST_SUPPLEMENTAL_FRAME_DATA = {}
 GGST_STATE_FRAME_DATA = {}
+SFV_FRAME_DATA = {}
+SFV_CHARACTER_ALIASES = {}
+SFV_TRIGGER_FRAME_DATA = {}
 TUCO_FRAME_DATA = {}
 TUCO_CHARACTER_ALIASES = {}
 BBCF_FRAME_DATA = {}
@@ -28,6 +31,7 @@ MK1_COMBO_DATA = {}
 quiz_module = None
 build_sf6_frame_embed = None
 build_ggst_frame_embed = None
+build_sfv_frame_embed = None
 build_tuco_frame_embed = None
 build_bbcf_frame_embed = None
 build_cotw_frame_embed = None
@@ -42,6 +46,9 @@ def configure(
     ggst_character_aliases=None,
     ggst_supplemental_frame_data=None,
     ggst_state_frame_data=None,
+    sfv_frame_data=None,
+    sfv_character_aliases=None,
+    sfv_trigger_frame_data=None,
     tuco_frame_data=None,
     tuco_character_aliases=None,
     bbcf_frame_data=None,
@@ -56,20 +63,24 @@ def configure(
     quiz_module_ref=None,
     build_sf6_frame_embed_fn=None,
     build_ggst_frame_embed_fn=None,
+    build_sfv_frame_embed_fn=None,
     build_tuco_frame_embed_fn=None,
     build_bbcf_frame_embed_fn=None,
     build_cotw_frame_embed_fn=None,
     build_third_strike_frame_embed_fn=None,
     send_frame_embeds_with_views_fn=None,
 ):
-    global FRAME_DATA, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES, MK1_COMBO_DATA
-    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, send_frame_embeds_with_views
+    global FRAME_DATA, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES, MK1_COMBO_DATA
+    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_sfv_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, send_frame_embeds_with_views
     FRAME_DATA = frame_data or {}
     CHARACTER_ALIASES = character_aliases or {}
     GGST_FRAME_DATA = ggst_frame_data or {}
     GGST_CHARACTER_ALIASES = ggst_character_aliases or {}
     GGST_SUPPLEMENTAL_FRAME_DATA = ggst_supplemental_frame_data or {}
     GGST_STATE_FRAME_DATA = ggst_state_frame_data or {}
+    SFV_FRAME_DATA = sfv_frame_data or {}
+    SFV_CHARACTER_ALIASES = sfv_character_aliases or {}
+    SFV_TRIGGER_FRAME_DATA = sfv_trigger_frame_data or {}
     TUCO_FRAME_DATA = tuco_frame_data or {}
     TUCO_CHARACTER_ALIASES = tuco_character_aliases or {}
     BBCF_FRAME_DATA = bbcf_frame_data or {}
@@ -84,6 +95,7 @@ def configure(
     quiz_module = quiz_module_ref
     build_sf6_frame_embed = build_sf6_frame_embed_fn
     build_ggst_frame_embed = build_ggst_frame_embed_fn
+    build_sfv_frame_embed = build_sfv_frame_embed_fn
     build_tuco_frame_embed = build_tuco_frame_embed_fn
     build_bbcf_frame_embed = build_bbcf_frame_embed_fn
     build_cotw_frame_embed = build_cotw_frame_embed_fn
@@ -117,6 +129,11 @@ def _ggst_character_list():
     return character_choices(GGST_FRAME_DATA)
 
 
+def _sfv_character_list():
+    from bubbot.frame_data.sfv_frame_data import display_char_name
+    return character_choices(SFV_FRAME_DATA, display_fn=lambda char_key, _rows: display_char_name(char_key))
+
+
 def _tuco_character_list():
     return character_choices(TUCO_FRAME_DATA)
 
@@ -147,6 +164,8 @@ def _game_label(game):
         return "Street Fighter 6"
     if game == "ggst":
         return "Guilty Gear Strive"
+    if game == "sfv":
+        return "Street Fighter V"
     if game == "tuco":
         return "2XKO"
     if game == "bbcf":
@@ -165,6 +184,8 @@ def _game_colour(game):
         return 0x3998C6
     if game == "ggst":
         return 0x7A2BFF
+    if game == "sfv":
+        return 0xD0342C
     if game == "tuco":
         return 0xD63C2F
     if game == "bbcf":
@@ -183,6 +204,8 @@ def _character_list(game):
         return _sf6_character_list()
     if game == "ggst":
         return _ggst_character_list()
+    if game == "sfv":
+        return _sfv_character_list()
     if game == "tuco":
         return _tuco_character_list()
     if game == "bbcf":
@@ -235,6 +258,20 @@ def _tuco_move_list(char_key):
     return move_choices(TUCO_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd"))
 
 
+def _sfv_move_list(char_key):
+    def label_fn(row):
+        move_name = str(row.get("moveName", "")).strip()
+        num_cmd = str(row.get("numCmd", "")).strip()
+        state_label = str(row.get("state_label", "")).strip()
+        label = f"{move_name} ({num_cmd})" if move_name and num_cmd else move_name or num_cmd
+        return f"{label} [{state_label}]" if state_label else label
+
+    rows = list(SFV_FRAME_DATA.get(char_key, []) or [])
+    for state_rows in (SFV_TRIGGER_FRAME_DATA.get(char_key, {}) or {}).values():
+        rows.extend(state_rows)
+    return move_choices(rows, label_fn=label_fn, key_fields=("moveName", "numCmd", "state_label"))
+
+
 def _bbcf_move_list(char_key):
     return move_choices(BBCF_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "moveType"))
 
@@ -256,6 +293,8 @@ def _move_list(game, char_key):
         return _sf6_move_list(char_key)
     if game == "ggst":
         return _ggst_move_list(char_key)
+    if game == "sfv":
+        return _sfv_move_list(char_key)
     if game == "tuco":
         return _tuco_move_list(char_key)
     if game == "bbcf":
@@ -359,6 +398,14 @@ class MainMenuView(OwnedView):
         await interaction.response.edit_message(
             embed=_game_menu_embed("Mortal Kombat 1", 0x7E1616),
             view=GameMenuView("mk1", self.owner_id),
+            attachments=[],
+        )
+
+    @discord.ui.button(label="SFV", style=discord.ButtonStyle.primary, custom_id="menu_sfv", row=2)
+    async def sfv_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=_game_menu_embed("Street Fighter V", 0xD0342C),
+            view=GameMenuView("sfv", self.owner_id),
             attachments=[],
         )
 
@@ -693,28 +740,42 @@ class FrameResultView(OwnedView):
             self.add_item(self.gif_button)
             self.add_item(self.notes_button)
         elif game == "ggst":
-            from bubbot.frame_data.ggst_frame_data import GGSTHitboxButton, GGSTNotesButton
-            self.hitbox_button = GGSTHitboxButton(row, showing_hitbox=True)
+            from bubbot.frame_data.ggst_frame_data import GGSTAllHitboxImagesButton, GGSTHitboxButton, GGSTNotesButton
+            self.all_hitbox_images_button = GGSTAllHitboxImagesButton(row)
+            if len(self.all_hitbox_images_button.hitbox_links) > 1:
+                self.add_item(self.all_hitbox_images_button)
+            else:
+                self.hitbox_button = GGSTHitboxButton(row, showing_hitbox=True)
+                self.add_item(self.hitbox_button)
             self.notes_button = GGSTNotesButton(row)
-            self.add_item(self.hitbox_button)
+            self.add_item(self.notes_button)
+        elif game == "sfv":
+            from bubbot.frame_data.sfv_frame_data import SFVNotesButton
+            self.notes_button = SFVNotesButton(row)
             self.add_item(self.notes_button)
         elif game == "tuco":
-            from bubbot.frame_data.tuco_frame_data import TUCOHitboxButton, TUCONotesButton
-            self.hitbox_button = TUCOHitboxButton(row, showing_hitbox=True)
+            from bubbot.frame_data.tuco_frame_data import TUCONotesButton
             self.notes_button = TUCONotesButton(row)
-            self.add_item(self.hitbox_button)
             self.add_item(self.notes_button)
         elif game == "bbcf":
-            from bubbot.frame_data.bbcf_frame_data import BBCFHitboxButton, BBCFNotesButton
-            self.hitbox_button = BBCFHitboxButton(row, showing_hitbox=True)
+            from bubbot.frame_data.bbcf_frame_data import BBCFAllHitboxImagesButton, BBCFHitboxButton, BBCFNotesButton
+            self.all_hitbox_images_button = BBCFAllHitboxImagesButton(row)
+            if len(self.all_hitbox_images_button.hitbox_links) > 1:
+                self.add_item(self.all_hitbox_images_button)
+            else:
+                self.hitbox_button = BBCFHitboxButton(row, showing_hitbox=True)
+                self.add_item(self.hitbox_button)
             self.notes_button = BBCFNotesButton(row)
-            self.add_item(self.hitbox_button)
             self.add_item(self.notes_button)
         elif game == "third_strike":
-            from bubbot.frame_data.third_strike_frame_data import ThirdStrikeHitboxButton, ThirdStrikeNotesButton
-            self.hitbox_button = ThirdStrikeHitboxButton(row, showing_hitbox=True)
+            from bubbot.frame_data.third_strike_frame_data import ThirdStrikeAllHitboxImagesButton, ThirdStrikeHitboxButton, ThirdStrikeNotesButton
+            self.all_hitbox_images_button = ThirdStrikeAllHitboxImagesButton(row)
+            if len(self.all_hitbox_images_button.hitbox_links) > 1:
+                self.add_item(self.all_hitbox_images_button)
+            else:
+                self.hitbox_button = ThirdStrikeHitboxButton(row, showing_hitbox=True)
+                self.add_item(self.hitbox_button)
             self.notes_button = ThirdStrikeNotesButton(row)
-            self.add_item(self.hitbox_button)
             self.add_item(self.notes_button)
         elif game == "mk1":
             from bubbot.frame_data.mk1_frame_data import MK1NotesButton
@@ -740,6 +801,8 @@ class FrameResultView(OwnedView):
             return build_sf6_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
         if self.game == "ggst":
             from bubbot.frame_data.ggst_frame_data import build_frame_embed
+        elif self.game == "sfv":
+            from bubbot.frame_data.sfv_frame_data import build_frame_embed
         elif self.game == "tuco":
             from bubbot.frame_data.tuco_frame_data import build_frame_embed
         elif self.game == "bbcf":
@@ -751,9 +814,15 @@ class FrameResultView(OwnedView):
         else:
             from bubbot.frame_data.cotw_frame_data import build_frame_embed
         embed = build_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
+        all_hitbox_button = getattr(self, "all_hitbox_images_button", None)
+        all_hitbox_links = getattr(all_hitbox_button, "hitbox_links", None)
+        if all_hitbox_button and len(all_hitbox_links or []) > 1:
+            embed.set_image(url=all_hitbox_links[0])
+            return embed
         hitbox_button = getattr(self, "hitbox_button", None)
-        if hitbox_button and hitbox_button.showing_hitbox and hitbox_button.hitbox_links:
-            embed.set_image(url=hitbox_button.hitbox_links[0])
+        hitbox_links = getattr(hitbox_button, "hitbox_links", None)
+        if hitbox_button and getattr(hitbox_button, "showing_hitbox", False) and hitbox_links:
+            embed.set_image(url=hitbox_links[0])
         if self.game == "cotw" and getattr(self, "image_url_override", ""):
             embed.set_image(url=self.image_url_override)
         return embed
