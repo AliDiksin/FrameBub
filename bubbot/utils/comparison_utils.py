@@ -1,8 +1,10 @@
 import re
 
+from bubbot.utils.text_utils import query_suffix_candidates
 
-COMPARISON_RE = re.compile(r"\b(?:vs|versus|compare|comparison)\b")
-SPLIT_RE = re.compile(r"\b(?:vs|versus)\b")
+
+COMPARISON_RE = re.compile(r"\b(?:vs|versus|compare|comparison|and)\b")
+SPLIT_RE = re.compile(r"\b(?:vs|versus|and)\b")
 
 
 def is_comparison_query(text, char_matches):
@@ -59,7 +61,11 @@ def find_comparison_rows(
         query = strip_comparison_terms(move_text)
         if not query:
             return False
-        matches = find_rows_for_char(char_key, query) or []
+        matches = []
+        for query_candidate in query_suffix_candidates(query):
+            matches = find_rows_for_char(char_key, query_candidate) or []
+            if matches:
+                break
         if len(matches) > 1:
             disambiguation = {"char_key": char_key, "rows": matches}
             return False

@@ -27,7 +27,7 @@ from bubbot.data.ggst_aliases import (
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.row_utils import row_key
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words, word_tokens
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words, word_tokens
 
 
 GGST_FRAME_DATA_FILE = "GGST Frame Data.ods"
@@ -777,37 +777,39 @@ def find_moves_in_text(text):
             state_key, move_text = extract_ky_dragon_install_state(move_text)
         elif char_key == "bedman":
             state_key, move_text = extract_bedman_install_state(move_text)
-        char_alias_text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?)\b", " ", move_text)
-        char_alias_text = re.sub(r"\s+", " ", char_alias_text).strip()
-        char_move_alias = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(char_alias_text)
-        if char_move_alias:
-            move_text = char_move_alias
-        else:
-            move_text = normalize_move_query(move_text)
-            char_move_alias = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(move_text)
-            if char_move_alias:
-                move_text = char_move_alias
-        if not move_text:
-            continue
-        if re.search(r"\b(?:follow\s*ups?|followups?|follow\s*up)\b", move_text):
-            followup_matches = find_followup_rows(char_key, move_text)
-            if len(followup_matches) > 1:
-                return {
-                    "mode": "options",
-                    "rows": followup_matches,
-                    "data": build_followup_prompt(char_key, followup_matches),
-                    "gif_query": gif_query,
-                    "frame_query": frame_query,
-                    "game_query": game_query,
-                    "needs_disambiguation": True,
-                    "followup_options": True,
-                    "char_found": char_found,
-                    "char_key": char_key,
-                }
-            if followup_matches:
-                rows.append(followup_matches[0])
+        matches = []
+        for move_candidate in query_suffix_candidates(move_text):
+            char_alias_text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?)\b", " ", move_candidate)
+            char_alias_text = re.sub(r"\s+", " ", char_alias_text).strip()
+            candidate_text = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(char_alias_text)
+            if not candidate_text:
+                candidate_text = normalize_move_query(move_candidate)
+                candidate_text = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(candidate_text) or candidate_text
+            if not candidate_text:
+                continue
+            if re.search(r"\b(?:follow\s*ups?|followups?|follow\s*up)\b", candidate_text):
+                followup_matches = find_followup_rows(char_key, candidate_text)
+                if len(followup_matches) > 1:
+                    return {
+                        "mode": "options",
+                        "rows": followup_matches,
+                        "data": build_followup_prompt(char_key, followup_matches),
+                        "gif_query": gif_query,
+                        "frame_query": frame_query,
+                        "game_query": game_query,
+                        "needs_disambiguation": True,
+                        "followup_options": True,
+                        "char_found": char_found,
+                        "char_key": char_key,
+                    }
+                if followup_matches:
+                    rows.append(followup_matches[0])
+                    break
+            matches = find_matching_rows(char_key, candidate_text, state_key=state_key)
+            if matches:
                 break
-        matches = find_matching_rows(char_key, move_text, state_key=state_key)
+        if rows:
+            break
         if len(matches) > 1:
             return {
                 "mode": "options",
@@ -951,8 +953,8 @@ class GGSTHitboxButton(discord.ui.Button):
         self.original_image_url = get_move_image_url(row)
         self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
         super().__init__(
-            label="Show Image" if self.showing_hitbox else "Show Hitbox",
-            style=discord.ButtonStyle.secondary if self.showing_hitbox else discord.ButtonStyle.primary,
+            label="Hide Image" if self.showing_hitbox else "Show Hitbox",
+            style=discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary,
             disabled=not self.hitbox_links,
         )
 
@@ -965,8 +967,8 @@ class GGSTHitboxButton(discord.ui.Button):
             return
         next_showing_hitbox = not self.showing_hitbox
         self.showing_hitbox = next_showing_hitbox
-        self.label = "Show Image" if next_showing_hitbox else "Show Hitbox"
-        self.style = discord.ButtonStyle.secondary if next_showing_hitbox else discord.ButtonStyle.primary
+        self.label = "Hide Image" if next_showing_hitbox else "Show Hitbox"
+        self.style = discord.ButtonStyle.danger if next_showing_hitbox else discord.ButtonStyle.primary
         if hasattr(self.view, "build_embed"):
             embed = self.view.build_embed()
         elif interaction.message and interaction.message.embeds:
@@ -984,7 +986,7 @@ class GGSTAllHitboxImagesButton(discord.ui.Button):
         self.hitbox_links = get_hitbox_links(row, limit=None)
         super().__init__(
             label="Show All Images",
-            style=discord.ButtonStyle.secondary,
+            style=discord.ButtonStyle.success,
             disabled=len(self.hitbox_links) <= 1,
         )
 
@@ -1012,13 +1014,13 @@ class GGSTNotesButton(discord.ui.Button):
             return
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
-        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
+        self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
         await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
 
 
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="ggst_frame_return_menu", row=0)
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="ggst_frame_return_menu", row=0)
 
     async def callback(self, interaction: discord.Interaction):
         from bubbot.features import menu_system
@@ -1029,7 +1031,7 @@ class ReturnToMenuButton(discord.ui.Button):
 
 
 class GGSTFrameDataView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True):
+    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
@@ -1042,6 +1044,8 @@ class GGSTFrameDataView(discord.ui.View):
             self.add_item(self.hitbox_button)
         self.notes_button = GGSTNotesButton(row)
         self.add_item(self.notes_button)
+        from bubbot.features import menu_system
+        menu_system.attach_compare_button(self, "ggst", row, owner_id=owner_id, char_key=char_key)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
@@ -1058,8 +1062,8 @@ class GGSTFrameDataView(discord.ui.View):
 async def send_frame_response(message, rows):
     if not rows:
         return False
-    for row in rows[:4]:
-        view = GGSTFrameDataView(row)
+    for row in rows:
+        view = GGSTFrameDataView(row, owner_id=getattr(message.author, "id", None))
         await message.channel.send(embed=view.build_embed(), view=view)
     return True
 
@@ -1068,10 +1072,10 @@ async def send_hitbox_response(message, rows):
     if not rows:
         return False
     links = []
-    for row in rows[:4]:
+    for row in rows:
         links.extend(get_hitbox_links(row))
     if not links:
         await message.reply("GGST hitbox images are not added yet, but the frame-data lookup is wired.")
         return True
-    await message.reply("\n".join(links[:4]))
+    await message.reply("\n".join(links))
     return True

@@ -248,7 +248,7 @@ def register_slash_commands(tree, deps):
             await interaction.response.send_message(f"{char_name} with {move_name} is not a valid character/move combination for COTW")
             return
         row = rows[0]
-        view = cotw_module.COTWFrameDataView(row)
+        view = cotw_module.COTWFrameDataView(row, owner_id=interaction.user.id, char_key=payload.get("char_key") or row.get("char_key"))
         file, attachment_url = await cotw_module.build_image_attachment(row)
         if file and attachment_url:
             view.image_url_override = attachment_url

@@ -10,7 +10,7 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
 
 BBCF_FRAME_DATA_FILE = "BBCF Frame Data.ods"
@@ -246,10 +246,14 @@ def find_moves_in_text(text):
         }
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
-        move_text = normalize_move_query(move_text)
-        if not move_text:
-            continue
-        matches = find_matching_rows(char_key, move_text)
+        matches = []
+        for move_candidate in query_suffix_candidates(move_text):
+            normalized_candidate = normalize_move_query(move_candidate)
+            if not normalized_candidate:
+                continue
+            matches = find_matching_rows(char_key, normalized_candidate)
+            if matches:
+                break
         if len(matches) > 1:
             return {
                 "mode": "options",
@@ -361,8 +365,8 @@ class BBCFHitboxButton(discord.ui.Button):
         self.original_image_url = get_move_image_url(row)
         self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
         super().__init__(
-            label="Show Image" if self.showing_hitbox else "Show Hitbox",
-            style=discord.ButtonStyle.secondary if self.showing_hitbox else discord.ButtonStyle.primary,
+            label="Hide Image" if self.showing_hitbox else "Show Hitbox",
+            style=discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary,
             disabled=not self.hitbox_links,
         )
 
@@ -371,8 +375,8 @@ class BBCFHitboxButton(discord.ui.Button):
             await interaction.response.send_message("I have BBCF frame data for this move but no hitbox image link yet.", ephemeral=True)
             return
         self.showing_hitbox = not self.showing_hitbox
-        self.label = "Show Image" if self.showing_hitbox else "Show Hitbox"
-        self.style = discord.ButtonStyle.secondary if self.showing_hitbox else discord.ButtonStyle.primary
+        self.label = "Hide Image" if self.showing_hitbox else "Show Hitbox"
+        self.style = discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary
         embed = self.view.build_embed() if hasattr(self.view, "build_embed") else build_frame_embed(self.frame_row)
         image_url = self.hitbox_links[0] if self.showing_hitbox else self.original_image_url
         if image_url:
@@ -385,7 +389,7 @@ class BBCFAllHitboxImagesButton(discord.ui.Button):
         self.hitbox_links = get_hitbox_links(row, limit=None)
         super().__init__(
             label="Show All Images",
-            style=discord.ButtonStyle.secondary,
+            style=discord.ButtonStyle.success,
             disabled=len(self.hitbox_links) <= 1,
         )
 
@@ -408,13 +412,13 @@ class BBCFNotesButton(discord.ui.Button):
             return
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
-        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
+        self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
         await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
 
 
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="bbcf_frame_return_menu", row=0)
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="bbcf_frame_return_menu", row=0)
 
     async def callback(self, interaction: discord.Interaction):
         from bubbot.features import menu_system
@@ -422,7 +426,7 @@ class ReturnToMenuButton(discord.ui.Button):
 
 
 class BBCFFrameDataView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True):
+    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
@@ -435,6 +439,8 @@ class BBCFFrameDataView(discord.ui.View):
             self.add_item(self.hitbox_button)
         self.notes_button = BBCFNotesButton(row)
         self.add_item(self.notes_button)
+        from bubbot.features import menu_system
+        menu_system.attach_compare_button(self, "bbcf", row, owner_id=owner_id, char_key=char_key)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
@@ -451,8 +457,8 @@ class BBCFFrameDataView(discord.ui.View):
 async def send_frame_response(message, rows):
     if not rows:
         return False
-    for row in rows[:4]:
-        view = BBCFFrameDataView(row)
+    for row in rows:
+        view = BBCFFrameDataView(row, owner_id=getattr(message.author, "id", None))
         await message.channel.send(embed=view.build_embed(), view=view)
     return True
 
@@ -461,12 +467,12 @@ async def send_hitbox_response(message, rows):
     if not rows:
         return False
     links = []
-    for row in rows[:4]:
+    for row in rows:
         links.extend(get_hitbox_links(row))
     if not links:
         await message.reply("BBCF hitbox images are not added yet, but the frame-data lookup is wired.")
         return True
-    await message.reply("\n".join(links[:4]))
+    await message.reply("\n".join(links))
     return True
 
 

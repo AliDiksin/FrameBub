@@ -13,7 +13,7 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
 
 COTW_FRAME_DATA_FILE = "COTW Frame Data.ods"
@@ -255,10 +255,14 @@ def find_moves_in_text(text):
         }
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
-        move_text = normalize_move_query(move_text)
-        if not move_text:
-            continue
-        matches = find_matching_rows(char_key, move_text)
+        matches = []
+        for move_candidate in query_suffix_candidates(move_text):
+            normalized_candidate = normalize_move_query(move_candidate)
+            if not normalized_candidate:
+                continue
+            matches = find_matching_rows(char_key, normalized_candidate)
+            if matches:
+                break
         if len(matches) > 1:
             return {
                 "mode": "options",
@@ -404,7 +408,7 @@ class COTWNotesButton(discord.ui.Button):
             return
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
-        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
+        self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
         files = self.view.active_files() if hasattr(self.view, "active_files") else []
         kwargs = {"embed": self.view.build_embed(), "view": self.view}
         if files:
@@ -414,7 +418,7 @@ class COTWNotesButton(discord.ui.Button):
 
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="cotw_frame_return_menu", row=0)
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="cotw_frame_return_menu", row=0)
 
     async def callback(self, interaction: discord.Interaction):
         from bubbot.features import menu_system
@@ -422,7 +426,7 @@ class ReturnToMenuButton(discord.ui.Button):
 
 
 class COTWFrameDataView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True):
+    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
@@ -431,6 +435,8 @@ class COTWFrameDataView(discord.ui.View):
         self.cotw_image_filename = None
         self.notes_button = COTWNotesButton(row)
         self.add_item(self.notes_button)
+        from bubbot.features import menu_system
+        menu_system.attach_compare_button(self, "cotw", row, owner_id=owner_id, char_key=char_key)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
@@ -449,8 +455,8 @@ class COTWFrameDataView(discord.ui.View):
 async def send_frame_response(message, rows):
     if not rows:
         return False
-    for row in rows[:4]:
-        view = COTWFrameDataView(row)
+    for row in rows:
+        view = COTWFrameDataView(row, owner_id=getattr(message.author, "id", None))
         file, attachment_url = await build_image_attachment(row)
         if file and attachment_url:
             view.image_url_override = attachment_url
@@ -466,14 +472,14 @@ async def send_image_response(message, rows):
     if not rows:
         return False
     links = []
-    for row in rows[:4]:
+    for row in rows:
         image_url = get_move_image_url(row)
         if image_url:
             links.append(image_url)
     if not links:
         await message.reply("DreamCancel does not have a COTW move image link for this move yet.")
         return True
-    await message.reply("DreamCancel does not provide COTW hitbox images, so here is the regular move image:\n" + "\n".join(links[:4]))
+    await message.reply("DreamCancel does not provide COTW hitbox images, so here is the regular move image:\n" + "\n".join(links))
     return True
 
 

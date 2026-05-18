@@ -12,7 +12,7 @@ from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_qu
 from bubbot.utils.discord_formatting import add_embed_field, clean_value, truncate_value
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
 
 SFV_FRAME_DATA_FILE = "SF5 Frame Data - FAT .ods"
@@ -326,11 +326,16 @@ def find_moves_in_text(text):
     rows = []
     matched_char_key = char_matches[0][0] if char_matches else None
     if query_requests_plain_zeku(lowered) and {"zeku_old", "zeku_young"}.issubset(SFV_FRAME_DATA.keys()):
-        move_text = normalize_move_query(re.sub(r"(?<![a-z0-9])zeku(?![a-z0-9])", " ", lowered))
         zeku_matches = []
-        if move_text:
+        zeku_move_text = re.sub(r"(?<![a-z0-9])zeku(?![a-z0-9])", " ", lowered)
+        for move_candidate in query_suffix_candidates(zeku_move_text):
+            move_text = normalize_move_query(move_candidate)
+            if not move_text:
+                continue
             for zeku_key in ("zeku_old", "zeku_young"):
                 zeku_matches.extend(find_matching_rows(zeku_key, f"{move_text} {query_requested_state(lowered)}"))
+            if zeku_matches:
+                break
         zeku_matches = unique_rows(zeku_matches)
         if len(zeku_matches) > 1:
             return {
@@ -415,10 +420,14 @@ def find_moves_in_text(text):
         }
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
-        move_text = normalize_move_query(move_text)
-        if not move_text:
-            continue
-        matches = find_matching_rows(char_key, f"{move_text} {query_requested_state(lowered)}")
+        matches = []
+        for move_candidate in query_suffix_candidates(move_text):
+            normalized_candidate = normalize_move_query(move_candidate)
+            if not normalized_candidate:
+                continue
+            matches = find_matching_rows(char_key, f"{normalized_candidate} {query_requested_state(lowered)}")
+            if matches:
+                break
         if len(matches) > 1:
             return {
                 "mode": "options",
@@ -508,13 +517,14 @@ def build_frame_embed(row, show_notes=False):
 
 class SFVNotesButton(discord.ui.Button):
     def __init__(self, row):
-        super().__init__(label="Show Notes", style=discord.ButtonStyle.secondary)
+        super().__init__(label="Show Notes", style=discord.ButtonStyle.primary)
         self.frame_row = row
 
     async def callback(self, interaction):
         view = self.view
         view.show_notes = not view.show_notes
         self.label = "Hide Notes" if view.show_notes else "Show Notes"
+        self.style = discord.ButtonStyle.danger if view.show_notes else discord.ButtonStyle.primary
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
 
 
@@ -536,12 +546,12 @@ class SFVHitboxButton(discord.ui.Button):
                 return
             await interaction.response.send_message("No SFV image link is cached for this move yet.", ephemeral=True)
             return
-        await interaction.response.send_message("\n".join(links[:4]), ephemeral=True)
+        await interaction.response.send_message("\n".join(links), ephemeral=True)
 
 
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Back to Menu", style=discord.ButtonStyle.grey)
+        super().__init__(label="Back to Menu", style=discord.ButtonStyle.primary)
 
     async def callback(self, interaction):
         from bubbot.features import menu_system
@@ -549,11 +559,13 @@ class ReturnToMenuButton(discord.ui.Button):
 
 
 class SFVFrameDataView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True):
+    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
         self.add_item(SFVNotesButton(row))
+        from bubbot.features import menu_system
+        menu_system.attach_compare_button(self, "sfv", row, owner_id=owner_id, char_key=char_key)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
@@ -564,8 +576,8 @@ class SFVFrameDataView(discord.ui.View):
 async def send_frame_response(message, rows):
     if not rows:
         return False
-    for row in rows[:4]:
-        view = SFVFrameDataView(row)
+    for row in rows:
+        view = SFVFrameDataView(row, owner_id=getattr(message.author, "id", None))
         await message.channel.send(embed=view.build_embed(), view=view)
     return True
 
@@ -575,16 +587,16 @@ async def send_hitbox_response(message, rows):
         return False
     links = []
     fallback_links = []
-    for row in rows[:4]:
+    for row in rows:
         links.extend(get_hitbox_links(row))
         image_url = get_move_image_url(row)
         if image_url:
             fallback_links.append(image_url)
     if links:
-        await message.reply("\n".join(links[:4]))
+        await message.reply("\n".join(links))
         return True
     if fallback_links:
-        await message.reply("No dedicated SFV hitbox image found; showing the SuperCombo move image instead.\n" + "\n".join(fallback_links[:4]))
+        await message.reply("No dedicated SFV hitbox image found; showing the SuperCombo move image instead.\n" + "\n".join(fallback_links))
         return True
     await message.reply("I have SFV frame data for this move but no SuperCombo image link cached yet.")
     return True

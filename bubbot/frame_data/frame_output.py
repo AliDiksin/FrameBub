@@ -355,8 +355,8 @@ def sanitize_embed_followup_text(text):
 class FrameDataGifButton(discord.ui.Button):
     def __init__(self, row, gif_links, showing_gif=False):
         super().__init__(
-            label="Show Image" if showing_gif else "Show GIF",
-            style=discord.ButtonStyle.secondary if showing_gif else discord.ButtonStyle.primary,
+            label="Hide Image" if showing_gif else "Show GIF",
+            style=discord.ButtonStyle.danger if showing_gif else discord.ButtonStyle.primary,
             disabled=not gif_links,
         )
         self.frame_row = row
@@ -396,8 +396,8 @@ class FrameDataGifButton(discord.ui.Button):
             filename = os.path.basename(asset_path)
             embed.set_thumbnail(url=None)
             embed.set_image(url=f"attachment://{filename}")
-            self.label = "Show Image"
-            self.style = discord.ButtonStyle.secondary
+            self.label = "Hide Image"
+            self.style = discord.ButtonStyle.danger
             self.showing_gif = True
             if hasattr(self.view, "build_embed"):
                 embed = self.view.build_embed()
@@ -412,7 +412,7 @@ class FrameDataGifButton(discord.ui.Button):
             await interaction.response.send_message(self.gif_links[0])
             return
 
-        await interaction.response.send_message("\n".join(self.gif_links[:4]))
+        await interaction.response.send_message("\n".join(self.gif_links))
 
 
 class SF6NotesButton(discord.ui.Button):
@@ -432,7 +432,7 @@ class SF6NotesButton(discord.ui.Button):
             return
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
-        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
+        self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
         files = self.view.active_files() if hasattr(self.view, "active_files") else []
         kwargs = {"embed": self.view.build_embed(), "view": self.view}
         if files:
@@ -442,7 +442,7 @@ class SF6NotesButton(discord.ui.Button):
 
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="frame_return_menu", row=0)
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="frame_return_menu", row=0)
 
     async def callback(self, interaction: discord.Interaction):
         from bubbot.features import menu_system
@@ -453,7 +453,7 @@ class ReturnToMenuButton(discord.ui.Button):
 
 
 class FrameDataGifView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True):
+    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
@@ -463,6 +463,8 @@ class FrameDataGifView(discord.ui.View):
         self.notes_button = SF6NotesButton(row)
         self.add_item(self.gif_button)
         self.add_item(self.notes_button)
+        from bubbot.features import menu_system
+        menu_system.attach_compare_button(self, "sf6", row, owner_id=owner_id, char_key=char_key)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
@@ -494,14 +496,14 @@ class FrameDataGifView(discord.ui.View):
         return [discord.File(self.default_gif_asset_path, filename=filename)]
 
 
-async def send_frame_embeds_with_views(channel, rows, embeds=None):
+async def send_frame_embeds_with_views(channel, rows, embeds=None, owner_id=None):
     unique_rows = iter_unique_frame_rows(rows or [])
     embed_list = list(embeds or build_frame_embeds(unique_rows))
     if not embed_list:
         return False
 
     for index, embed in enumerate(embed_list):
-        view = FrameDataGifView(unique_rows[index]) if index < len(unique_rows) else None
+        view = FrameDataGifView(unique_rows[index], owner_id=owner_id) if index < len(unique_rows) else None
         files = []
         if view and view.default_gif_asset_path:
             filename = os.path.basename(view.default_gif_asset_path)
@@ -517,7 +519,7 @@ async def send_frame_table_response(message, rows, data_text):
     unique_rows = iter_unique_frame_rows(rows or [])
     if unique_rows:
         try:
-            await send_frame_embeds_with_views(message.channel, unique_rows)
+            await send_frame_embeds_with_views(message.channel, unique_rows, owner_id=getattr(message.author, "id", None))
             return True
         except Exception as e:
             print(f"Direct frame embed send failed: {e}", flush=True)
@@ -528,7 +530,7 @@ async def send_gif_links_response(message, gif_links, wants_comparison=False):
     if not gif_links:
         return False
     try:
-        asset_limit = 6 if wants_comparison else 1
+        asset_limit = len(gif_links) if wants_comparison else 1
         asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=asset_limit)
         if asset_paths:
             if wants_comparison and len(asset_paths) > 1:

@@ -104,3 +104,17 @@ def correct_alias_typos(text, *alias_maps, min_word_len=4, cutoff=0.8):
         else:
             corrected_tokens.append(token)
     return " ".join(corrected_tokens) if changed else text
+
+
+def query_suffix_candidates(text):
+    """Return progressively shorter suffixes of a query for lead-in tolerant matching."""
+    cleaned = re.sub(r"\s+", " ", str(text or "").lower()).strip()
+    if not cleaned:
+        return []
+    candidates = [cleaned]
+    tokens = re.findall(r"[a-z0-9+.,'-]+", cleaned)
+    for index in range(1, len(tokens)):
+        suffix = " ".join(tokens[index:])
+        if suffix and suffix not in candidates:
+            candidates.append(suffix)
+    return candidates

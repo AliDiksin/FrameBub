@@ -15,7 +15,7 @@ from bubbot.utils.discord_formatting import (
     truncate_value as shared_truncate_value,
 )
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
 
 MK1_MOVE_LIST_FILE = os.path.join("mk1", "move_list.json")
@@ -389,10 +389,14 @@ def find_moves_in_text(text):
         }
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
-        move_text = normalize_move_query(move_text)
-        if not move_text:
-            continue
-        matches = find_matching_rows(char_key, move_text)
+        matches = []
+        for move_candidate in query_suffix_candidates(move_text):
+            normalized_candidate = normalize_move_query(move_candidate)
+            if not normalized_candidate:
+                continue
+            matches = find_matching_rows(char_key, normalized_candidate)
+            if matches:
+                break
         if len(matches) > 1:
             return {
                 "mode": "options",
@@ -556,13 +560,13 @@ class MK1NotesButton(discord.ui.Button):
             return
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
-        self.style = discord.ButtonStyle.secondary if self.view.show_notes else discord.ButtonStyle.primary
+        self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
         await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
 
 
 class ReturnToMenuButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.secondary, custom_id="mk1_frame_return_menu", row=0)
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="mk1_frame_return_menu", row=0)
 
     async def callback(self, interaction: discord.Interaction):
         from bubbot.features import menu_system
@@ -570,12 +574,14 @@ class ReturnToMenuButton(discord.ui.Button):
 
 
 class MK1FrameDataView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True):
+    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
         self.notes_button = MK1NotesButton(row)
         self.add_item(self.notes_button)
+        from bubbot.features import menu_system
+        menu_system.attach_compare_button(self, "mk1", row, owner_id=owner_id, char_key=char_key)
         if include_menu_button:
             self.add_item(ReturnToMenuButton())
 
@@ -586,8 +592,8 @@ class MK1FrameDataView(discord.ui.View):
 async def send_frame_response(message, rows):
     if not rows:
         return False
-    for row in rows[:4]:
-        view = MK1FrameDataView(row)
+    for row in rows:
+        view = MK1FrameDataView(row, owner_id=getattr(message.author, "id", None))
         await message.channel.send(embed=view.build_embed(), view=view)
     return True
 

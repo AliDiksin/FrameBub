@@ -341,6 +341,77 @@ def _filter_move_choices(moves, query):
     return [(row, label) for row, label in moves if _search_matches(label, query)]
 
 
+def _row_character_key(game, row, fallback=None):
+    if fallback:
+        return fallback
+    for key_name in ("char_key", "character_key"):
+        value = str((row or {}).get(key_name, "")).strip()
+        if value:
+            return value
+    row_name = str((row or {}).get("char_name", "")).strip().lower()
+    if not row_name:
+        return None
+    normalized_row_name = _normalize_search_text(row_name)
+    for char_key, display in _character_list(game):
+        if _normalize_search_text(display) == normalized_row_name:
+            return char_key
+        if _normalize_search_text(char_key) == normalized_row_name:
+            return char_key
+    return None
+
+
+class CompareFrameButton(discord.ui.Button):
+    def __init__(self, game, row, owner_id, char_key=None):
+        super().__init__(label="Compare", style=discord.ButtonStyle.success)
+        self.game = game
+        self.frame_row = row
+        self.owner_id = owner_id
+        self.char_key = char_key
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(
+                "Only the person who opened this menu can control it.",
+                ephemeral=True,
+            )
+            return
+        char_key = _row_character_key(self.game, self.frame_row, self.char_key)
+        if not char_key:
+            await interaction.response.send_message("I could not find that character's move list.", ephemeral=True)
+            return
+        moves = _move_list(self.game, char_key)
+        if not moves:
+            await interaction.response.send_message("No moves found for this character.", ephemeral=True)
+            return
+        display = _character_display_name(self.game, char_key)
+        await interaction.response.send_message(
+            embed=_move_select_embed(
+                display,
+                page=0,
+                total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT)),
+                compare_row=self.frame_row,
+            ),
+            view=MoveSelectView(
+                self.game,
+                char_key,
+                moves,
+                self.owner_id,
+                page=0,
+                compare_row=self.frame_row,
+                compare_char_key=char_key,
+            ),
+        )
+
+
+def attach_compare_button(view, game, row, owner_id=None, char_key=None):
+    if owner_id is None:
+        return
+    resolved_char_key = _row_character_key(game, row, char_key)
+    if not resolved_char_key or not _move_list(game, resolved_char_key):
+        return
+    view.add_item(CompareFrameButton(game, row, owner_id, char_key=resolved_char_key))
+
+
 class MainMenuView(OwnedView):
     def __init__(self, owner_id):
         super().__init__(owner_id=owner_id, timeout=300)
@@ -361,7 +432,7 @@ class MainMenuView(OwnedView):
             attachments=[],
         )
 
-    @discord.ui.button(label="COTW", style=discord.ButtonStyle.secondary, custom_id="menu_cotw", row=0)
+    @discord.ui.button(label="COTW", style=discord.ButtonStyle.primary, custom_id="menu_cotw", row=0)
     async def cotw_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             embed=_game_menu_embed("City of the Wolves", 0xD8A234),
@@ -436,7 +507,7 @@ class GameMenuView(OwnedView):
             attachments=[],
         )
 
-    @discord.ui.button(label="Combos", style=discord.ButtonStyle.secondary, custom_id="game_combos")
+    @discord.ui.button(label="Combos", style=discord.ButtonStyle.primary, custom_id="game_combos")
     async def combos_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if self.game == "mk1":
             chars = _mk1_combo_character_list()
@@ -459,7 +530,7 @@ class GameMenuView(OwnedView):
             attachments=[],
         )
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, custom_id="game_back")
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="game_back")
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             embed=_main_menu_embed(),
@@ -469,11 +540,13 @@ class GameMenuView(OwnedView):
 
 
 class CharacterSelectView(OwnedView):
-    def __init__(self, game, chars, owner_id, page=0):
+    def __init__(self, game, chars, owner_id, page=0, compare_row=None, compare_char_key=None):
         super().__init__(owner_id=owner_id, timeout=300)
         self.game = game
         self.chars = chars
         self.page = page
+        self.compare_row = compare_row
+        self.compare_char_key = compare_char_key
         self._add_select()
         self._update_page_buttons()
 
@@ -486,6 +559,8 @@ class CharacterSelectView(OwnedView):
         next_page = self.page + 1 if self.page < page_count - 1 else 0
         self.previous_button.label = f"Previous ({previous_page + 1}/{page_count})"
         self.next_button.label = f"Next ({next_page + 1}/{page_count})"
+        if self.compare_row is not None:
+            self.back_button.label = "Back to Moves"
 
     def _add_select(self):
         start = self.page * MENU_SELECT_LIMIT
@@ -494,35 +569,96 @@ class CharacterSelectView(OwnedView):
             discord.SelectOption(label=display, value=char_key)
             for char_key, display in page_chars
         ]
-        select = CharacterSelect(self.game, self.chars, self.page, self.owner_id, options)
+        select = CharacterSelect(
+            self.game,
+            self.chars,
+            self.page,
+            self.owner_id,
+            options,
+            compare_row=self.compare_row,
+            compare_char_key=self.compare_char_key,
+        )
         self.add_item(select)
 
-    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary, row=4)
     async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
         new_page = self.page - 1 if self.page > 0 else max_page
         await interaction.response.edit_message(
-            embed=_character_select_embed(self.game, page=new_page, total_pages=max_page + 1),
-            view=CharacterSelectView(self.game, self.chars, self.owner_id, page=new_page),
+            embed=_character_select_embed(
+                self.game,
+                page=new_page,
+                total_pages=max_page + 1,
+                compare_row=self.compare_row,
+            ),
+            view=CharacterSelectView(
+                self.game,
+                self.chars,
+                self.owner_id,
+                page=new_page,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            ),
             attachments=[],
         )
 
-    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.primary, row=4)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
         new_page = self.page + 1 if self.page < max_page else 0
         await interaction.response.edit_message(
-            embed=_character_select_embed(self.game, page=new_page, total_pages=max_page + 1),
-            view=CharacterSelectView(self.game, self.chars, self.owner_id, page=new_page),
+            embed=_character_select_embed(
+                self.game,
+                page=new_page,
+                total_pages=max_page + 1,
+                compare_row=self.compare_row,
+            ),
+            view=CharacterSelectView(
+                self.game,
+                self.chars,
+                self.owner_id,
+                page=new_page,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            ),
             attachments=[],
         )
 
     @discord.ui.button(label="Search", style=discord.ButtonStyle.primary, row=4)
     async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(CharacterSearchModal(self.game, self.owner_id))
+        await interaction.response.send_modal(
+            CharacterSearchModal(
+                self.game,
+                self.owner_id,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            )
+        )
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.compare_row is not None:
+            moves = _move_list(self.game, self.compare_char_key or self.chars[0][0])
+            display = _character_display_name(self.game, self.compare_char_key or self.chars[0][0])
+            await interaction.response.edit_message(
+                embed=_move_select_embed(
+                    display,
+                    page=0,
+                    total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT)),
+                    compare_row=self.compare_row,
+                ),
+                view=MoveSelectView(
+                    self.game,
+                    self.compare_char_key or self.chars[0][0],
+                    moves,
+                    self.owner_id,
+                    page=0,
+                    compare_row=self.compare_row,
+                    compare_char_key=self.compare_char_key,
+                ),
+                attachments=[],
+            )
+            return
         game_label = _game_label(self.game)
         colour = _game_colour(self.game)
         await interaction.response.edit_message(
@@ -533,10 +669,12 @@ class CharacterSelectView(OwnedView):
 
 
 class CharacterSearchModal(discord.ui.Modal):
-    def __init__(self, game, owner_id):
+    def __init__(self, game, owner_id, compare_row=None, compare_char_key=None):
         super().__init__(title="Search Characters")
         self.game = game
         self.owner_id = owner_id
+        self.compare_row = compare_row
+        self.compare_char_key = compare_char_key
         self.query = discord.ui.TextInput(
             label="Character search",
             placeholder="Example: ryu, sol, happy chaos",
@@ -560,17 +698,27 @@ class CharacterSearchModal(discord.ui.Modal):
                 page=0,
                 total_pages=max(1, math.ceil(len(filtered) / MENU_SELECT_LIMIT)),
                 search_query=str(self.query.value).strip(),
+                compare_row=self.compare_row,
             ),
-            view=CharacterSelectView(self.game, filtered, self.owner_id, page=0),
+            view=CharacterSelectView(
+                self.game,
+                filtered,
+                self.owner_id,
+                page=0,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            ),
             attachments=[],
         )
 
 
 class CharacterSelect(discord.ui.Select):
-    def __init__(self, game, chars, page, owner_id, options):
+    def __init__(self, game, chars, page, owner_id, options, compare_row=None, compare_char_key=None):
         self.game = game
         self.chars = chars
         self.page = page
+        self.compare_row = compare_row
+        self.compare_char_key = compare_char_key
         placeholder = "Select a character"
         super().__init__(placeholder=placeholder, options=options, custom_id=f"char_select:{game}:{page}:{owner_id}")
 
@@ -586,19 +734,34 @@ class CharacterSelect(discord.ui.Select):
                 display = opt.label
                 break
         await interaction.response.edit_message(
-            embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
-            view=MoveSelectView(self.game, char_key, moves, self.view.owner_id, page=0),
+            embed=_move_select_embed(
+                display,
+                page=0,
+                total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT)),
+                compare_row=self.compare_row,
+            ),
+            view=MoveSelectView(
+                self.game,
+                char_key,
+                moves,
+                self.view.owner_id,
+                page=0,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            ),
             attachments=[],
         )
 
 
 class MoveSelectView(OwnedView):
-    def __init__(self, game, char_key, moves, owner_id, page=0):
+    def __init__(self, game, char_key, moves, owner_id, page=0, compare_row=None, compare_char_key=None):
         super().__init__(owner_id=owner_id, timeout=300)
         self.game = game
         self.char_key = char_key
         self.moves = moves
         self.page = page
+        self.compare_row = compare_row
+        self.compare_char_key = compare_char_key
         self._add_select()
         self._update_page_buttons()
 
@@ -611,6 +774,8 @@ class MoveSelectView(OwnedView):
         next_page = self.page + 1 if self.page < page_count - 1 else 0
         self.previous_button.label = f"Previous ({previous_page + 1}/{page_count})"
         self.next_button.label = f"Next ({next_page + 1}/{page_count})"
+        if self.compare_row is not None:
+            self.back_button.label = "Back to Characters"
 
     def _add_select(self):
         start = self.page * MENU_SELECT_LIMIT
@@ -619,49 +784,105 @@ class MoveSelectView(OwnedView):
         for i, (row, label) in enumerate(page_moves):
             truncated = label[:100] if len(label) > 100 else label
             options.append(discord.SelectOption(label=truncated, value=f"{self.char_key}|{start + i}"))
-        select = MoveSelect(self.game, self.char_key, self.moves, self.page, options)
+        select = MoveSelect(
+            self.game,
+            self.char_key,
+            self.moves,
+            self.page,
+            options,
+            compare_row=self.compare_row,
+            compare_char_key=self.compare_char_key,
+        )
         self.add_item(select)
 
-    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary, row=4)
     async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         max_page = max(0, math.ceil(len(self.moves) / MENU_SELECT_LIMIT) - 1)
         new_page = self.page - 1 if self.page > 0 else max_page
         await interaction.response.edit_message(
-            embed=_move_select_embed(self.char_key.title(), page=new_page, total_pages=max_page + 1),
-            view=MoveSelectView(self.game, self.char_key, self.moves, self.owner_id, page=new_page),
+            embed=_move_select_embed(
+                _character_display_name(self.game, self.char_key),
+                page=new_page,
+                total_pages=max_page + 1,
+                compare_row=self.compare_row,
+            ),
+            view=MoveSelectView(
+                self.game,
+                self.char_key,
+                self.moves,
+                self.owner_id,
+                page=new_page,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            ),
             attachments=[],
         )
 
-    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.primary, row=4)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         max_page = max(0, math.ceil(len(self.moves) / MENU_SELECT_LIMIT) - 1)
         new_page = self.page + 1 if self.page < max_page else 0
         await interaction.response.edit_message(
-            embed=_move_select_embed(self.char_key.title(), page=new_page, total_pages=max_page + 1),
-            view=MoveSelectView(self.game, self.char_key, self.moves, self.owner_id, page=new_page),
+            embed=_move_select_embed(
+                _character_display_name(self.game, self.char_key),
+                page=new_page,
+                total_pages=max_page + 1,
+                compare_row=self.compare_row,
+            ),
+            view=MoveSelectView(
+                self.game,
+                self.char_key,
+                self.moves,
+                self.owner_id,
+                page=new_page,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            ),
             attachments=[],
         )
 
     @discord.ui.button(label="Search", style=discord.ButtonStyle.primary, row=4)
     async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(MoveSearchModal(self.game, self.char_key, self.owner_id))
+        await interaction.response.send_modal(
+            MoveSearchModal(
+                self.game,
+                self.char_key,
+                self.owner_id,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            )
+        )
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         chars = _character_list(self.game)
         await interaction.response.edit_message(
-            embed=_character_select_embed(self.game, page=0, total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))),
-            view=CharacterSelectView(self.game, chars, self.owner_id, page=0),
+            embed=_character_select_embed(
+                self.game,
+                page=0,
+                total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT)),
+                compare_row=self.compare_row,
+            ),
+            view=CharacterSelectView(
+                self.game,
+                chars,
+                self.owner_id,
+                page=0,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            ),
             attachments=[],
         )
 
 
 class MoveSearchModal(discord.ui.Modal):
-    def __init__(self, game, char_key, owner_id):
+    def __init__(self, game, char_key, owner_id, compare_row=None, compare_char_key=None):
         super().__init__(title="Search Moves")
         self.game = game
         self.char_key = char_key
         self.owner_id = owner_id
+        self.compare_row = compare_row
+        self.compare_char_key = compare_char_key
         self.query = discord.ui.TextInput(
             label="Move search",
             placeholder="Example: 5hp, fireball, volcanic viper",
@@ -686,18 +907,29 @@ class MoveSearchModal(discord.ui.Modal):
                 page=0,
                 total_pages=max(1, math.ceil(len(filtered) / MENU_SELECT_LIMIT)),
                 search_query=str(self.query.value).strip(),
+                compare_row=self.compare_row,
             ),
-            view=MoveSelectView(self.game, self.char_key, filtered, self.owner_id, page=0),
+            view=MoveSelectView(
+                self.game,
+                self.char_key,
+                filtered,
+                self.owner_id,
+                page=0,
+                compare_row=self.compare_row,
+                compare_char_key=self.compare_char_key,
+            ),
             attachments=[],
         )
 
 
 class MoveSelect(discord.ui.Select):
-    def __init__(self, game, char_key, moves, page, options):
+    def __init__(self, game, char_key, moves, page, options, compare_row=None, compare_char_key=None):
         self.game = game
         self.char_key = char_key
         self.moves = moves
         self.page = page
+        self.compare_row = compare_row
+        self.compare_char_key = compare_char_key
         placeholder = "Select a move"
         safe_char_key = re.sub(r"[^a-z0-9_.-]", "", str(char_key).lower())[:32]
         super().__init__(placeholder=placeholder, options=options, custom_id=f"move_select:{game}:{safe_char_key}:{page}")
@@ -709,6 +941,17 @@ class MoveSelect(discord.ui.Select):
             return
         idx = int(raw_idx)
         row, label = self.moves[idx]
+        if self.compare_row is not None:
+            await interaction.response.defer()
+            await _send_frame_result_message(
+                interaction.channel,
+                self.game,
+                self.compare_char_key or self.char_key,
+                self.compare_row,
+                self.view.owner_id,
+            )
+            await _send_frame_result_message(interaction.channel, self.game, self.char_key, row, self.view.owner_id)
+            return
         view = FrameResultView(self.game, self.char_key, row, self.view.owner_id)
         files = view.initial_files()
         if self.game == "cotw":
@@ -720,6 +963,20 @@ class MoveSelect(discord.ui.Select):
                 view.cotw_image_filename = file.filename
                 files = [file]
         await interaction.response.edit_message(embed=view.build_embed(), view=view, attachments=files)
+
+
+async def _send_frame_result_message(channel, game, char_key, row, owner_id):
+    view = FrameResultView(game, char_key, row, owner_id)
+    files = view.initial_files()
+    if game == "cotw":
+        from bubbot.frame_data.cotw_frame_data import build_image_attachment
+        file, attachment_url = await build_image_attachment(row)
+        if file and attachment_url:
+            view.image_url_override = attachment_url
+            view.cotw_image_bytes = file.fp.getvalue()
+            view.cotw_image_filename = file.filename
+            files = [file]
+    await channel.send(embed=view.build_embed(), view=view, files=files)
 
 
 class FrameResultView(OwnedView):
@@ -788,6 +1045,7 @@ class FrameResultView(OwnedView):
             self.cotw_image_filename = None
             self.notes_button = COTWNotesButton(row)
             self.add_item(self.notes_button)
+        attach_compare_button(self, game, row, owner_id=owner_id, char_key=char_key)
 
     def build_embed(self):
         if self.game == "sf6":
@@ -849,7 +1107,7 @@ class FrameResultView(OwnedView):
             attachments=[],
         )
 
-    @discord.ui.button(label="Back to Moves", style=discord.ButtonStyle.grey, custom_id="frame_back_moves")
+    @discord.ui.button(label="Back to Moves", style=discord.ButtonStyle.danger, custom_id="frame_back_moves")
     async def back_moves_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         moves = _move_list(self.game, self.char_key)
         display = _character_display_name(self.game, self.char_key)
@@ -877,7 +1135,7 @@ class QuizDifficultyView(OwnedView):
     async def hard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._start_quiz(interaction, "hard")
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, custom_id="quiz_back")
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="quiz_back")
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         game_label = _game_label(self.game)
         colour = _game_colour(self.game)
@@ -910,7 +1168,7 @@ class BackToGameMenuView(OwnedView):
         super().__init__(owner_id=owner_id, timeout=300)
         self.game = game
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, custom_id="combos_back")
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="combos_back")
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         game_label = _game_label(self.game)
         colour = _game_colour(self.game)
@@ -944,7 +1202,7 @@ class ComboCharacterSelectView(OwnedView):
         options = [discord.SelectOption(label=display, value=char_key) for char_key, display in self.chars[start : start + MENU_SELECT_LIMIT]]
         self.add_item(ComboCharacterSelect(self.chars, self.page, options))
 
-    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary, row=4)
     async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
         new_page = self.page - 1 if self.page > 0 else max_page
@@ -954,7 +1212,7 @@ class ComboCharacterSelectView(OwnedView):
             attachments=[],
         )
 
-    @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary, row=4)
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.primary, row=4)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
         new_page = self.page + 1 if self.page < max_page else 0
@@ -964,7 +1222,7 @@ class ComboCharacterSelectView(OwnedView):
             attachments=[],
         )
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.grey, row=4)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             embed=_game_menu_embed("Mortal Kombat 1", 0x7E1616),
@@ -1023,23 +1281,33 @@ def _game_menu_embed(game_label, colour):
     )
 
 
-def _character_select_embed(game, page=None, total_pages=None, search_query=None):
+def _row_move_label(row):
+    move_name = str((row or {}).get("moveName", "")).strip()
+    num_cmd = str((row or {}).get("numCmd", "")).strip()
+    if move_name and num_cmd:
+        return f"{move_name} ({num_cmd})"
+    return move_name or num_cmd or "selected move"
+
+
+def _character_select_embed(game, page=None, total_pages=None, search_query=None, compare_row=None):
     label = _game_label(game)
     page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
     search_text = f"\nSearch: `{search_query}`" if search_query else ""
+    compare_text = f"\nComparing against: `{_row_move_label(compare_row)}`" if compare_row else ""
     return discord.Embed(
-        title=f"{label} - Frame Data",
-        description=f"Select a character from the dropdown below.{page_text}{search_text}",
+        title=f"{label} - {'Compare' if compare_row else 'Frame Data'}",
+        description=f"Select a character from the dropdown below.{page_text}{search_text}{compare_text}",
         colour=_game_colour(game),
     )
 
 
-def _move_select_embed(char_display, page=None, total_pages=None, search_query=None):
+def _move_select_embed(char_display, page=None, total_pages=None, search_query=None, compare_row=None):
     page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
     search_text = f"\nSearch: `{search_query}`" if search_query else ""
+    compare_text = f"\nComparing against: `{_row_move_label(compare_row)}`" if compare_row else ""
     return discord.Embed(
-        title=f"{char_display} - Moves",
-        description=f"Select a move from the dropdown below.{page_text}{search_text}",
+        title=f"{char_display} - {'Compare Move' if compare_row else 'Moves'}",
+        description=f"Select a move from the dropdown below.{page_text}{search_text}{compare_text}",
         colour=0x3998C6,
     )
 

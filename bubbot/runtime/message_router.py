@@ -1739,7 +1739,7 @@ async def _handle_message(message):
 
                 gif_limit = 3
                 if wants_comparison and gif_frame_rows:
-                    gif_limit = max(2, min(6, len(gif_frame_rows)))
+                    gif_limit = max(2, len(gif_frame_rows))
 
                 gif_links = collect_hitbox_gif_links_from_text(
                     content_no_mentions,
@@ -1801,7 +1801,7 @@ async def _handle_message(message):
 
             gif_limit = 3
             if wants_comparison and gif_frame_rows:
-                gif_limit = max(2, min(6, len(gif_frame_rows)))
+                gif_limit = max(2, len(gif_frame_rows))
 
             gif_links = collect_hitbox_gif_links_from_text(
                 content_no_mentions,

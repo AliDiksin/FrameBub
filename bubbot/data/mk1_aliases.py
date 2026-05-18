@@ -3,6 +3,7 @@ MK1_CHARACTER_ALIASES = {
     "mortal kombat 1": "mk1",
     "mortal kombat one": "mk1",
     "mortal kombat": "mk1",
+    "sub": "subzero",
     "sub zero": "subzero",
     "sub-zero": "subzero",
     "subzero": "subzero",
