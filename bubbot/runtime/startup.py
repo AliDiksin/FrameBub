@@ -20,20 +20,11 @@ async def handle_ready(deps):
     mk1_module = deps["mk1_module"]
 
     print(f"Logged in as {client.user}")
-    for guild in client.guilds:
-        try:
-            tree.clear_commands(guild=guild)
-            tree.copy_global_to(guild=guild)
-            await tree.sync(guild=guild)
-            print(f"[menu] Slash commands synced to guild: {guild.name} ({guild.id})", flush=True)
-        except Exception as error:
-            print(f"[menu] Guild sync error for {guild.name}: {error}", flush=True)
     try:
-        tree.clear_commands(guild=None)
         await tree.sync()
-        print("[menu] Global slash commands cleared; using guild-scoped commands only.", flush=True)
+        print("[menu] Global slash commands synced.", flush=True)
     except Exception as error:
-        print(f"[menu] Global slash command clear error: {error}", flush=True)
+        print(f"[menu] Global slash command sync error: {error}", flush=True)
 
     await buenavista_extension.start_background_tasks(client=client)
 

@@ -489,6 +489,27 @@ class MainMenuView(OwnedView):
             attachments=[],
         )
 
+    @discord.ui.button(label="Readme", style=discord.ButtonStyle.success, custom_id="menu_readme", row=2)
+    async def readme_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=build_readme_embed(),
+            view=ReadmeView(self.owner_id),
+            attachments=[],
+        )
+
+
+class ReadmeView(OwnedView):
+    def __init__(self, owner_id):
+        super().__init__(owner_id=owner_id, timeout=300)
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="readme_back")
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=_main_menu_embed(),
+            view=MainMenuView(self.owner_id),
+            attachments=[],
+        )
+
 
 class GameMenuView(OwnedView):
     def __init__(self, game, owner_id):
@@ -1291,9 +1312,64 @@ class QuizFakeMessage:
 def _main_menu_embed():
     return discord.Embed(
         title="Bub Menu",
-        description="Select a game to get started.",
+        description="Select a game to get started, or open Readme for a quick tutorial.",
         colour=0xFFD700,
     )
+
+
+def build_readme_embed():
+    embed = discord.Embed(
+        title="Bub Readme",
+        description="A quick guide to using Bub for fighting-game frame data, images, menus, and quizzes.",
+        colour=0xFFD700,
+    )
+    embed.add_field(
+        name="1. Ask Naturally",
+        value=(
+            "Mention Bub, then type a character and move. Examples: `@Bub ryu 5hp`, "
+            "`@Bub ky far slash`, `@Bub amane 5b`, `@Bub ashrah heavens palm`. "
+            "You can add `framedata`, but most direct character+move queries do not need it."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="2. Use Game Tags When Needed",
+        value=(
+            "Shared names can be ambiguous. Add tags like `sfv`, `3s`, `ggst`, `bbcf`, `cotw`, "
+            "`2xko`, or `mk1` when Bub needs context. Example: `@Bub 3s ken hadouken`."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="3. Images, Notes, And Hitboxes",
+        value=(
+            "Ask for `hitbox`, `image`, `gif`, or `notes` when supported. Frame-result buttons can also "
+            "toggle images/notes, and some games expose `Show All Images` for multi-image moves."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="4. Menus And Slash Commands",
+        value=(
+            "Use `/bub` for the guided menu, or direct commands like `/sf6`, `/ggst`, `/bbcf`, "
+            "`/cotw`, `/third-strike`, `/mk1`, and `/mk1-combos`. Menus are locked to the user who opened them."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="5. Quiz And Compare",
+        value=(
+            "Each game menu has Quiz. Frame-data results can include a Compare button that lets you choose "
+            "another move from the same game and place the results side by side."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Need Help?",
+        value="If a valid fighting-game syntax query fails, contact `yimbo3560` with the exact query you used.",
+        inline=False,
+    )
+    return embed
 
 
 def _game_menu_embed(game_label, colour):

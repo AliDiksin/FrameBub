@@ -118,6 +118,7 @@ def load_frame_data(filename=None):
             rows.append(row)
         if rows:
             BBCF_FRAME_DATA[rows[0]["char_key"]] = rows
+            BBCF_CHARACTER_ALIASES.setdefault(rows[0]["char_key"], rows[0]["char_key"])
             BBCF_CHARACTER_ALIASES.setdefault(rows[0]["char_key"].replace("_", " "), rows[0]["char_key"])
             BBCF_CHARACTER_ALIASES.setdefault(str(rows[0]["char_name"]).lower(), rows[0]["char_key"])
             loaded += 1
@@ -133,6 +134,7 @@ def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:bbcf|blazblue|central\s*fiction)\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?)\b", " ", text)
+    text = _normalize_bbcf_notation_spacing(text)
     text = strip_noise_words(text)
     compact = normalize_move_token(text)
     if text in BBCF_MOVE_ALIASES:
@@ -150,6 +152,30 @@ def normalize_move_query(query):
     return text
 
 
+def _normalize_bbcf_notation_spacing(text):
+    text = str(text or "").lower()
+
+    def _join_mai_x_notation(match):
+        prefix = match.group(1).replace(" ", "")
+        first = match.group(2).replace(" ", "")
+        second = (match.group(3) or "").replace(" ", "")
+        return f"{prefix}{first}{second}"
+
+    text = re.sub(
+        r"\b([125789]\s*x)\s*(\[?\s*[abcd]\s*\]?)(?:\s+([1-9]?\s*[abcd]))?\b",
+        _join_mai_x_notation,
+        text,
+    )
+    text = re.sub(r"\bj\s+([abcd])\b", r"j.\1", text)
+    text = re.sub(r"\b([1-9])\s+([abcd])\b", r"\1\2", text)
+    return text
+
+
+def _state_stripped_move_key(value):
+    text = re.sub(r"\[\s*w\s*\]", "", str(value or ""), flags=re.IGNORECASE)
+    return normalize_move_token(text)
+
+
 def row_match_keys(row):
     keys = set()
     for value in (row.get("numCmd"), row.get("moveName")):
@@ -158,7 +184,7 @@ def row_match_keys(row):
     return {key for key in keys if key}
 
 
-def find_matching_rows(char_key, move_text):
+def _find_matching_rows_generic(char_key, move_text):
     query = normalize_move_query(move_text)
     query_key = normalize_move_token(query)
     if not query_key:
@@ -188,6 +214,86 @@ def find_matching_rows(char_key, move_text):
     return unique_rows([row for key, row in candidates if key in close_keys])
 
 
+def _find_mai_followup_rows(char_key, move_text):
+    if char_key != "mai_natsume" or not re.search(r"\bfollow\s*ups?\b", str(move_text or "").lower()):
+        return []
+    query_key = normalize_move_token(normalize_move_query(move_text))
+    if not query_key.startswith("5xa"):
+        return []
+    rows = BBCF_FRAME_DATA.get(char_key, []) or []
+    return unique_rows(
+        row
+        for row in rows
+        if normalize_move_token(row.get("numCmd", "")).startswith("5xa")
+        and normalize_move_token(row.get("numCmd", "")) != "5xa"
+    )
+
+
+def _find_terumi_gain_art_rows(char_key, move_text):
+    if char_key != "yuuki_terumi" or not re.search(r"\bgain\s+arts?\b", str(move_text or "").lower()):
+        return []
+    stripped = re.sub(r"\bgain\s+arts?\b", " ", str(move_text or ""), flags=re.IGNORECASE)
+    stripped = re.sub(r"\b(?:moves?|in)\b", " ", stripped, flags=re.IGNORECASE).strip()
+    if stripped:
+        matches = _find_matching_rows_generic(char_key, stripped)
+        if matches:
+            return matches
+    gain_art_commands = {
+        "5d", "2d", "2dod", "6d", "6dfollowup", "6dfollowupod", "4d", "jd", "j2d",
+        "236d", "236dfollowup", "214d", "632146d", "236236d", "214214d", "222d",
+    }
+    return unique_rows(
+        row
+        for row in (BBCF_FRAME_DATA.get(char_key, []) or [])
+        if normalize_move_token(row.get("numCmd", "")) in gain_art_commands
+    )
+
+
+def _find_valkenhayn_wolf_rows(char_key, move_text):
+    if char_key != "valkenhayn_r_hellsing" or "wolf" not in str(move_text or "").lower():
+        return []
+    stripped = re.sub(r"\bwolf\b", " ", str(move_text or ""), flags=re.IGNORECASE).strip()
+    query_key = normalize_move_token(normalize_move_query(stripped))
+    if not query_key:
+        return []
+    rows = BBCF_FRAME_DATA.get(char_key, []) or []
+    wolf_rows = [
+        row
+        for row in rows
+        if "[w]" in str(row.get("numCmd", "")).lower() or "wolf" in str(row.get("moveName", "")).lower()
+    ]
+    exact = [
+        row
+        for row in wolf_rows
+        if query_key in row_match_keys(row) or _state_stripped_move_key(row.get("numCmd", "")) == query_key
+    ]
+    if exact:
+        return unique_rows(exact)
+    generic = _find_matching_rows_generic(char_key, stripped)
+    filtered = [
+        row
+        for row in generic
+        if "[w]" in str(row.get("numCmd", "")).lower() or "wolf" in str(row.get("moveName", "")).lower()
+    ]
+    return unique_rows(filtered)
+
+
+def _is_multi_row_intent(char_key, move_text):
+    text = str(move_text or "").lower()
+    return bool(
+        (char_key == "mai_natsume" and re.search(r"\bfollow\s*ups?\b", text))
+        or (char_key == "yuuki_terumi" and re.search(r"\bgain\s+arts?\b", text))
+    )
+
+
+def find_matching_rows(char_key, move_text):
+    for finder in (_find_mai_followup_rows, _find_terumi_gain_art_rows, _find_valkenhayn_wolf_rows):
+        matches = finder(char_key, move_text)
+        if matches:
+            return matches
+    return _find_matching_rows_generic(char_key, move_text)
+
+
 def build_disambiguation_prompt(char_key, rows):
     lines = [f"Multiple BBCF moves match {display_char_name(char_key)}. Please specify one:"]
     for row in rows[:12]:
@@ -205,6 +311,7 @@ def find_moves_in_text(text):
     notes_query = bool(re.search(r"\bnotes?\b", lowered))
     char_matches = find_characters_in_text(lowered)
     rows = []
+    quiz_answer_too_broad = False
     matched_char_key = char_matches[0][0] if char_matches else None
     comparison_result = find_comparison_rows(
         lowered,
@@ -251,10 +358,14 @@ def find_moves_in_text(text):
             normalized_candidate = normalize_move_query(move_candidate)
             if not normalized_candidate:
                 continue
-            matches = find_matching_rows(char_key, normalized_candidate)
+            matches = find_matching_rows(char_key, move_candidate)
             if matches:
                 break
         if len(matches) > 1:
+            if _is_multi_row_intent(char_key, move_candidate):
+                rows.extend(matches)
+                quiz_answer_too_broad = True
+                break
             return {
                 "mode": "options",
                 "rows": matches,
@@ -283,6 +394,7 @@ def find_moves_in_text(text):
         "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_matches and (frame_query or hitbox_query or game_query or query_has_bbcf_notation(lowered))),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or hitbox_query or game_query)),
+        "quiz_answer_too_broad": quiz_answer_too_broad,
     }
 
 

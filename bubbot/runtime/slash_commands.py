@@ -278,6 +278,10 @@ def register_slash_commands(tree, deps):
     async def bub_slash_command(interaction: discord.Interaction):
         await interaction.response.send_message(embed=menu_system._main_menu_embed(), view=menu_system.MainMenuView(interaction.user.id))
 
+    @tree.command(name="readme", description="Show a quick guide to Bub's features")
+    async def readme_slash_command(interaction: discord.Interaction):
+        await interaction.response.send_message(embed=menu_system.build_readme_embed())
+
     @tree.command(name="ggst")
     @discord.app_commands.describe(char_name="The characters name", move_name="The move name", char_state="Optional char specific states like Installs.")
     async def ggst(interaction: discord.Interaction, char_name: str, move_name: str, char_state: str = None):

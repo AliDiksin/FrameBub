@@ -700,13 +700,6 @@ async def _handle_message(message):
     content_no_mentions = strip_discord_mentions(content_raw)
     content_lower = content_no_mentions.lower()
 
-    # Disabled by request: manual trigger for the old daily "Hello everyone" batch.
-    # Re-enable by uncommenting this block.
-    # if client.user.mentioned_in(message) and "do the thing" in content_lower:
-    #     print(f"[daily-message] Manual trigger received from user_id={message.author.id}", flush=True)
-    #     await buenavista_extension.send_daily_messages(message.channel)
-    #     return
-
     if client.user.mentioned_in(message) and content_lower.strip() == "menu":
         await menu_system.send_main_menu(message.channel, owner_id=message.author.id)
         return
@@ -1059,6 +1052,19 @@ async def _handle_message(message):
         mk1_module.MK1_CHARACTER_ALIASES,
         mk1_module.MK1_FRAME_DATA.keys(),
     )
+    message_replies_to_bot = False
+    if message.reference:
+        try:
+            addressed_replied_msg = await _fetch_referenced_message(message)
+            message_replies_to_bot = bool(addressed_replied_msg and addressed_replied_msg.author == client.user)
+        except (discord.NotFound, discord.Forbidden):
+            message_replies_to_bot = False
+        except Exception as reply_check_error:
+            print(f"Frame route reply check error: {reply_check_error}", flush=True)
+    frame_command_is_addressed = bool(
+        client.user.mentioned_in(message)
+        or message_replies_to_bot
+    )
     fd_context_payload = find_moves_in_text(content_lower)
 
     ggst_payload = ggst_module.find_moves_in_text(content_lower)
@@ -1079,10 +1085,11 @@ async def _handle_message(message):
         explicit_ggst_query
         or (ggst_exact_character_query and not sf6_exact_character_query)
     )
-    if client.user.mentioned_in(message) and ggst_route_allowed and ggst_lookup_intent and not ggst_rows:
+    if frame_command_is_addressed and ggst_route_allowed and ggst_lookup_intent and not ggst_rows:
         rewritten_ggst_query = await buenavista_extension.rewrite_ggst_lookup_query(
             content_no_mentions,
             strip_discord_mentions,
+            message=message,
         )
         if rewritten_ggst_query:
             rewritten_ggst_payload = ggst_module.find_moves_in_text(rewritten_ggst_query.lower())
@@ -1097,7 +1104,7 @@ async def _handle_message(message):
                 )
                 print(f"[ggst-parser-private] rewritten query: {rewritten_ggst_query}", flush=True)
 
-    if client.user.mentioned_in(message) and ggst_route_allowed and ggst_lookup_intent and ggst_rows:
+    if frame_command_is_addressed and ggst_route_allowed and ggst_lookup_intent and ggst_rows:
         if ggst_payload.get("needs_disambiguation"):
             await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
         elif ggst_payload.get("gif_query") and ggst_payload.get("frame_query"):
@@ -1108,7 +1115,7 @@ async def _handle_message(message):
         else:
             await ggst_module.send_frame_response(message, ggst_rows)
         return
-    elif client.user.mentioned_in(message) and ggst_route_allowed and ggst_lookup_intent and ggst_payload.get("needs_disambiguation"):
+    elif frame_command_is_addressed and ggst_route_allowed and ggst_lookup_intent and ggst_payload.get("needs_disambiguation"):
         await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
         return
 
@@ -1146,7 +1153,7 @@ async def _handle_message(message):
             and not mk1_exact_character_query
         )
     )
-    if client.user.mentioned_in(message) and sfv_route_allowed and sfv_lookup_intent and sfv_rows:
+    if frame_command_is_addressed and sfv_route_allowed and sfv_lookup_intent and sfv_rows:
         if sfv_payload.get("needs_disambiguation"):
             await message.reply(sfv_payload.get("data", "Please specify which SFV move you mean."))
         elif sfv_payload.get("gif_query") and sfv_payload.get("frame_query"):
@@ -1157,10 +1164,10 @@ async def _handle_message(message):
         else:
             await sfv_module.send_frame_response(message, sfv_rows)
         return
-    elif client.user.mentioned_in(message) and sfv_route_allowed and sfv_lookup_intent and sfv_payload.get("needs_disambiguation"):
+    elif frame_command_is_addressed and sfv_route_allowed and sfv_lookup_intent and sfv_payload.get("needs_disambiguation"):
         await message.reply(sfv_payload.get("data", "Please specify which SFV move you mean."))
         return
-    elif client.user.mentioned_in(message) and sfv_route_allowed and sfv_lookup_intent and sfv_payload.get("explicit_move_attempt"):
+    elif frame_command_is_addressed and sfv_route_allowed and sfv_lookup_intent and sfv_payload.get("explicit_move_attempt"):
         char_label = sfv_module.display_char_name(sfv_payload.get("char_key"))
         await message.reply(f"I have SFV scrolls for {char_label}, but I couldn't find that move.")
         return
@@ -1175,7 +1182,7 @@ async def _handle_message(message):
         tuco_payload.get("game_query")
         or (tuco_exact_character_query and not sf6_exact_character_query and not ggst_exact_character_query and not sfv_exact_character_query)
     )
-    if client.user.mentioned_in(message) and tuco_route_allowed and tuco_lookup_intent and tuco_rows:
+    if frame_command_is_addressed and tuco_route_allowed and tuco_lookup_intent and tuco_rows:
         if tuco_payload.get("needs_disambiguation"):
             await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
         elif tuco_payload.get("gif_query") and tuco_payload.get("frame_query"):
@@ -1186,7 +1193,7 @@ async def _handle_message(message):
         else:
             await tuco_module.send_frame_response(message, tuco_rows)
         return
-    elif client.user.mentioned_in(message) and tuco_route_allowed and tuco_lookup_intent and tuco_payload.get("needs_disambiguation"):
+    elif frame_command_is_addressed and tuco_route_allowed and tuco_lookup_intent and tuco_payload.get("needs_disambiguation"):
         await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
         return
 
@@ -1214,7 +1221,7 @@ async def _handle_message(message):
             and not third_strike_exact_character_query
         )
     )
-    if client.user.mentioned_in(message) and bbcf_route_allowed and bbcf_lookup_intent and bbcf_rows:
+    if frame_command_is_addressed and bbcf_route_allowed and bbcf_lookup_intent and bbcf_rows:
         if bbcf_payload.get("needs_disambiguation"):
             await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
         elif bbcf_payload.get("gif_query") and bbcf_payload.get("frame_query"):
@@ -1225,7 +1232,7 @@ async def _handle_message(message):
         else:
             await bbcf_module.send_frame_response(message, bbcf_rows)
         return
-    elif client.user.mentioned_in(message) and bbcf_route_allowed and bbcf_lookup_intent and bbcf_payload.get("needs_disambiguation"):
+    elif frame_command_is_addressed and bbcf_route_allowed and bbcf_lookup_intent and bbcf_payload.get("needs_disambiguation"):
         await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
         return
 
@@ -1251,13 +1258,13 @@ async def _handle_message(message):
             and not bbcf_exact_character_query
         )
     )
-    if client.user.mentioned_in(message) and cotw_route_allowed and cotw_lookup_intent and cotw_rows:
+    if frame_command_is_addressed and cotw_route_allowed and cotw_lookup_intent and cotw_rows:
         if cotw_payload.get("needs_disambiguation"):
             await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
         else:
             await cotw_module.send_frame_response(message, cotw_rows)
         return
-    elif client.user.mentioned_in(message) and cotw_route_allowed and cotw_lookup_intent and cotw_payload.get("needs_disambiguation"):
+    elif frame_command_is_addressed and cotw_route_allowed and cotw_lookup_intent and cotw_payload.get("needs_disambiguation"):
         await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
         return
 
@@ -1288,7 +1295,7 @@ async def _handle_message(message):
             and not bbcf_module.query_has_bbcf_notation(content_lower)
         )
     )
-    if client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_rows:
+    if frame_command_is_addressed and third_strike_route_allowed and third_strike_lookup_intent and third_strike_rows:
         if third_strike_payload.get("needs_disambiguation"):
             await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
         elif third_strike_payload.get("gif_query") and third_strike_payload.get("frame_query"):
@@ -1299,10 +1306,10 @@ async def _handle_message(message):
         else:
             await third_strike_module.send_frame_response(message, third_strike_rows)
         return
-    elif client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("needs_disambiguation"):
+    elif frame_command_is_addressed and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("needs_disambiguation"):
         await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
         return
-    elif client.user.mentioned_in(message) and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("explicit_move_attempt"):
+    elif frame_command_is_addressed and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("explicit_move_attempt"):
         char_label = third_strike_module.display_char_name(third_strike_payload.get("char_key"))
         await message.reply(f"I have Third Strike scrolls for {char_label}, but I couldn't find that move.")
         return
@@ -1336,10 +1343,10 @@ async def _handle_message(message):
             and not third_strike_exact_character_query
         )
     )
-    if client.user.mentioned_in(message) and mk1_route_allowed and mk1_lookup_intent and mk1_combo_rows:
+    if frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_combo_rows:
         await mk1_module.send_combo_response(message, mk1_combo_rows)
         return
-    if client.user.mentioned_in(message) and mk1_route_allowed and mk1_lookup_intent and mk1_rows:
+    if frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_rows:
         if mk1_payload.get("needs_disambiguation"):
             await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
         elif mk1_payload.get("gif_query") and mk1_payload.get("frame_query"):
@@ -1350,19 +1357,19 @@ async def _handle_message(message):
         else:
             await mk1_module.send_frame_response(message, mk1_rows)
         return
-    elif client.user.mentioned_in(message) and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("needs_disambiguation"):
+    elif frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("needs_disambiguation"):
         await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
         return
-    elif client.user.mentioned_in(message) and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("explicit_move_attempt"):
+    elif frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("explicit_move_attempt"):
         char_label = mk1_module.display_char_name(mk1_payload.get("char_key"))
         await message.reply(f"I have MK1 scrolls for {char_label}, but I couldn't find that move.")
         return
 
     if (
-        client.user.mentioned_in(message)
+        frame_command_is_addressed
         and mk1_route_allowed
         and not mk1_lookup_intent
-        and not message.reference
+        and (not message.reference or message_replies_to_bot)
         and (mk1_rows or mk1_payload.get("needs_disambiguation"))
     ):
         if mk1_payload.get("needs_disambiguation"):
@@ -1372,10 +1379,10 @@ async def _handle_message(message):
         return
 
     if (
-        client.user.mentioned_in(message)
+        frame_command_is_addressed
         and sfv_route_allowed
         and not sfv_lookup_intent
-        and not message.reference
+        and (not message.reference or message_replies_to_bot)
         and (sfv_rows or sfv_payload.get("needs_disambiguation"))
     ):
         if sfv_payload.get("needs_disambiguation"):
@@ -1385,10 +1392,10 @@ async def _handle_message(message):
         return
 
     if (
-        client.user.mentioned_in(message)
+        frame_command_is_addressed
         and third_strike_route_allowed
         and not third_strike_lookup_intent
-        and not message.reference
+        and (not message.reference or message_replies_to_bot)
         and (third_strike_rows or third_strike_payload.get("needs_disambiguation"))
     ):
         if third_strike_payload.get("needs_disambiguation"):
@@ -1398,10 +1405,10 @@ async def _handle_message(message):
         return
 
     if (
-        client.user.mentioned_in(message)
+        frame_command_is_addressed
         and tuco_route_allowed
         and not tuco_lookup_intent
-        and not message.reference
+        and (not message.reference or message_replies_to_bot)
         and (tuco_rows or tuco_payload.get("needs_disambiguation"))
     ):
         if tuco_payload.get("needs_disambiguation"):
@@ -1411,10 +1418,10 @@ async def _handle_message(message):
         return
 
     if (
-        client.user.mentioned_in(message)
+        frame_command_is_addressed
         and bbcf_route_allowed
         and not bbcf_lookup_intent
-        and not message.reference
+        and (not message.reference or message_replies_to_bot)
         and (bbcf_rows or bbcf_payload.get("needs_disambiguation"))
     ):
         if bbcf_payload.get("needs_disambiguation"):
@@ -1424,10 +1431,10 @@ async def _handle_message(message):
         return
 
     if (
-        client.user.mentioned_in(message)
+        frame_command_is_addressed
         and cotw_route_allowed
         and not cotw_lookup_intent
-        and not message.reference
+        and (not message.reference or message_replies_to_bot)
         and (cotw_rows or cotw_payload.get("needs_disambiguation"))
     ):
         if cotw_payload.get("needs_disambiguation"):
@@ -1437,10 +1444,10 @@ async def _handle_message(message):
         return
 
     if (
-        client.user.mentioned_in(message)
+        frame_command_is_addressed
         and ggst_route_allowed
         and not ggst_lookup_intent
-        and not message.reference
+        and (not message.reference or message_replies_to_bot)
         and (ggst_rows or ggst_payload.get("needs_disambiguation"))
     ):
         if ggst_payload.get("needs_disambiguation"):
@@ -1546,6 +1553,7 @@ async def _handle_message(message):
         rewritten_lookup_query = await buenavista_extension.rewrite_sf_lookup_query(
             content_no_mentions,
             strip_discord_mentions,
+            message=message,
         )
         if rewritten_lookup_query:
             rewritten_payload = find_moves_in_text(rewritten_lookup_query.lower())
@@ -1575,7 +1583,7 @@ async def _handle_message(message):
                 fallback_reply = fd_context_data if fd_context_data else None
                 print(f"[parser-private] rewritten query: {rewritten_lookup_query}", flush=True)
 
-    if gif_query and not client.user.mentioned_in(message):
+    if gif_query and not frame_command_is_addressed:
         return
 
     explicit_frame_request = (
@@ -1615,7 +1623,7 @@ async def _handle_message(message):
 
     
     should_handle_direct_frame = (
-        client.user.mentioned_in(message)
+        frame_command_is_addressed
         or ".framedata" in content_lower
     )
     combined_frame_gif_request = bool(
@@ -1633,8 +1641,8 @@ async def _handle_message(message):
     implied_rows = []
     implied_data = ""
     if (
-        client.user.mentioned_in(message)
-        and not message.reference
+        frame_command_is_addressed
+        and (not message.reference or message_replies_to_bot)
         and not gif_query
         and not explicit_frame_request
         and not property_only_query
@@ -1644,9 +1652,10 @@ async def _handle_message(message):
         and not super_gain_alias_query
         and not range_alias_query
         and not re.search(
-            r"\b(punish|punishable|compare|comparison|versus|vs|stats?|health|reversal|combo|bnb|oki|playstyle|overview|coach)\b",
+            r"\b(punish|punishable|compare|comparison|versus|vs|stats?|health|reversal|combo|bnb|oki|playstyle|overview)\b",
             content_lower,
         )
+        and not buenavista_extension.should_suppress_public_implied_frame_lookup(content_lower, message=message)
     ):
         implied_frame_payload = find_moves_in_text(f"{content_lower} framedata")
         implied_data = implied_frame_payload.get("data", "")
@@ -1664,8 +1673,8 @@ async def _handle_message(message):
 
     if (
         not vague_move_query_without_output_intent
-        and client.user.mentioned_in(message)
-        and not message.reference
+        and frame_command_is_addressed
+        and (not message.reference or message_replies_to_bot)
         and target_combo_query
         and explicit_move_attempt
         and fd_context_mode == "frame"
@@ -1689,7 +1698,7 @@ async def _handle_message(message):
                 await message.reply(default_data)
             return
 
-        if combined_frame_gif_request and client.user.mentioned_in(message):
+        if combined_frame_gif_request and frame_command_is_addressed:
             if "Special Strength Options" in fd_context_data:
                 try:
                     sent_prompt = await message.reply(fd_context_data)
@@ -1769,7 +1778,7 @@ async def _handle_message(message):
                         print(f"Missing-gif both reply error: {reply_error}", flush=True)
                 return
 
-        if gif_query and client.user.mentioned_in(message):
+        if gif_query and frame_command_is_addressed:
             if "Special Strength Options" in fd_context_data:
                 try:
                     sent_prompt = await message.reply(fd_context_data)
@@ -1946,7 +1955,11 @@ async def _handle_message(message):
                         print(f"Direct frame reply error: {reply_error}", flush=True)
             return
 
-        if fd_context_data or "coach" in content_lower:
+        if buenavista_extension.should_handle_frame_context_request(
+            content_lower=content_lower,
+            fd_context_data=fd_context_data,
+            message=message,
+        ):
             handled = await buenavista_extension.maybe_handle_frame_context(
                 client=client,
                 message=message,
@@ -2035,7 +2048,12 @@ async def _handle_message(message):
 
 
 
-    should_respond = client.user.mentioned_in(message) or is_reply_to_bot or replied_context is not None
+    should_respond = buenavista_extension.should_handle_chat_trigger(
+        client=client,
+        message=message,
+        is_reply_to_bot=is_reply_to_bot,
+        replied_context=replied_context,
+    )
     if should_respond:
         handled = await buenavista_extension.maybe_handle_chat(
             client=client,
@@ -2052,6 +2070,13 @@ async def _handle_message(message):
         )
         if handled:
             return
+
+    if frame_command_is_addressed and buenavista_extension.should_send_public_invalid_query_notice(message):
+        await message.reply(
+            "I only respond to fighting game syntax and frame-data queries here. "
+            "If you think this is an error, contact yimbo3560 on discord."
+        )
+        return
 
 
 register_slash_commands(

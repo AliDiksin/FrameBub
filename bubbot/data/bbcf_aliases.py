@@ -63,6 +63,7 @@ BBCF_CHARACTER_ALIASES = {
     "yuuki terumi": "yuuki_terumi",
     "tsubaki": "tsubaki_yayoi",
     "tsubaki yayoi": "tsubaki_yayoi",
+    "valk": "valkenhayn_r_hellsing",
     "valkenhayn": "valkenhayn_r_hellsing",
     "valkenhayn r hellsing": "valkenhayn_r_hellsing",
     "valkenhayn r. hellsing": "valkenhayn_r_hellsing",
@@ -101,6 +102,8 @@ BBCF_MOVE_ALIASES = {
     "forward throw": "B+C",
     "back throw": "4B+C",
     "air throw": "j.B+C",
+    "god press": "63214C",
+    "godpress": "63214C",
 }
 
 

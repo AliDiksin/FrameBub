@@ -15,7 +15,7 @@ def sanitize_ascii_line(text):
 
 async def build_quiz_persona_intro(channel, round_num, total_rounds, mode, sanitize_ascii_func, has_hint_func):
     mode_key = str(mode or "hard").strip().lower()
-    return f"Quiz question {round_num}/{total_rounds} ({mode_key}). Guess the character and move from the data."
+    return f"Quiz question {round_num} ({mode_key}). Guess the character and move from the data."
 
 
 async def build_quiz_wrong_guess_message(channel, sanitize_ascii_func, has_hint_func):
@@ -498,6 +498,81 @@ class QuizNotesButton(discord.ui.Button):
         await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view, attachments=[])
 
 
+class QuizGiveUpButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Give Up", style=discord.ButtonStyle.danger, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        channel = interaction.channel
+        channel_id = getattr(channel, "id", None)
+        quiz = ACTIVE_QUIZZES.get(channel_id)
+        if not quiz or quiz.get("answered"):
+            await interaction.response.send_message("No active quiz is running in this channel.", ephemeral=True)
+            return
+
+        if not _quiz_user_can_end(quiz, interaction.user.id):
+            await interaction.response.send_message(_quiz_owner_only_end_message(quiz), ephemeral=True)
+            return
+
+        ended_quiz = ACTIVE_QUIZZES.pop(channel_id, None)
+        if ended_quiz is not quiz:
+            if ended_quiz:
+                ACTIVE_QUIZZES[channel_id] = ended_quiz
+            await interaction.response.send_message("That quiz already changed. Try again.", ephemeral=True)
+            return
+
+        _quiz_cancel_active_timeout(channel_id)
+        for item in getattr(self.view, "children", []):
+            item.disabled = True
+        await interaction.response.edit_message(view=self.view)
+
+        reply_text = _quiz_reveal_reply_text(quiz)
+        sent = await interaction.followup.send(reply_text)
+        await _quiz_start_next_question(
+            QuizChannelMessage(channel, author=interaction.user),
+            quiz,
+            result_message_id=getattr(sent, "id", None),
+        )
+
+
+class QuizEndButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="End Quiz", style=discord.ButtonStyle.secondary, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        channel = interaction.channel
+        channel_id = getattr(channel, "id", None)
+        quiz = ACTIVE_QUIZZES.get(channel_id)
+        if not quiz or quiz.get("answered"):
+            await interaction.response.send_message("No active quiz is running in this channel.", ephemeral=True)
+            return
+
+        if not _quiz_user_can_end(quiz, interaction.user.id):
+            await interaction.response.send_message(_quiz_owner_only_end_message(quiz), ephemeral=True)
+            return
+
+        ended_quiz = ACTIVE_QUIZZES.pop(channel_id, None)
+        if ended_quiz is not quiz:
+            if ended_quiz:
+                ACTIVE_QUIZZES[channel_id] = ended_quiz
+            await interaction.response.send_message("That quiz already changed. Try again.", ephemeral=True)
+            return
+
+        _quiz_cancel_active_timeout(channel_id)
+        for item in getattr(self.view, "children", []):
+            item.disabled = True
+        await interaction.response.edit_message(view=self.view)
+
+        char_display, move_name, num_cmd = _quiz_answer_display(quiz)
+        score_text = _format_quiz_scores(
+            dict(quiz.get("scores") or {}),
+            dict(quiz.get("score_names") or {}),
+        )
+        await interaction.followup.send(
+            f"Quiz ended. The answer was **{char_display}'s {move_name} ({num_cmd})**.\n{score_text}"
+        )
+
+
 class QuizQuestionView(discord.ui.View):
     def __init__(self, row, mode="hard", game="sf6"):
         super().__init__(timeout=QUIZ_ACTIVE_TTL_SECONDS)
@@ -506,6 +581,8 @@ class QuizQuestionView(discord.ui.View):
         self.game = _quiz_game_key(game)
         self.show_notes = False
         self.add_item(QuizNotesButton(row, mode=mode, game=self.game))
+        self.add_item(QuizGiveUpButton())
+        self.add_item(QuizEndButton())
 
     def build_embed(self):
         return build_quiz_frame_embed(self.frame_row, mode=self.mode, show_notes=self.show_notes, game=self.game)
@@ -682,6 +759,20 @@ async def _quiz_publish_from_placeholder(channel, placeholder_message, text, emb
     except Exception as e:
         print(f"[quiz] placeholder fallback send error: {e}", flush=True)
         return None
+
+
+class QuizChannelMessage:
+    def __init__(self, channel, author=None):
+        self.channel = channel
+        self.author = author or type("QuizAuthor", (), {"id": 0, "display_name": "Bub"})()
+        self.content = ""
+        self.id = None
+        self.reference = None
+        self.embeds = []
+        self.attachments = []
+
+    async def reply(self, content=None, **kwargs):
+        return await self.channel.send(content, **kwargs)
 
 
 def _normalize_quiz_numcmd(text):
@@ -989,14 +1080,15 @@ def _quiz_candidate_rows_for_answer(game, char_key, move_text):
         candidates.append(direct_row)
 
     parser_payload = _quiz_find_moves_in_text(game, _quiz_parser_query(game, char_key, move_text))
-    for row in parser_payload.get("rows", []) or []:
-        row_char = str(row.get("char_key", "") or "").strip().lower()
-        if not row_char:
-            row_char = _quiz_game_resolve_character(game, str(row.get("char_name", ""))) or ""
-        if row_char and row_char != char_key:
-            continue
-        if row not in candidates:
-            candidates.append(row)
+    if not parser_payload.get("quiz_answer_too_broad"):
+        for row in parser_payload.get("rows", []) or []:
+            row_char = str(row.get("char_key", "") or "").strip().lower()
+            if not row_char:
+                row_char = _quiz_game_resolve_character(game, str(row.get("char_name", ""))) or ""
+            if row_char and row_char != char_key:
+                continue
+            if row not in candidates:
+                candidates.append(row)
 
     normalized_move = _normalize_quiz_name(move_text)
     normalized_cmd = _normalize_quiz_numcmd(move_text)
@@ -1541,38 +1633,13 @@ async def stop_quiz(message):
     move_name = str(row.get("moveName", "?")).strip()
     num_cmd = str(row.get("numCmd", "?")).strip()
     reply_text = (
-        f"Quiz ended. The answer was **{char_display}'s {move_name} ({num_cmd})**.\n"
-        "Would you like another question?"
+        f"Quiz ended. The answer was **{char_display}'s {move_name} ({num_cmd})**."
     )
     try:
-        sent = await message.reply(reply_text)
-        QUIZ_PENDING_ANOTHER[channel_id] = {
-            "created_at": datetime.datetime.now(datetime.timezone.utc),
-            "message_id": getattr(sent, "id", None),
-            "mode": quiz.get("mode", "hard"),
-            "game": quiz.get("game", "sf6"),
-            "owner_user_id": quiz.get("owner_user_id"),
-            "scores": dict(quiz.get("scores") or {}),
-            "score_names": dict(quiz.get("score_names") or {}),
-            "round": quiz.get("round", 1),
-            "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
-        }
-        _quiz_schedule_pending_another_timeout(channel_id, message.channel)
+        await message.reply(reply_text)
     except Exception as e:
         if is_deleted_message_reference_error(e):
-            sent = await message.channel.send(reply_text)
-            QUIZ_PENDING_ANOTHER[channel_id] = {
-                "created_at": datetime.datetime.now(datetime.timezone.utc),
-                "message_id": getattr(sent, "id", None),
-                "mode": quiz.get("mode", "hard"),
-                "game": quiz.get("game", "sf6"),
-                "owner_user_id": quiz.get("owner_user_id"),
-                "scores": dict(quiz.get("scores") or {}),
-                "score_names": dict(quiz.get("score_names") or {}),
-                "round": quiz.get("round", 1),
-                "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
-            }
-            _quiz_schedule_pending_another_timeout(channel_id, message.channel)
+            await message.channel.send(reply_text)
         else:
             print(f"[quiz] stop send error: {e}", flush=True)
 
@@ -1645,6 +1712,36 @@ def _quiz_build_message_history(state, appended_message_id=None):
     return list(temp_state.get("message_ids") or [])
 
 
+def _quiz_reveal_reply_text(quiz):
+    char_display, move_name, num_cmd = _quiz_answer_display(quiz)
+    score_text = _format_quiz_scores(
+        dict(quiz.get("scores") or {}),
+        dict(quiz.get("score_names") or {}),
+    )
+    return (
+        f"The answer was **{char_display}'s {move_name} ({num_cmd})**.\n"
+        f"{score_text}\n"
+        "Starting the next question."
+    )
+
+
+async def _quiz_start_next_question(message, quiz, result_message_id=None):
+    try:
+        next_round = max(1, int((quiz or {}).get("round", 1))) + 1
+    except Exception:
+        next_round = 2
+    await start_quiz(
+        message,
+        mode=(quiz or {}).get("mode", "hard"),
+        game=(quiz or {}).get("game", "sf6"),
+        session_scores=dict((quiz or {}).get("scores") or {}),
+        session_score_names=dict((quiz or {}).get("score_names") or {}),
+        session_round=next_round,
+        session_owner_user_id=(quiz or {}).get("owner_user_id"),
+        session_message_ids=_quiz_build_message_history(quiz, result_message_id),
+    )
+
+
 def _is_reply_to_quiz_followup_msg(message):
     """True if message replies to the most recent 'another question' prompt."""
     ref = getattr(message, "reference", None)
@@ -1691,7 +1788,7 @@ def _quiz_active_timeout_message(quiz_state):
         "Quiz timed out after 5 minutes with no correct answer.\n"
         f"The answer was **{char_display}'s {move_name} ({num_cmd})**.\n"
         f"{score_text}\n"
-        "Would you like another question?"
+        "Quiz ended."
     )
 
 
@@ -1730,19 +1827,7 @@ def _quiz_schedule_active_timeout(channel_id, channel, quiz_state):
 
             expiry_text = _quiz_active_timeout_message(expired_quiz)
             try:
-                sent = await channel.send(expiry_text)
-                QUIZ_PENDING_ANOTHER[channel_id] = {
-                    "created_at": datetime.datetime.now(datetime.timezone.utc),
-                    "message_id": getattr(sent, "id", None),
-                    "mode": expired_quiz.get("mode", "hard"),
-                    "game": expired_quiz.get("game", "sf6"),
-                    "owner_user_id": expired_quiz.get("owner_user_id"),
-                    "scores": dict(expired_quiz.get("scores") or {}),
-                    "score_names": dict(expired_quiz.get("score_names") or {}),
-                    "round": expired_quiz.get("round", 1),
-                    "message_ids": _quiz_build_message_history(expired_quiz, getattr(sent, "id", None)),
-                }
-                _quiz_schedule_pending_another_timeout(channel_id, channel)
+                await channel.send(expiry_text)
             except Exception as send_error:
                 print(f"[quiz] active-expiry send error: {send_error}", flush=True)
         except asyncio.CancelledError:
@@ -2064,45 +2149,14 @@ async def handle_quiz_post_answer_choice(message):
 
         ACTIVE_QUIZZES.pop(channel_id, None)
         _quiz_cancel_active_timeout(channel_id)
-        char_display, move_name, num_cmd = _quiz_answer_display(quiz)
-        score_text = _format_quiz_scores(
-            dict(quiz.get("scores") or {}),
-            dict(quiz.get("score_names") or {}),
-        )
-        reply_text = (
-            f"The answer was **{char_display}'s {move_name} ({num_cmd})**.\n"
-            f"{score_text}\n"
-            "Would you like another question?"
-        )
+        reply_text = _quiz_reveal_reply_text(quiz)
         try:
             sent = await message.reply(reply_text)
-            QUIZ_PENDING_ANOTHER[channel_id] = {
-                "created_at": datetime.datetime.now(datetime.timezone.utc),
-                "message_id": getattr(sent, "id", None),
-                "mode": quiz.get("mode", "hard"),
-                "game": quiz.get("game", "sf6"),
-                "owner_user_id": quiz.get("owner_user_id"),
-                "scores": dict(quiz.get("scores") or {}),
-                "score_names": dict(quiz.get("score_names") or {}),
-                "round": quiz.get("round", 1),
-                "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
-            }
-            _quiz_schedule_pending_another_timeout(channel_id, message.channel)
+            await _quiz_start_next_question(message, quiz, result_message_id=getattr(sent, "id", None))
         except Exception as e:
             if is_deleted_message_reference_error(e):
                 sent = await message.channel.send(reply_text)
-                QUIZ_PENDING_ANOTHER[channel_id] = {
-                    "created_at": datetime.datetime.now(datetime.timezone.utc),
-                    "message_id": getattr(sent, "id", None),
-                    "mode": quiz.get("mode", "hard"),
-                    "game": quiz.get("game", "sf6"),
-                    "owner_user_id": quiz.get("owner_user_id"),
-                    "scores": dict(quiz.get("scores") or {}),
-                    "score_names": dict(quiz.get("score_names") or {}),
-                    "round": quiz.get("round", 1),
-                    "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
-                }
-                _quiz_schedule_pending_another_timeout(channel_id, message.channel)
+                await _quiz_start_next_question(message, quiz, result_message_id=getattr(sent, "id", None))
             else:
                 print(f"[quiz] reveal-end reply error: {e}", flush=True)
         return True
@@ -2164,7 +2218,7 @@ async def handle_quiz_answer(message):
     score_text = _format_quiz_scores(dict(scores), dict(score_names))
     result_lines = [correct_reply, score_text]
     result_lines.append(f"The answer was **{char_display}'s {move_name} ({num_cmd})**.")
-    result_lines.append("Would you like another question?")
+    result_lines.append("Starting the next question.")
     result_text = "\n".join(result_lines)
     sent = await _quiz_publish_from_placeholder(
         message.channel,
@@ -2175,18 +2229,7 @@ async def handle_quiz_answer(message):
         print("[quiz] correct-reply send failed", flush=True)
         return True
 
-    QUIZ_PENDING_ANOTHER[channel_id] = {
-        "created_at": datetime.datetime.now(datetime.timezone.utc),
-        "message_id": getattr(sent, "id", None),
-        "mode": quiz.get("mode", "hard"),
-        "game": quiz.get("game", "sf6"),
-        "owner_user_id": quiz.get("owner_user_id"),
-        "scores": dict(scores),
-        "score_names": dict(score_names),
-        "round": quiz.get("round", 1),
-        "message_ids": _quiz_build_message_history(quiz, getattr(sent, "id", None)),
-    }
-    _quiz_schedule_pending_another_timeout(channel_id, message.channel)
+    await _quiz_start_next_question(message, quiz, result_message_id=getattr(sent, "id", None))
 
     return True
 
