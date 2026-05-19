@@ -441,6 +441,26 @@ def build_disambiguation_prompt(char_key, rows):
     return "\n".join(lines)
 
 
+def find_single_character_multi_move_rows(char_key, move_text):
+    parts = [part.strip() for part in re.split(r"\band\b", str(move_text or "").lower()) if part.strip()]
+    if len(parts) < 2:
+        return None
+    rows = []
+    for part in parts:
+        matches = []
+        for move_candidate in query_suffix_candidates(part):
+            matches = find_matching_rows(char_key, move_candidate)
+            if matches:
+                break
+        if len(matches) > 1:
+            return {"needs_disambiguation": True, "rows": matches}
+        if not matches:
+            return None
+        if matches[0] not in rows:
+            rows.append(matches[0])
+    return {"rows": rows} if len(rows) >= 2 else None
+
+
 def find_moves_in_text(text):
     lowered = str(text or "").lower()
     image_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
@@ -490,6 +510,37 @@ def find_moves_in_text(text):
         }
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
+        multi_move_result = find_single_character_multi_move_rows(char_key, move_text)
+        if multi_move_result and multi_move_result.get("needs_disambiguation"):
+            matches = multi_move_result["rows"]
+            return {
+                "mode": "options",
+                "rows": matches,
+                "data": build_disambiguation_prompt(char_key, matches),
+                "gif_query": image_query,
+                "frame_query": frame_query,
+                "game_query": game_query,
+                "notes_query": notes_query,
+                "needs_disambiguation": True,
+                "char_found": True,
+                "char_key": char_key,
+            }
+        if multi_move_result:
+            rows = multi_move_result["rows"]
+            return {
+                "mode": "gif" if image_query else "frame",
+                "rows": rows,
+                "data": "\n\n".join(format_frame_data(row, include_notes=notes_query) for row in rows),
+                "gif_query": image_query,
+                "frame_query": frame_query,
+                "game_query": game_query,
+                "notes_query": notes_query,
+                "char_found": True,
+                "char_key": char_key,
+                "wants_comparison": False,
+                "explicit_move_attempt": True,
+                "missing_scrolls_query": False,
+            }
         matches = []
         for move_candidate in query_suffix_candidates(move_text):
             matches = find_matching_rows(char_key, move_candidate)

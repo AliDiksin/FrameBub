@@ -152,7 +152,15 @@ def _third_strike_character_list():
 
 def _mk1_character_list():
     from bubbot.frame_data.mk1_frame_data import display_char_name
-    return character_choices(MK1_FRAME_DATA, display_fn=lambda char_key, _rows: display_char_name(char_key))
+
+    def display_fn(char_key, _rows):
+        label = display_char_name(char_key)
+        if str(char_key).startswith("kameo_"):
+            label = re.sub(r"^Kameo\s+", "", label).strip()
+            return f"{label} (Kameo)"
+        return label
+
+    return character_choices(MK1_FRAME_DATA, display_fn=display_fn)
 
 
 def _mk1_combo_character_list():
@@ -384,7 +392,7 @@ class CompareFrameButton(discord.ui.Button):
             await interaction.response.send_message("No moves found for this character.", ephemeral=True)
             return
         display = _character_display_name(self.game, char_key)
-        await interaction.response.send_message(
+        await interaction.response.edit_message(
             embed=_move_select_embed(
                 display,
                 page=0,
@@ -400,6 +408,7 @@ class CompareFrameButton(discord.ui.Button):
                 compare_row=self.frame_row,
                 compare_char_key=char_key,
             ),
+            attachments=[],
         )
 
 
@@ -943,8 +952,8 @@ class MoveSelect(discord.ui.Select):
         row, label = self.moves[idx]
         if self.compare_row is not None:
             await interaction.response.defer()
-            await _send_frame_result_message(
-                interaction.channel,
+            await _edit_frame_result_message(
+                interaction.message,
                 self.game,
                 self.compare_char_key or self.char_key,
                 self.compare_row,
@@ -977,6 +986,20 @@ async def _send_frame_result_message(channel, game, char_key, row, owner_id):
             view.cotw_image_filename = file.filename
             files = [file]
     await channel.send(embed=view.build_embed(), view=view, files=files)
+
+
+async def _edit_frame_result_message(message, game, char_key, row, owner_id):
+    view = FrameResultView(game, char_key, row, owner_id)
+    files = view.initial_files()
+    if game == "cotw":
+        from bubbot.frame_data.cotw_frame_data import build_image_attachment
+        file, attachment_url = await build_image_attachment(row)
+        if file and attachment_url:
+            view.image_url_override = attachment_url
+            view.cotw_image_bytes = file.fp.getvalue()
+            view.cotw_image_filename = file.filename
+            files = [file]
+    await message.edit(embed=view.build_embed(), view=view, attachments=files)
 
 
 class FrameResultView(OwnedView):
