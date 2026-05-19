@@ -70,6 +70,7 @@ QUIZ_PENDING_MODE = {}
 QUIZ_ACTIVE_TIMEOUT_TASKS = {}
 QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS = {}
 QUIZ_LEADERBOARD_FILE = os.getenv("QUIZ_LEADERBOARD_FILE", "quiz_leaderboard.json")
+QUIZ_LEADERBOARD_GUILD_ID = int(os.getenv("QUIZ_LEADERBOARD_GUILD_ID", "1345474576439836802"))
 QUIZ_GLOBAL_LEADERBOARD = {}
 QUIZ_GLOBAL_LEADERBOARD_NAMES = {}
 QUIZ_LEADERBOARD_LOCK = asyncio.Lock()
@@ -1970,6 +1971,11 @@ def _quiz_leaderboard_file_path():
     return os.path.join(os.path.dirname(__file__), path_text)
 
 
+def _quiz_message_in_leaderboard_guild(message):
+    guild = getattr(message, "guild", None)
+    return bool(guild and getattr(guild, "id", None) == QUIZ_LEADERBOARD_GUILD_ID)
+
+
 def load_quiz_leaderboard():
     """Load persistent global quiz leaderboard from disk."""
     global QUIZ_GLOBAL_LEADERBOARD, QUIZ_GLOBAL_LEADERBOARD_NAMES
@@ -2082,8 +2088,11 @@ def _quiz_format_global_leaderboard_reply(limit=10):
     )
 
 
-async def _quiz_record_global_win(user_id, display_name, points=1):
+async def _quiz_record_global_win(message, user_id, display_name, points=1):
     """Record lifetime quiz points for a user and persist leaderboard."""
+    if not _quiz_message_in_leaderboard_guild(message):
+        return
+
     try:
         uid = int(user_id)
         delta = int(points)
@@ -2208,7 +2217,7 @@ async def handle_quiz_answer(message):
     winner_points = int(scores.get(winner_id, 0)) + 1
     scores[winner_id] = winner_points
     score_names[winner_id] = winner_name
-    await _quiz_record_global_win(winner_id, winner_name, points=1)
+    await _quiz_record_global_win(message, winner_id, winner_name, points=1)
 
     ACTIVE_QUIZZES.pop(channel_id, None)
     _quiz_cancel_active_timeout(channel_id)
@@ -2252,6 +2261,16 @@ async def route_message(client, message, content_lower):
     )
 
     if command_is_addressed and _quiz_is_leaderboard_request(content_lower):
+        if not _quiz_message_in_leaderboard_guild(message):
+            try:
+                await message.reply("The persistent quiz leaderboard is only available in Buenavista.")
+            except Exception as e:
+                if is_deleted_message_reference_error(e):
+                    await message.channel.send("The persistent quiz leaderboard is only available in Buenavista.")
+                else:
+                    print(f"[quiz] leaderboard scope reply error: {e}", flush=True)
+            return
+
         top_limit = _quiz_extract_leaderboard_top_limit(content_lower)
         leaderboard_reply = _quiz_format_global_leaderboard_reply(limit=top_limit)
         try:
