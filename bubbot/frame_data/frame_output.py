@@ -500,8 +500,9 @@ async def send_frame_embeds_with_views(channel, rows, embeds=None, owner_id=None
     unique_rows = iter_unique_frame_rows(rows or [])
     embed_list = list(embeds or build_frame_embeds(unique_rows))
     if not embed_list:
-        return False
+        return []
 
+    sent_ids = []
     for index, embed in enumerate(embed_list):
         view = FrameDataGifView(unique_rows[index], owner_id=owner_id) if index < len(unique_rows) else None
         files = []
@@ -511,47 +512,47 @@ async def send_frame_embeds_with_views(channel, rows, embeds=None, owner_id=None
             files = view.initial_files()
         elif view and not embeds:
             embed = view.build_embed()
-        await channel.send(embed=embed, view=view, files=files)
-    return True
+        sent = await channel.send(embed=embed, view=view, files=files)
+        sent_ids.append(sent.id)
+    return sent_ids
 
 
 async def send_frame_table_response(message, rows, data_text):
     unique_rows = iter_unique_frame_rows(rows or [])
     if unique_rows:
         try:
-            await send_frame_embeds_with_views(message.channel, unique_rows, owner_id=getattr(message.author, "id", None))
-            return True
+            return await send_frame_embeds_with_views(message.channel, unique_rows, owner_id=getattr(message.author, "id", None))
         except Exception as e:
             print(f"Direct frame embed send failed: {e}", flush=True)
-    return False
+    return []
 
 
 async def send_gif_links_response(message, gif_links, wants_comparison=False):
     if not gif_links:
-        return False
+        return []
     try:
         asset_limit = len(gif_links) if wants_comparison else 1
         asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=asset_limit)
         if asset_paths:
             if wants_comparison and len(asset_paths) > 1:
-                await message.reply(
+                sent = await message.reply(
                     files=[discord.File(path, filename=os.path.basename(path)) for path in asset_paths]
                 )
             else:
-                await message.reply(
+                sent = await message.reply(
                     file=discord.File(asset_paths[0], filename=os.path.basename(asset_paths[0]))
                 )
-            return True
+            return [sent.id]
 
         if wants_comparison and len(gif_links) > 1:
-            await message.reply("\n".join(gif_links))
+            sent = await message.reply("\n".join(gif_links))
         else:
-            await message.reply(gif_links[0])
-        return True
+            sent = await message.reply(gif_links[0])
+        return [sent.id]
     except Exception as reply_error:
         if is_deleted_message_reference_error(reply_error):
             print("Hitbox gif reply target deleted. Triggering failsafe.", flush=True)
             await send_deleted_message_failsafe(message.channel)
         else:
             print(f"Hitbox gif reply error: {reply_error}", flush=True)
-    return False
+    return []

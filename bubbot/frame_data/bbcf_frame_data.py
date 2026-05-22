@@ -9,6 +9,7 @@ from bubbot.data.bbcf_aliases import BBCF_CHARACTER_ALIASES, BBCF_LOOKUP_WORDS, 
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
@@ -19,6 +20,7 @@ BBCF_MOVE_IMAGE_URLS = {}
 BBCF_HITBOX_DATA = {}
 BBCF_MOVE_NOTES = {}
 BBCF_MOVE_IMAGES_MODULE = "bubbot.data.bbcf_move_images"
+BBCF_IMAGE_THUMB_WIDTH = 200
 
 
 def normalize_key(value):
@@ -31,6 +33,10 @@ def normalize_move_token(value):
     text = re.sub(r"\b(?:jump|air)\s*\.?,?", "j.", text)
     text = text.replace("[", "hold")
     return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def resize_bbcf_image_url(url):
+    return shared_resize_mediawiki_thumb_url(url, BBCF_IMAGE_THUMB_WIDTH)
 
 
 def query_has_bbcf_notation(text):
@@ -133,9 +139,10 @@ def find_characters_in_text(text):
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:bbcf|blazblue|central\s*fiction)\b", " ", text)
-    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?)\b", " ", text)
+    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
     text = _normalize_bbcf_notation_spacing(text)
-    text = strip_noise_words(text)
+    if not query_has_bbcf_notation(text):
+        text = strip_noise_words(text)
     compact = normalize_move_token(text)
     if text in BBCF_MOVE_ALIASES:
         return BBCF_MOVE_ALIASES[text]
@@ -305,7 +312,7 @@ def build_disambiguation_prompt(char_key, rows):
 
 def find_moves_in_text(text):
     lowered = str(text or "").lower()
-    hitbox_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes)\b", lowered))
+    hitbox_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     game_query = bool(re.search(r"\b(?:bbcf|blazblue|central\s*fiction)\b", lowered))
     notes_query = bool(re.search(r"\bnotes?\b", lowered))
@@ -406,15 +413,25 @@ def get_notes_text(row):
 
 
 def get_move_image_url(row):
-    return BBCF_MOVE_IMAGE_URLS.get((str(row.get("char_key", "")).strip().lower(), normalize_move_token(row.get("numCmd", ""))))
+    return resize_bbcf_image_url(
+        BBCF_MOVE_IMAGE_URLS.get((str(row.get("char_key", "")).strip().lower(), normalize_move_token(row.get("numCmd", ""))))
+    )
 
 
 def get_hitbox_links(row, limit=4):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
     links = (BBCF_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
-    clean_links = [str(link or "").strip() for link in list(links or []) if str(link or "").strip()]
+    clean_links = [resize_bbcf_image_url(link) for link in list(links or []) if str(link or "").strip()]
     return clean_links[:limit] if limit is not None else clean_links
+
+
+def get_media_links(row, limit=4):
+    links = get_hitbox_links(row, limit=None)
+    image_url = get_move_image_url(row)
+    if image_url and image_url not in links:
+        links.append(image_url)
+    return links[:limit] if limit is not None else links
 
 
 def clean_value(value, default=""):
@@ -498,7 +515,7 @@ class BBCFHitboxButton(discord.ui.Button):
 
 class BBCFAllHitboxImagesButton(discord.ui.Button):
     def __init__(self, row):
-        self.hitbox_links = get_hitbox_links(row, limit=None)
+        self.hitbox_links = get_media_links(row, limit=None)
         super().__init__(
             label="Show All Images",
             style=discord.ButtonStyle.success,
@@ -568,24 +585,26 @@ class BBCFFrameDataView(discord.ui.View):
 
 async def send_frame_response(message, rows):
     if not rows:
-        return False
+        return []
+    sent_ids = []
     for row in rows:
         view = BBCFFrameDataView(row, owner_id=getattr(message.author, "id", None))
-        await message.channel.send(embed=view.build_embed(), view=view)
-    return True
+        sent = await message.channel.send(embed=view.build_embed(), view=view)
+        sent_ids.append(sent.id)
+    return sent_ids
 
 
 async def send_hitbox_response(message, rows):
     if not rows:
-        return False
+        return []
     links = []
     for row in rows:
-        links.extend(get_hitbox_links(row))
+        links.extend(get_media_links(row))
     if not links:
-        await message.reply("BBCF hitbox images are not added yet, but the frame-data lookup is wired.")
-        return True
-    await message.reply("\n".join(links))
-    return True
+        sent = await message.reply("I have BBCF frame data for this move but no image link yet.")
+        return [sent.id]
+    sent = await message.reply("\n".join(links))
+    return [sent.id]
 
 
 def format_frame_data(row, include_notes=False):

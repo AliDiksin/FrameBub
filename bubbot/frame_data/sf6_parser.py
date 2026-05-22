@@ -153,17 +153,22 @@ def find_moves_in_text(deps, text):
         or bool(re.search(r"\bstart\s*up\b|\bstartup\b", text_lower)),
         "active": bool(re.search(r"\bactive\b|\bactive\s+frames?\b", text_lower)),
         "recovery": bool(re.search(r"\brecovery\b", text_lower)),
+        "total": bool(re.search(r"\btotal(?:\s+frames?)?\b", text_lower)),
         "on_hit": bool(re.search(r"\bon\s+hit\b", text_lower)),
         "on_block": bool(re.search(r"\bon\s+block\b|\bplus\s+on\s+block\b|\bminus\s+on\s+block\b", text_lower)),
         "cancel": bool(re.search(r"\bcancel(?:l?able)?\b", text_lower)),
         "damage": bool(re.search(r"\bdamage\b|\bdmg\b", text_lower)),
+        "guard": bool(re.search(r"\bguard\b|\battack\s+level\b|\batk\s*lvl\b|\batk\s*level\b", text_lower)),
         "drive_chip": bool(re.search(r"\bdrive\s+chip\b|\bdrive\s+dmg\b|\bdrive\s+damage\b", text_lower)),
         "drive_gain": bool(re.search(r"\bdrive\s+gain\b", text_lower)),
         "stun": bool(re.search(r"\bhitstun\b|\bblockstun\b|\bstun\b", text_lower)),
+        "invuln": bool(re.search(r"\binvuln(?:erability)?\b|\binvul\b", text_lower)),
         "hitconfirm": hitconfirm_alias_query,
         "super_gain": super_gain_alias_query,
         "range": range_alias_query,
     }
+    if property_alias_flags.get("damage") and property_alias_flags.get("drive_chip"):
+        property_alias_flags["damage"] = False
     property_match_count = sum(1 for matched in property_alias_flags.values() if matched)
     table_intent_query = bool(
         re.search(r"\ball\s+frames?\b", text_lower)
@@ -198,6 +203,7 @@ def find_moves_in_text(deps, text):
         or hitconfirm_alias_query
         or super_gain_alias_query
         or range_alias_query
+        or property_match_count > 0
         or target_combo_query
         or gif_query
     )
@@ -1486,6 +1492,8 @@ def find_moves_in_text(deps, text):
     stats_keywords = ["stats", "health", "health", "drive", "reversal", "jump", "dash", "speed", "throw"]
     wants_stats = any(k in text_lower for k in stats_keywords)
     if startup_alias_query and re.search(r"\b[1-9][0-9]*[a-zA-Z]{1,3}\b", text_lower):
+        wants_stats = False
+    if property_only_query:
         wants_stats = False
     if wants_frame_data and explicit_move_attempt:
         wants_stats = False

@@ -210,7 +210,7 @@ def query_has_mk1_notation(text):
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:mk1|mortal\s+kombat\s+1|mortal\s+kombat\s+one|mortal\s+kombat)\b", " ", text)
-    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?)\b", " ", text)
+    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
     text = re.sub(r"\b(?:combo|combos|bnb|bnbs|route|routes)\b", " ", text)
     text = strip_noise_words(text)
     normalized_words = re.sub(r"[^a-z0-9+,-]+", " ", text).strip()
@@ -239,24 +239,95 @@ def row_match_keys(row):
 
 
 def find_matching_rows(char_key, move_text):
+    raw_move_text = str(move_text or "").lower()
+    query_requests_enhanced = bool(re.search(r"\b(?:ex|enhanced|meter\s*burn|meterburn)\b", raw_move_text))
     query = normalize_move_query(move_text)
     query_key = normalize_move_token(query)
     if not query_key:
         return []
     rows = MK1_FRAME_DATA.get(char_key, []) or []
+
+    def row_is_enhanced(row):
+        return bool(
+            re.search(r"\b(?:enhanced|ex)\b", str(row.get("moveName") or "").lower())
+            or "ex" in normalize_move_token(row.get("numCmd"))
+        )
+
+    def enhanced_rows_for_base(base_rows, base_query_key):
+        base_command_keys = {normalize_move_token(row.get("numCmd")) for row in base_rows if row.get("numCmd")}
+        base_name_keys = {normalize_move_token(row.get("moveName")) for row in base_rows if row.get("moveName")}
+        base_command_keys.discard("")
+        base_name_keys.discard("")
+        enhanced_matches = []
+        for row in rows:
+            if not row_is_enhanced(row):
+                continue
+            row_cmd_key = normalize_move_token(row.get("numCmd"))
+            row_name_key = normalize_move_token(row.get("moveName"))
+            parent_keys = {
+                normalize_move_token(part)
+                for part in re.split(r"[,/]+", str(row.get("parent_command") or ""))
+                if str(part or "").strip()
+            }
+            parent_keys.discard("")
+            if parent_keys & base_command_keys:
+                enhanced_matches.append(row)
+                continue
+            if base_query_key and base_query_key in {row_cmd_key, row_name_key}:
+                enhanced_matches.append(row)
+                continue
+            if base_query_key and row_name_key.endswith(base_query_key):
+                enhanced_matches.append(row)
+                continue
+            if base_command_keys and any(row_cmd_key.startswith(f"{cmd}ex") for cmd in base_command_keys):
+                enhanced_matches.append(row)
+                continue
+            if base_name_keys and any(row_name_key.endswith(name_key) for name_key in base_name_keys):
+                enhanced_matches.append(row)
+        return unique_rows(enhanced_matches)
+
+    def prefer_enhanced(matches, base_query_key):
+        if not query_requests_enhanced or not matches:
+            return unique_rows(matches)
+        enhanced_matches = [row for row in matches if row_is_enhanced(row)]
+        if enhanced_matches:
+            return unique_rows(enhanced_matches)
+        derived = enhanced_rows_for_base(matches, base_query_key)
+        return derived or unique_rows(matches)
+
+    base_query = re.sub(r"\b(?:ex|enhanced|meter\s*burn|meterburn)\b", " ", query, flags=re.IGNORECASE)
+    base_query = re.sub(r"\s+", " ", base_query).strip()
+    base_query_key = normalize_move_token(base_query)
+
     exact = [row for row in rows if query_key in row_match_keys(row)]
     if exact:
-        return unique_rows(exact)
+        return prefer_enhanced(exact, base_query_key or query_key)
+
+    if query_requests_enhanced and base_query_key and base_query_key != query_key:
+        base_exact = [row for row in rows if base_query_key in row_match_keys(row)]
+        if base_exact:
+            return prefer_enhanced(base_exact, base_query_key)
 
     name_matches = []
     normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
+    normalized_base_query_words = re.sub(r"[^a-z0-9]+", " ", base_query.lower()).strip()
     for row in rows:
         move_name = re.sub(r"[^a-z0-9]+", " ", str(row.get("moveName", "")).lower()).strip()
         num_cmd = re.sub(r"[^a-z0-9]+", " ", str(row.get("numCmd", "")).lower()).strip()
         if normalized_query_words and (normalized_query_words in move_name or normalized_query_words in num_cmd):
             name_matches.append(row)
     if name_matches:
-        return unique_rows(name_matches)
+        return prefer_enhanced(name_matches, base_query_key or query_key)
+
+    if query_requests_enhanced and normalized_base_query_words and normalized_base_query_words != normalized_query_words:
+        base_name_matches = []
+        for row in rows:
+            move_name = re.sub(r"[^a-z0-9]+", " ", str(row.get("moveName", "")).lower()).strip()
+            num_cmd = re.sub(r"[^a-z0-9]+", " ", str(row.get("numCmd", "")).lower()).strip()
+            if normalized_base_query_words in move_name or normalized_base_query_words in num_cmd:
+                base_name_matches.append(row)
+        if base_name_matches:
+            return prefer_enhanced(base_name_matches, base_query_key)
 
     candidates = []
     for row in rows:
@@ -265,7 +336,10 @@ def find_matching_rows(char_key, move_text):
             if key:
                 candidates.append((key, row))
     close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.84)
-    return unique_rows([row for key, row in candidates if key in close_keys])
+    fuzzy_matches = [row for key, row in candidates if key in close_keys]
+    if fuzzy_matches:
+        return prefer_enhanced(fuzzy_matches, base_query_key or query_key)
+    return []
 
 
 def build_disambiguation_prompt(char_key, rows):
@@ -591,23 +665,25 @@ class MK1FrameDataView(discord.ui.View):
 
 async def send_frame_response(message, rows):
     if not rows:
-        return False
+        return []
+    sent_ids = []
     for row in rows:
         view = MK1FrameDataView(row, owner_id=getattr(message.author, "id", None))
-        await message.channel.send(embed=view.build_embed(), view=view)
-    return True
+        sent = await message.channel.send(embed=view.build_embed(), view=view)
+        sent_ids.append(sent.id)
+    return sent_ids
 
 
 async def send_hitbox_response(message, rows):
     if not rows:
-        return False
-    await message.reply("I have MK1 frame data for that move, but no MK1 hitbox image links are in the scrolls yet.")
-    return True
+        return []
+    sent = await message.reply("I have MK1 frame data for that move, but no MK1 hitbox image links are in the scrolls yet.")
+    return [sent.id]
 
 
 async def send_combo_response(message, rows):
     if not rows:
-        return False
+        return []
     char_key = rows[0].get("char_key")
-    await message.channel.send(embed=build_combo_embed(char_key, rows))
-    return True
+    sent = await message.channel.send(embed=build_combo_embed(char_key, rows))
+    return [sent.id]

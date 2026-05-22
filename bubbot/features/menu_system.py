@@ -1329,6 +1329,8 @@ def build_readme_embed():
             "Mention Bub, then type a character and move. Examples: `@Bub ryu 5hp`, "
             "`@Bub ky far slash`, `@Bub amane 5b`, `@Bub ashrah heavens palm`. "
             "You can add `framedata`, but most direct character+move queries do not need it."
+            "Disclaimer: Natural language processing is a WIP for games other than SF6. I recommend using the menu or slash commands for anything esoteric such as installs or stances"
+
         ),
         inline=False,
     )

@@ -172,9 +172,42 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
 
     def normalize_motion_strength_aliases(raw_input):
         normalized = re.sub(r"\s+", " ", raw_input).strip()
+        motion_digit_aliases = {
+            "qcf": "236",
+            "quarter circle forward": "236",
+            "qcb": "214",
+            "quarter circle back": "214",
+            "hcf": "41236",
+            "half circle forward": "41236",
+            "hcb": "63214",
+            "half circle back": "63214",
+        }
         motion_alias_pattern = r"(dp|srk|shoryu|shoryuken)"
         strength_token_pattern = r"(lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)"
         available_623_suffixes = get_motion_suffixes("623")
+
+        for motion_alias, motion_digits in motion_digit_aliases.items():
+            escaped_motion = re.escape(motion_alias)
+            motion_strength_match = re.fullmatch(
+                rf"{escaped_motion}\s*(?:\+)?\s*{strength_token_pattern}",
+                normalized,
+            )
+            if motion_strength_match:
+                suffix = resolve_623_strength_suffix(
+                    motion_strength_match.group(1),
+                    get_motion_suffixes(motion_digits),
+                )
+                return f"{motion_digits}{suffix}" if suffix else normalized
+            strength_motion_match = re.fullmatch(
+                rf"{strength_token_pattern}\s*(?:\+)?\s*{escaped_motion}",
+                normalized,
+            )
+            if strength_motion_match:
+                suffix = resolve_623_strength_suffix(
+                    strength_motion_match.group(1),
+                    get_motion_suffixes(motion_digits),
+                )
+                return f"{motion_digits}{suffix}" if suffix else normalized
 
         od_motion_match = re.fullmatch(
             rf"(?:od|ex)\s*(?:\+)?\s*{motion_alias_pattern}",
@@ -375,7 +408,11 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
             move_input = resolved_candidate
             break
 
-    if move_input not in char_aliases and move_input not in input_aliases:
+    if (
+        move_input not in char_aliases
+        and move_input not in input_aliases
+        and not re.fullmatch(r"[1-9][0-9]*(?:lp|mp|hp|lk|mk|hk|pp|kk|p|k)", move_input)
+    ):
         corrected_move_input = correct_alias_typos(move_input, char_aliases, input_aliases)
         if corrected_move_input != move_input:
             corrected_move_input = normalize_motion_strength_aliases(corrected_move_input)

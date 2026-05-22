@@ -122,7 +122,7 @@ def find_characters_in_text(text):
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b", " ", text)
-    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|notes?)\b", " ", text)
+    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|notes?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
     text = strip_noise_words(text)
     compact = normalize_move_token(text)
     if text in COTW_MOVE_ALIASES:
@@ -454,7 +454,8 @@ class COTWFrameDataView(discord.ui.View):
 
 async def send_frame_response(message, rows):
     if not rows:
-        return False
+        return []
+    sent_ids = []
     for row in rows:
         view = COTWFrameDataView(row, owner_id=getattr(message.author, "id", None))
         file, attachment_url = await build_image_attachment(row)
@@ -464,23 +465,24 @@ async def send_frame_response(message, rows):
             view.cotw_image_filename = file.filename
         embed = view.build_embed()
         files = view.active_files()
-        await message.channel.send(embed=embed, view=view, files=files)
-    return True
+        sent = await message.channel.send(embed=embed, view=view, files=files)
+        sent_ids.append(sent.id)
+    return sent_ids
 
 
 async def send_image_response(message, rows):
     if not rows:
-        return False
+        return []
     links = []
     for row in rows:
         image_url = get_move_image_url(row)
         if image_url:
             links.append(image_url)
     if not links:
-        await message.reply("DreamCancel does not have a COTW move image link for this move yet.")
-        return True
-    await message.reply("DreamCancel does not provide COTW hitbox images, so here is the regular move image:\n" + "\n".join(links))
-    return True
+        sent = await message.reply("DreamCancel does not have a COTW move image link for this move yet.")
+        return [sent.id]
+    sent = await message.reply("DreamCancel does not provide COTW hitbox images, so here is the regular move image:\n" + "\n".join(links))
+    return [sent.id]
 
 
 async def send_hitbox_response(message, rows):

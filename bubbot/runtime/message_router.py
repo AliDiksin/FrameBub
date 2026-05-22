@@ -45,8 +45,34 @@ from bubbot.runtime.config import (
 from bubbot.utils.character_lookup import find_aliases_in_text, resolve_alias_key, text_mentions_alias
 from bubbot.utils.text_utils import compact_key, contains_token_sequence, word_tokens
 from bubbot.runtime.buenavista_extension import buenavista_extension
+from collections import deque
 from bubbot.runtime.slash_commands import register_slash_commands
 from bubbot.runtime.startup import handle_ready
+
+
+_FRAME_DATA_RESPONSE_IDS = deque(maxlen=500)
+
+
+def _record_frame_data_ids(ids):
+    for mid in (ids or []):
+        if mid:
+            _FRAME_DATA_RESPONSE_IDS.append(mid)
+
+
+def _record_frame_data_reply(sent_message):
+    if sent_message and hasattr(sent_message, "id"):
+        _FRAME_DATA_RESPONSE_IDS.append(sent_message.id)
+        return sent_message
+    return sent_message
+
+
+async def _is_reply_to_frame_data(message):
+    if not message.reference:
+        return False
+    replied_id = message.reference.message_id
+    if replied_id in _FRAME_DATA_RESPONSE_IDS:
+        return True
+    return False
 
 
 def is_missing_attack_range_value(raw_value):
@@ -214,6 +240,109 @@ def _reply_output_mode_from_source_text(source_text):
     return "frame"
 
 
+PROPERTY_VALUE_ALIASES = [
+    ("startup", "Startup", ("startup",), r"\b(?:start\s*up|startup|how\s+fast|how\s+quick|speed\s+of)\b"),
+    ("active", "Active", ("active",), r"\bactive(?:\s+frames?)?\b"),
+    ("recovery", "Recovery", ("recovery",), r"\brecovery\b"),
+    ("total", "Total", ("total",), r"\btotal(?:\s+frames?)?\b"),
+    ("on_hit", "On Hit", ("onHit", "onODR"), r"\bon\s+hit\b"),
+    ("on_block", "On Block", ("onBlock",), r"\bon\s+block\b|\bplus\s+on\s+block\b|\bminus\s+on\s+block\b"),
+    ("flawless_block", "Flawless Block", ("flawlessBlock",), r"\bflawless\s+block\b"),
+    ("damage", "Damage", ("dmg", "damage"), r"\b(?:damage|dmg)\b"),
+    ("block_damage", "Block Damage", ("blockDamage",), r"\bblock\s+damage\b"),
+    ("rev_damage", "REV Damage", ("revDamage",), r"\brev\s+damage\b"),
+    ("guard_damage", "Guard Damage", ("guardDamage",), r"\bguard\s+damage\b"),
+    ("guard", "Guard", ("guardLevel", "guard", "atkLvl"), r"\bguard\b"),
+    ("attack_level", "Attack Level", ("atkLvl", "level"), r"\b(?:attack\s+level|atk\s*lvl|atk\s*level)\b"),
+    ("cancel", "Cancel", ("cancel", "xx"), r"\bcancel(?:l?able)?\b"),
+    ("gatling", "Gatling", ("gatling",), r"\bgatling\b"),
+    ("invuln", "Invuln", ("invuln", "invul"), r"\binvuln(?:erability)?\b|\binvul\b"),
+    ("attribute", "Attribute", ("attribute",), r"\battribute\b"),
+    ("range", "Range", ("atkRange", "range"), r"\b(?:range|length)\b"),
+    ("hitconfirm", "Hit Confirm Window", ("hcWinSpCa", "hcWinTc", "hcWinNotes"), r"\bhit\s*-?\s*confirm\b|\bhitconfirm\b|\bhc\b|\bconfirm\s+(?:window|timing)\b|\bconfirmable\b"),
+    ("super_gain", "Super Gain", ("SelfSoH", "SelfSoB"), r"\bsuper\s*gain\b|\bsuper\s*meter\s*gain\b|\bsuper\s*build\b|\bsa\s*gain\b"),
+    ("meter_gain", "Meter Gain", ("meterGain",), r"\bmeter\s*gain\b"),
+    ("drive_gain", "Drive Gain", ("DGain",), r"\bdrive\s+gain\b"),
+    ("drive_damage", "Drive Damage", ("DDoH", "DDoB"), r"\bdrive\s+(?:chip|dmg|damage)\b"),
+    ("stun", "Stun", ("hitstun", "blockstun", "stun"), r"\bhitstun\b|\bblockstun\b|\bstun\b"),
+    ("risc_gain", "RISC Gain", ("riscGain",), r"\brisc\s*gain\b|\brisc\b"),
+    ("proration", "Proration", ("prorate",), r"\bproration\b|\bprorate\b"),
+    ("knockdown_adv", "Knockdown Adv", ("kda",), r"\bknockdown\s+adv(?:antage)?\b|\bkda\b"),
+    ("counter_hit_adv", "Counter Hit Adv", ("chAdv",), r"\bcounter\s*hit\s+adv(?:antage)?\b|\bch\s*adv\b"),
+]
+
+
+def _requested_property_key(text):
+    lowered = str(text or "").lower()
+    if re.search(r"\b(?:all|full)\s+(?:frame\s*)?data\b|\btable\b", lowered):
+        return None
+    matches = [key for key, _label, _fields, pattern in PROPERTY_VALUE_ALIASES if re.search(pattern, lowered)]
+    if "damage" in matches and any(key in matches for key in ("block_damage", "guard_damage", "rev_damage", "drive_damage")):
+        matches = [key for key in matches if key != "damage"]
+    if "guard" in matches and "guard_damage" in matches:
+        matches = [key for key in matches if key != "guard"]
+    if "meter_gain" in matches and "super_gain" in matches:
+        matches = [key for key in matches if key != "meter_gain"]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _format_requested_property_reply(rows, property_key):
+    if not rows or not property_key:
+        return None
+    config = next((item for item in PROPERTY_VALUE_ALIASES if item[0] == property_key), None)
+    if not config:
+        return None
+    _key, label, fields, _pattern = config
+    lines = []
+    for row in rows:
+        if property_key == "range" and row.get("atkRange") is not None:
+            range_reply = format_range_only_reply([row])
+            if range_reply:
+                lines.append(range_reply)
+                continue
+        if property_key == "hitconfirm":
+            hc_sp = str(row.get("hcWinSpCa") or "-").replace("*", ",").strip() or "-"
+            hc_tc = str(row.get("hcWinTc") or "-").replace("*", ",").strip() or "-"
+            hc_notes = str(row.get("hcWinNotes") or "-").replace("[", "").replace("]", "").replace('"', "").strip() or "-"
+            value = f"Sp/Su: {hc_sp}, TC: {hc_tc}. Notes: {hc_notes}"
+        elif property_key in {"super_gain", "drive_damage", "stun"} or (
+            property_key == "meter_gain" and (row.get("SelfSoH") is not None or row.get("SelfSoB") is not None) and row.get("meterGain") is None
+        ):
+            hit_value = str(row.get(fields[0]) or "-").replace("*", ",").strip() or "-"
+            block_value = str(row.get(fields[1]) or "-").replace("*", ",").strip() or "-"
+            value = f"Hit: {hit_value}, Block: {block_value}"
+        else:
+            value = ""
+            for field in fields:
+                value = str(row.get(field) or "").strip()
+                if value:
+                    break
+            if not value:
+                value = "-"
+        char_name = str(row.get("char_name") or row.get("char_key") or "Unknown").strip()
+        move_name = str(row.get("moveName") or row.get("name") or row.get("numCmd") or "Unknown").strip()
+        num_cmd = str(row.get("numCmd") or row.get("input") or "?").strip()
+        suffix = "f" if property_key in {"startup", "active", "recovery", "total"} and any(ch.isdigit() for ch in value) and not value.endswith("f") else ""
+        lines.append(f"{char_name}'s {move_name} ({num_cmd}) {label.lower()} is {value}{suffix}.")
+    return truncate_message("\n".join(lines))
+
+
+async def _send_cross_game_lookup_response(message, module, rows, payload, query_text):
+    if payload.get("gif_query") and payload.get("frame_query"):
+        _record_frame_data_ids(await module.send_frame_response(message, rows))
+        _record_frame_data_ids(await module.send_hitbox_response(message, rows))
+        return True
+    if payload.get("gif_query"):
+        _record_frame_data_ids(await module.send_hitbox_response(message, rows))
+        return True
+    property_reply = _format_requested_property_reply(rows, _requested_property_key(query_text))
+    if property_reply:
+        _record_frame_data_reply(await message.reply(property_reply))
+        return True
+    _record_frame_data_ids(await module.send_frame_response(message, rows))
+    return True
+
+
 async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
     if not message.reference:
         return False
@@ -275,12 +404,14 @@ async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
     if payload.get("needs_disambiguation"):
         await message.reply(payload.get("data", f"Please specify which {config['label']} move you mean."))
     elif rows and output_mode == "gif":
-        await module.send_hitbox_response(message, rows)
+        _record_frame_data_ids(await module.send_hitbox_response(message, rows))
     elif rows and output_mode == "both":
-        await module.send_frame_response(message, rows)
-        await module.send_hitbox_response(message, rows)
+        _record_frame_data_ids(await module.send_frame_response(message, rows))
+        _record_frame_data_ids(await module.send_hitbox_response(message, rows))
+    elif rows and (property_reply := _format_requested_property_reply(rows, _requested_property_key(source_text))):
+        _record_frame_data_reply(await message.reply(property_reply))
     elif rows:
-        await module.send_frame_response(message, rows)
+        _record_frame_data_ids(await module.send_frame_response(message, rows))
     else:
         await message.reply(replied_content)
     return True
@@ -804,6 +935,9 @@ async def _handle_message(message):
     ):
         return
 
+    if await _is_reply_to_frame_data(message):
+        return
+
     if message.reference:
         try:
             if message.reference.cached_message:
@@ -894,12 +1028,12 @@ async def _handle_message(message):
                 if ggst_reply_payload.get("needs_disambiguation"):
                     await message.reply(ggst_reply_payload.get("data", "Please specify which GGST move you mean."))
                 elif ggst_reply_rows and ggst_reply_mode == "gif":
-                    await ggst_module.send_hitbox_response(message, ggst_reply_rows)
+                    _record_frame_data_ids(await ggst_module.send_hitbox_response(message, ggst_reply_rows))
                 elif ggst_reply_rows and ggst_reply_mode == "both":
-                    await ggst_module.send_frame_response(message, ggst_reply_rows)
-                    await ggst_module.send_hitbox_response(message, ggst_reply_rows)
+                    _record_frame_data_ids(await ggst_module.send_frame_response(message, ggst_reply_rows))
+                    _record_frame_data_ids(await ggst_module.send_hitbox_response(message, ggst_reply_rows))
                 elif ggst_reply_rows:
-                    await ggst_module.send_frame_response(message, ggst_reply_rows)
+                    _record_frame_data_ids(await ggst_module.send_frame_response(message, ggst_reply_rows))
                 else:
                     await message.reply(ggst_replied_msg.content)
                 return
@@ -994,12 +1128,12 @@ async def _handle_message(message):
                     if third_strike_reply_payload.get("needs_disambiguation"):
                         await message.reply(third_strike_reply_payload.get("data", "Please specify which Third Strike move you mean."))
                     elif third_strike_reply_rows and source_wants_hitbox and source_wants_frames:
-                        await third_strike_module.send_frame_response(message, third_strike_reply_rows)
-                        await third_strike_module.send_hitbox_response(message, third_strike_reply_rows)
+                        _record_frame_data_ids(await third_strike_module.send_frame_response(message, third_strike_reply_rows))
+                        _record_frame_data_ids(await third_strike_module.send_hitbox_response(message, third_strike_reply_rows))
                     elif third_strike_reply_rows and source_wants_hitbox:
-                        await third_strike_module.send_hitbox_response(message, third_strike_reply_rows)
+                        _record_frame_data_ids(await third_strike_module.send_hitbox_response(message, third_strike_reply_rows))
                     elif third_strike_reply_rows:
-                        await third_strike_module.send_frame_response(message, third_strike_reply_rows)
+                        _record_frame_data_ids(await third_strike_module.send_frame_response(message, third_strike_reply_rows))
                     else:
                         await message.reply(third_strike_replied_content)
                 else:
@@ -1074,11 +1208,13 @@ async def _handle_message(message):
     cotw_payload = cotw_module.find_moves_in_text(content_lower)
     third_strike_payload = third_strike_module.find_moves_in_text(content_lower)
     mk1_payload = mk1_module.find_moves_in_text(content_lower)
+    requested_property_key = _requested_property_key(content_lower)
     ggst_rows = ggst_payload.get("rows", [])
     ggst_lookup_intent = bool(
         ggst_payload.get("frame_query")
         or ggst_payload.get("gif_query")
         or ggst_payload.get("game_query")
+        or requested_property_key
     )
     explicit_ggst_query = bool(ggst_payload.get("game_query"))
     ggst_route_allowed = bool(
@@ -1101,19 +1237,15 @@ async def _handle_message(message):
                     ggst_payload.get("frame_query")
                     or ggst_payload.get("gif_query")
                     or ggst_payload.get("game_query")
+                    or requested_property_key
                 )
                 print(f"[ggst-parser-private] rewritten query: {rewritten_ggst_query}", flush=True)
 
     if frame_command_is_addressed and ggst_route_allowed and ggst_lookup_intent and ggst_rows:
         if ggst_payload.get("needs_disambiguation"):
             await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
-        elif ggst_payload.get("gif_query") and ggst_payload.get("frame_query"):
-            await ggst_module.send_frame_response(message, ggst_rows)
-            await ggst_module.send_hitbox_response(message, ggst_rows)
-        elif ggst_payload.get("gif_query"):
-            await ggst_module.send_hitbox_response(message, ggst_rows)
         else:
-            await ggst_module.send_frame_response(message, ggst_rows)
+            await _send_cross_game_lookup_response(message, ggst_module, ggst_rows, ggst_payload, content_lower)
         return
     elif frame_command_is_addressed and ggst_route_allowed and ggst_lookup_intent and ggst_payload.get("needs_disambiguation"):
         await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
@@ -1126,6 +1258,7 @@ async def _handle_message(message):
         or sfv_payload.get("gif_query")
         or sfv_payload.get("game_query")
         or sfv_payload.get("notes_query")
+        or requested_property_key
         or sfv_module.query_has_sfv_notation(content_lower)
     )
     sfv_route_allowed = bool(
@@ -1156,13 +1289,8 @@ async def _handle_message(message):
     if frame_command_is_addressed and sfv_route_allowed and sfv_lookup_intent and sfv_rows:
         if sfv_payload.get("needs_disambiguation"):
             await message.reply(sfv_payload.get("data", "Please specify which SFV move you mean."))
-        elif sfv_payload.get("gif_query") and sfv_payload.get("frame_query"):
-            await sfv_module.send_frame_response(message, sfv_rows)
-            await sfv_module.send_hitbox_response(message, sfv_rows)
-        elif sfv_payload.get("gif_query"):
-            await sfv_module.send_hitbox_response(message, sfv_rows)
         else:
-            await sfv_module.send_frame_response(message, sfv_rows)
+            await _send_cross_game_lookup_response(message, sfv_module, sfv_rows, sfv_payload, content_lower)
         return
     elif frame_command_is_addressed and sfv_route_allowed and sfv_lookup_intent and sfv_payload.get("needs_disambiguation"):
         await message.reply(sfv_payload.get("data", "Please specify which SFV move you mean."))
@@ -1177,6 +1305,7 @@ async def _handle_message(message):
         tuco_payload.get("frame_query")
         or tuco_payload.get("gif_query")
         or tuco_payload.get("game_query")
+        or requested_property_key
     )
     tuco_route_allowed = bool(
         tuco_payload.get("game_query")
@@ -1185,13 +1314,8 @@ async def _handle_message(message):
     if frame_command_is_addressed and tuco_route_allowed and tuco_lookup_intent and tuco_rows:
         if tuco_payload.get("needs_disambiguation"):
             await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
-        elif tuco_payload.get("gif_query") and tuco_payload.get("frame_query"):
-            await tuco_module.send_frame_response(message, tuco_rows)
-            await tuco_module.send_hitbox_response(message, tuco_rows)
-        elif tuco_payload.get("gif_query"):
-            await tuco_module.send_hitbox_response(message, tuco_rows)
         else:
-            await tuco_module.send_frame_response(message, tuco_rows)
+            await _send_cross_game_lookup_response(message, tuco_module, tuco_rows, tuco_payload, content_lower)
         return
     elif frame_command_is_addressed and tuco_route_allowed and tuco_lookup_intent and tuco_payload.get("needs_disambiguation"):
         await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
@@ -1203,6 +1327,7 @@ async def _handle_message(message):
         or bbcf_payload.get("gif_query")
         or bbcf_payload.get("game_query")
         or bbcf_payload.get("notes_query")
+        or requested_property_key
     )
     bbcf_route_allowed = bool(
         bbcf_payload.get("game_query")
@@ -1224,13 +1349,8 @@ async def _handle_message(message):
     if frame_command_is_addressed and bbcf_route_allowed and bbcf_lookup_intent and bbcf_rows:
         if bbcf_payload.get("needs_disambiguation"):
             await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
-        elif bbcf_payload.get("gif_query") and bbcf_payload.get("frame_query"):
-            await bbcf_module.send_frame_response(message, bbcf_rows)
-            await bbcf_module.send_hitbox_response(message, bbcf_rows)
-        elif bbcf_payload.get("gif_query"):
-            await bbcf_module.send_hitbox_response(message, bbcf_rows)
         else:
-            await bbcf_module.send_frame_response(message, bbcf_rows)
+            await _send_cross_game_lookup_response(message, bbcf_module, bbcf_rows, bbcf_payload, content_lower)
         return
     elif frame_command_is_addressed and bbcf_route_allowed and bbcf_lookup_intent and bbcf_payload.get("needs_disambiguation"):
         await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
@@ -1242,6 +1362,7 @@ async def _handle_message(message):
         or cotw_payload.get("gif_query")
         or cotw_payload.get("game_query")
         or cotw_payload.get("notes_query")
+        or requested_property_key
     )
     cotw_route_allowed = bool(
         cotw_payload.get("game_query")
@@ -1262,7 +1383,7 @@ async def _handle_message(message):
         if cotw_payload.get("needs_disambiguation"):
             await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
         else:
-            await cotw_module.send_frame_response(message, cotw_rows)
+            await _send_cross_game_lookup_response(message, cotw_module, cotw_rows, cotw_payload, content_lower)
         return
     elif frame_command_is_addressed and cotw_route_allowed and cotw_lookup_intent and cotw_payload.get("needs_disambiguation"):
         await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
@@ -1274,6 +1395,7 @@ async def _handle_message(message):
         or third_strike_payload.get("gif_query")
         or third_strike_payload.get("game_query")
         or third_strike_payload.get("notes_query")
+        or requested_property_key
         or third_strike_module.query_has_third_strike_notation(content_lower)
     )
     third_strike_route_allowed = bool(
@@ -1298,13 +1420,8 @@ async def _handle_message(message):
     if frame_command_is_addressed and third_strike_route_allowed and third_strike_lookup_intent and third_strike_rows:
         if third_strike_payload.get("needs_disambiguation"):
             await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
-        elif third_strike_payload.get("gif_query") and third_strike_payload.get("frame_query"):
-            await third_strike_module.send_frame_response(message, third_strike_rows)
-            await third_strike_module.send_hitbox_response(message, third_strike_rows)
-        elif third_strike_payload.get("gif_query"):
-            await third_strike_module.send_hitbox_response(message, third_strike_rows)
         else:
-            await third_strike_module.send_frame_response(message, third_strike_rows)
+            await _send_cross_game_lookup_response(message, third_strike_module, third_strike_rows, third_strike_payload, content_lower)
         return
     elif frame_command_is_addressed and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("needs_disambiguation"):
         await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
@@ -1322,6 +1439,7 @@ async def _handle_message(message):
         or mk1_payload.get("game_query")
         or mk1_payload.get("notes_query")
         or mk1_payload.get("combo_query")
+        or requested_property_key
         or mk1_module.query_has_mk1_notation(content_lower)
     )
     mk1_route_allowed = bool(
@@ -1344,18 +1462,13 @@ async def _handle_message(message):
         )
     )
     if frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_combo_rows:
-        await mk1_module.send_combo_response(message, mk1_combo_rows)
+        _record_frame_data_ids(await mk1_module.send_combo_response(message, mk1_combo_rows))
         return
     if frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_rows:
         if mk1_payload.get("needs_disambiguation"):
             await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
-        elif mk1_payload.get("gif_query") and mk1_payload.get("frame_query"):
-            await mk1_module.send_frame_response(message, mk1_rows)
-            await mk1_module.send_hitbox_response(message, mk1_rows)
-        elif mk1_payload.get("gif_query"):
-            await mk1_module.send_hitbox_response(message, mk1_rows)
         else:
-            await mk1_module.send_frame_response(message, mk1_rows)
+            await _send_cross_game_lookup_response(message, mk1_module, mk1_rows, mk1_payload, content_lower)
         return
     elif frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("needs_disambiguation"):
         await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
@@ -1375,7 +1488,7 @@ async def _handle_message(message):
         if mk1_payload.get("needs_disambiguation"):
             await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
         else:
-            await mk1_module.send_frame_response(message, mk1_rows)
+            _record_frame_data_ids(await mk1_module.send_frame_response(message, mk1_rows))
         return
 
     if (
@@ -1388,7 +1501,7 @@ async def _handle_message(message):
         if sfv_payload.get("needs_disambiguation"):
             await message.reply(sfv_payload.get("data", "Please specify which SFV move you mean."))
         else:
-            await sfv_module.send_frame_response(message, sfv_rows)
+            _record_frame_data_ids(await sfv_module.send_frame_response(message, sfv_rows))
         return
 
     if (
@@ -1401,7 +1514,7 @@ async def _handle_message(message):
         if third_strike_payload.get("needs_disambiguation"):
             await message.reply(third_strike_payload.get("data", "Please specify which Third Strike move you mean."))
         else:
-            await third_strike_module.send_frame_response(message, third_strike_rows)
+            _record_frame_data_ids(await third_strike_module.send_frame_response(message, third_strike_rows))
         return
 
     if (
@@ -1414,7 +1527,7 @@ async def _handle_message(message):
         if tuco_payload.get("needs_disambiguation"):
             await message.reply(tuco_payload.get("data", "Please specify which 2XKO move you mean."))
         else:
-            await tuco_module.send_frame_response(message, tuco_rows)
+            _record_frame_data_ids(await tuco_module.send_frame_response(message, tuco_rows))
         return
 
     if (
@@ -1427,7 +1540,7 @@ async def _handle_message(message):
         if bbcf_payload.get("needs_disambiguation"):
             await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
         else:
-            await bbcf_module.send_frame_response(message, bbcf_rows)
+            _record_frame_data_ids(await bbcf_module.send_frame_response(message, bbcf_rows))
         return
 
     if (
@@ -1440,7 +1553,7 @@ async def _handle_message(message):
         if cotw_payload.get("needs_disambiguation"):
             await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
         else:
-            await cotw_module.send_frame_response(message, cotw_rows)
+            _record_frame_data_ids(await cotw_module.send_frame_response(message, cotw_rows))
         return
 
     if (
@@ -1453,7 +1566,7 @@ async def _handle_message(message):
         if ggst_payload.get("needs_disambiguation"):
             await message.reply(ggst_payload.get("data", "Please specify which GGST move you mean."))
         else:
-            await ggst_module.send_frame_response(message, ggst_rows)
+            _record_frame_data_ids(await ggst_module.send_frame_response(message, ggst_rows))
         return
 
 
@@ -1693,9 +1806,10 @@ async def _handle_message(message):
         if vague_move_query_without_output_intent:
             default_rows = implied_rows or fd_context_rows
             default_data = implied_data or fd_context_data
-            frame_sent = await send_frame_table_response(message, default_rows, default_data)
-            if not frame_sent and default_data:
-                await message.reply(default_data)
+            frame_sent_ids = await send_frame_table_response(message, default_rows, default_data)
+            _record_frame_data_ids(frame_sent_ids)
+            if not frame_sent_ids and default_data:
+                _record_frame_data_reply(await message.reply(default_data))
             return
 
         if combined_frame_gif_request and frame_command_is_addressed:
@@ -1731,7 +1845,7 @@ async def _handle_message(message):
                 return
 
             if fd_context_rows:
-                await send_frame_table_response(message, fd_context_rows, fd_context_data)
+                _record_frame_data_ids(await send_frame_table_response(message, fd_context_rows, fd_context_data))
 
                 gif_frame_rows = fd_context_rows
                 if wants_comparison and fd_context_rows:
@@ -1757,11 +1871,11 @@ async def _handle_message(message):
                     prefer_frame_rows=wants_comparison,
                 )
                 if gif_links:
-                    await send_gif_links_response(
+                    _record_frame_data_ids(await send_gif_links_response(
                         message,
                         gif_links,
                         wants_comparison=wants_comparison,
-                    )
+                    ))
                     return
 
                 missing_gif_msg = (
@@ -1819,11 +1933,11 @@ async def _handle_message(message):
                 prefer_frame_rows=wants_comparison,
             )
             if gif_links:
-                await send_gif_links_response(
+                _record_frame_data_ids(await send_gif_links_response(
                     message,
                     gif_links,
                     wants_comparison=wants_comparison,
-                )
+                ))
                 return
 
             if fd_context_rows:
@@ -1880,13 +1994,26 @@ async def _handle_message(message):
                     print(f"Special strength options reply error: {reply_error}", flush=True)
             return
         if target_combo_query and fd_context_mode == "frame" and fd_context_rows:
-            await send_frame_table_response(message, fd_context_rows, fd_context_data)
+            _record_frame_data_ids(await send_frame_table_response(message, fd_context_rows, fd_context_data))
             return
+        requested_sf6_property_key = _requested_property_key(content_lower)
+        if property_only_query and requested_sf6_property_key and fd_context_mode == "frame" and fd_context_rows:
+            property_reply = _format_requested_property_reply(fd_context_rows, requested_sf6_property_key)
+            if property_reply:
+                try:
+                    _record_frame_data_reply(await message.reply(property_reply))
+                except Exception as reply_error:
+                    if is_deleted_message_reference_error(reply_error):
+                        print("Direct property reply target deleted. Triggering failsafe.", flush=True)
+                        await send_deleted_message_failsafe(message.channel)
+                    else:
+                        print(f"Direct property reply error: {reply_error}", flush=True)
+                return
         if range_alias_query and fd_context_mode == "frame" and fd_context_rows:
             range_reply = format_range_only_reply(fd_context_rows)
             if range_reply:
                 try:
-                    await message.reply(range_reply)
+                    _record_frame_data_reply(await message.reply(range_reply))
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct range reply target deleted. Triggering failsafe.", flush=True)
@@ -1898,7 +2025,7 @@ async def _handle_message(message):
             super_gain_reply = format_super_gain_only_reply(fd_context_rows)
             if super_gain_reply:
                 try:
-                    await message.reply(super_gain_reply)
+                    _record_frame_data_reply(await message.reply(super_gain_reply))
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct super gain reply target deleted. Triggering failsafe.", flush=True)
@@ -1910,7 +2037,7 @@ async def _handle_message(message):
             hitconfirm_reply = format_hitconfirm_only_reply(fd_context_rows)
             if hitconfirm_reply:
                 try:
-                    await message.reply(hitconfirm_reply)
+                    _record_frame_data_reply(await message.reply(hitconfirm_reply))
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct hitconfirm reply target deleted. Triggering failsafe.", flush=True)
@@ -1922,7 +2049,7 @@ async def _handle_message(message):
             startup_reply = format_startup_only_reply(fd_context_rows)
             if startup_reply:
                 try:
-                    await message.reply(startup_reply)
+                    _record_frame_data_reply(await message.reply(startup_reply))
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct startup reply target deleted. Triggering failsafe.", flush=True)
@@ -1943,10 +2070,11 @@ async def _handle_message(message):
             and not range_alias_query
             and not gif_query
         ):
-            frame_sent = await send_frame_table_response(message, fd_context_rows, fd_context_data)
-            if not frame_sent and fd_context_data:
+            frame_sent_ids = await send_frame_table_response(message, fd_context_rows, fd_context_data)
+            _record_frame_data_ids(frame_sent_ids)
+            if not frame_sent_ids and fd_context_data:
                 try:
-                    await message.reply(fd_context_data)
+                    _record_frame_data_reply(await message.reply(fd_context_data))
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct frame reply target deleted. Triggering failsafe.", flush=True)
@@ -1976,6 +2104,7 @@ async def _handle_message(message):
                 strip_discord_mentions=strip_discord_mentions,
                 is_deleted_message_reference_error=is_deleted_message_reference_error,
                 send_frame_embeds_with_views=send_frame_embeds_with_views,
+                record_frame_data_ids=_record_frame_data_ids,
             )
             if handled:
                 return
@@ -2067,6 +2196,7 @@ async def _handle_message(message):
             strip_discord_mentions=strip_discord_mentions,
             is_deleted_message_reference_error=is_deleted_message_reference_error,
             send_frame_embeds_with_views=send_frame_embeds_with_views,
+            record_frame_data_ids=_record_frame_data_ids,
         )
         if handled:
             return

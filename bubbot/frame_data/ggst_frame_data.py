@@ -240,7 +240,7 @@ def load_frame_data(filename=None):
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:ggst|guilty\s+gear|guilty|gear|strive)\b", " ", text)
-    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?)\b", " ", text)
+    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
     text = re.sub(r"\bhs\b", "h", text)
     text = strip_noise_words(text)
     compact = normalize_key(text)
@@ -695,7 +695,7 @@ def find_comparison_matching_rows(char_key, move_text):
         state_key, query_text = extract_ky_dragon_install_state(query_text)
     elif char_key == "bedman":
         state_key, query_text = extract_bedman_install_state(query_text)
-    char_alias_text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?)\b", " ", query_text)
+    char_alias_text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", query_text)
     char_alias_text = re.sub(r"\s+", " ", char_alias_text).strip()
     char_move_alias = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(char_alias_text)
     if char_move_alias:
@@ -712,7 +712,7 @@ def find_comparison_matching_rows(char_key, move_text):
 
 def find_moves_in_text(text):
     lowered = str(text or "").lower()
-    gif_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes)\b", lowered))
+    gif_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     game_query = bool(re.search(r"\b(?:ggst|guilty\s+gear|guilty|strive)\b", lowered))
     char_matches = find_characters_in_text(lowered)
@@ -779,7 +779,7 @@ def find_moves_in_text(text):
             state_key, move_text = extract_bedman_install_state(move_text)
         matches = []
         for move_candidate in query_suffix_candidates(move_text):
-            char_alias_text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?)\b", " ", move_candidate)
+            char_alias_text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", move_candidate)
             char_alias_text = re.sub(r"\s+", " ", char_alias_text).strip()
             candidate_text = GGST_CHARACTER_MOVE_ALIASES.get(char_key, {}).get(char_alias_text)
             if not candidate_text:
@@ -946,6 +946,14 @@ def get_hitbox_links(row, limit=4):
     return clean_links[:limit] if limit is not None else clean_links
 
 
+def get_media_links(row, limit=4):
+    links = get_hitbox_links(row, limit=None)
+    image_url = get_move_image_url(row)
+    if image_url and image_url not in links:
+        links.append(image_url)
+    return links[:limit] if limit is not None else links
+
+
 class GGSTHitboxButton(discord.ui.Button):
     def __init__(self, row, showing_hitbox=False):
         self.frame_row = row
@@ -983,7 +991,7 @@ class GGSTHitboxButton(discord.ui.Button):
 
 class GGSTAllHitboxImagesButton(discord.ui.Button):
     def __init__(self, row):
-        self.hitbox_links = get_hitbox_links(row, limit=None)
+        self.hitbox_links = get_media_links(row, limit=None)
         super().__init__(
             label="Show All Images",
             style=discord.ButtonStyle.success,
@@ -1061,21 +1069,23 @@ class GGSTFrameDataView(discord.ui.View):
 
 async def send_frame_response(message, rows):
     if not rows:
-        return False
+        return []
+    sent_ids = []
     for row in rows:
         view = GGSTFrameDataView(row, owner_id=getattr(message.author, "id", None))
-        await message.channel.send(embed=view.build_embed(), view=view)
-    return True
+        sent = await message.channel.send(embed=view.build_embed(), view=view)
+        sent_ids.append(sent.id)
+    return sent_ids
 
 
 async def send_hitbox_response(message, rows):
     if not rows:
-        return False
+        return []
     links = []
     for row in rows:
-        links.extend(get_hitbox_links(row))
+        links.extend(get_media_links(row))
     if not links:
-        await message.reply("GGST hitbox images are not added yet, but the frame-data lookup is wired.")
-        return True
-    await message.reply("\n".join(links))
-    return True
+        sent = await message.reply("I have GGST frame data for this move but no image link yet.")
+        return [sent.id]
+    sent = await message.reply("\n".join(links))
+    return [sent.id]

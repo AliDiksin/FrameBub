@@ -125,7 +125,7 @@ def find_characters_in_text(text):
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:2xko|tuco)\b", " ", text)
-    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?)\b", " ", text)
+    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
     text = strip_noise_words(text)
     compact = normalize_move_token(text)
     if text in TUCO_MOVE_ALIASES:
@@ -319,7 +319,16 @@ def get_hitbox_links(row, limit=4):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
     links = (TUCO_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
-    return [str(link or "").strip() for link in list(links or [])[:limit] if str(link or "").strip()]
+    clean_links = [str(link or "").strip() for link in list(links or []) if str(link or "").strip()]
+    return clean_links[:limit] if limit is not None else clean_links
+
+
+def get_media_links(row, limit=4):
+    links = get_hitbox_links(row, limit=None)
+    image_url = get_move_image_url(row)
+    if image_url and image_url not in links:
+        links.append(image_url)
+    return links[:limit] if limit is not None else links
 
 
 def build_frame_embed(row, show_notes=False):
@@ -418,24 +427,26 @@ class TUCOFrameDataView(discord.ui.View):
 
 async def send_frame_response(message, rows):
     if not rows:
-        return False
+        return []
+    sent_ids = []
     for row in rows:
         view = TUCOFrameDataView(row, owner_id=getattr(message.author, "id", None))
-        await message.channel.send(embed=view.build_embed(), view=view)
-    return True
+        sent = await message.channel.send(embed=view.build_embed(), view=view)
+        sent_ids.append(sent.id)
+    return sent_ids
 
 
 async def send_hitbox_response(message, rows):
     if not rows:
-        return False
+        return []
     links = []
     for row in rows:
-        links.extend(get_hitbox_links(row))
+        links.extend(get_media_links(row))
     if not links:
-        await message.reply("2XKO hitbox images are not added yet, but the frame-data lookup is wired.")
-        return True
-    await message.reply("\n".join(links))
-    return True
+        sent = await message.reply("I have 2XKO frame data for this move but no image link yet.")
+        return [sent.id]
+    sent = await message.reply("\n".join(links))
+    return [sent.id]
 
 
 load_move_image_urls()

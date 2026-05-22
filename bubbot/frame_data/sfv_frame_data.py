@@ -235,7 +235,7 @@ def query_requests_plain_zeku(text):
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
     text = re.sub(r"\b(?:sfv|sf5|street\s*fighter\s*(?:v|5))\b", " ", text)
-    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?)\b", " ", text)
+    text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
     text = re.sub(r"\b(?:vt|v\s*trigger|trigger)\s*[12]\b|\bvt[12]\b", " ", text)
     text = strip_noise_words(text)
     normalized_words = re.sub(r"[^a-z0-9+.,-]+", " ", text).strip()
@@ -575,16 +575,18 @@ class SFVFrameDataView(discord.ui.View):
 
 async def send_frame_response(message, rows):
     if not rows:
-        return False
+        return []
+    sent_ids = []
     for row in rows:
         view = SFVFrameDataView(row, owner_id=getattr(message.author, "id", None))
-        await message.channel.send(embed=view.build_embed(), view=view)
-    return True
+        sent = await message.channel.send(embed=view.build_embed(), view=view)
+        sent_ids.append(sent.id)
+    return sent_ids
 
 
 async def send_hitbox_response(message, rows):
     if not rows:
-        return False
+        return []
     links = []
     fallback_links = []
     for row in rows:
@@ -593,13 +595,13 @@ async def send_hitbox_response(message, rows):
         if image_url:
             fallback_links.append(image_url)
     if links:
-        await message.reply("\n".join(links))
-        return True
+        sent = await message.reply("\n".join(links))
+        return [sent.id]
     if fallback_links:
-        await message.reply("No dedicated SFV hitbox image found; showing the SuperCombo move image instead.\n" + "\n".join(fallback_links))
-        return True
-    await message.reply("I have SFV frame data for this move but no SuperCombo image link cached yet.")
-    return True
+        sent = await message.reply("No dedicated SFV hitbox image found; showing the SuperCombo move image instead.\n" + "\n".join(fallback_links))
+        return [sent.id]
+    sent = await message.reply("I have SFV frame data for this move but no SuperCombo image link cached yet.")
+    return [sent.id]
 
 
 def format_frame_data(row, include_notes=False):
