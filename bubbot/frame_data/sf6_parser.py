@@ -52,6 +52,7 @@ def find_moves_in_text(deps, text):
     text_lower = re.sub(r"\bdivekick\b", "dive kick", text_lower)
     tc_prompt_blocks = []
     special_prompt_blocks = []
+    allow_explicit_special_prompt = False
     tc_ambiguous_inputs = set()
     text_tokens = word_tokens(text_lower)
 
@@ -229,6 +230,8 @@ def find_moves_in_text(deps, text):
 
         query_requires_variant_state = query_requires_character_variant_state(text_tokens)
         query_requires_charged = any(token in text_tokens for token in ("charged", "hold", "held"))
+        query_requests_level2 = bool(re.search(r"\b(?:lvl|level)\s*2\b", text_lower))
+        query_requests_level3 = bool(re.search(r"\b(?:lvl|level)\s*3\b", text_lower))
         query_requests_sa1 = bool(
             re.search(r"\b(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\b", text_lower)
         )
@@ -264,6 +267,13 @@ def find_moves_in_text(deps, text):
             move_name = str(row.get("moveName", "")).lower()
             cmn_name = str(row.get("cmnName", "")).lower()
             num_cmd = str(row.get("numCmd", "")).lower()
+            char_key = resolve_character_key(row.get("char_name", ""))
+            num_cmd_compact = normalize_num_cmd_token(num_cmd)
+            akuma_fireball_level = (
+                char_key == "akuma"
+                and num_cmd_compact == "236p"
+                and bool(re.search(r"\blvl\s*[23]\b", num_cmd))
+            )
             return (
                 "charged" in move_name
                 or "charged" in cmn_name
@@ -271,6 +281,7 @@ def find_moves_in_text(deps, text):
                 or "hold" in cmn_name
                 or "(charged" in num_cmd
                 or "(hold" in num_cmd
+                or akuma_fireball_level
             )
 
         def row_is_od_variant(row):
@@ -282,6 +293,22 @@ def find_moves_in_text(deps, text):
                 or cmn_name.startswith(("od ", "ex "))
                 or num_cmd_compact.endswith(("pp", "kk"))
             )
+
+        def row_matches_requested_level(row):
+            if not (query_requests_level2 or query_requests_level3):
+                return False
+            row_text = " ".join(
+                str(row.get(field, "")).lower()
+                for field in ("moveName", "cmnName", "numCmd")
+            )
+            if query_requests_level2 and re.search(r"\b(?:lvl|level)\s*2\b", row_text):
+                return True
+            if query_requests_level3 and re.search(r"\b(?:lvl|level)\s*3\b", row_text):
+                return True
+            return False
+
+        def query_mentions_fireball_terms():
+            return bool(re.search(r"\b(?:fireball|hadou?ken|gou\s+hadou?ken|236\s*h?p)\b", text_lower))
 
         def row_matches_explicit_strength(row, strength_query_text):
             row_move_name = str(row.get("moveName", "")).lower().strip()
@@ -572,13 +599,21 @@ def find_moves_in_text(deps, text):
                 raw_name = str(row.get("moveName", "")).lower().strip()
             if not raw_name:
                 return ""
+            char_key = resolve_character_key(row.get("char_name", ""))
             base_name = re.sub(r"^(od|ex)\s+", "", raw_name)
             base_name = re.sub(
                 r"^(lp|mp|hp|lk|mk|hk|pp|kk|light|medium|heavy|l|m|h)\s+",
                 "",
                 base_name,
             ).strip()
-            return re.sub(r"\s*\(charged\)", "", base_name).strip()
+            base_name = re.sub(r"\s*\(charged\)", "", base_name).strip()
+            if char_key == "akuma" and base_name in {
+                "fireball (lvl 2)",
+                "red fireball (lvl 3)",
+                "red fireball",
+            }:
+                return "fireball"
+            return base_name
 
         command_jump_notation_present = bool(
             re.search(
@@ -601,18 +636,7 @@ def find_moves_in_text(deps, text):
                 for row in FRAME_DATA.get(char, []):
                     if not is_special_motion_num_cmd(row.get("numCmd", "")):
                         continue
-                    raw_name = str(row.get("cmnName", "")).lower().strip()
-                    if not raw_name:
-                        raw_name = str(row.get("moveName", "")).lower().strip()
-                    if not raw_name:
-                        continue
-                    base_name = re.sub(r"^(od|ex)\s+", "", raw_name)
-                    base_name = re.sub(
-                        r"^(lp|mp|hp|lk|mk|hk|pp|kk|light|medium|heavy|l|m|h)\s+",
-                        "",
-                        base_name,
-                    ).strip()
-                    canonical_base = re.sub(r"\s*\(charged\)", "", base_name).strip()
+                    canonical_base = get_special_canonical_base_name(row)
                     if not canonical_base:
                         continue
                     special_base_map.setdefault(canonical_base, [])
@@ -641,6 +665,17 @@ def find_moves_in_text(deps, text):
                         if state_variants:
                             prompt_variants = state_variants
                         else:
+                            continue
+                    if query_requires_charged:
+                        charged_prompt_variants = [row for row in prompt_variants if row_is_charged_variant(row)]
+                        if charged_prompt_variants:
+                            prompt_variants = charged_prompt_variants
+                    if query_requests_level2 or query_requests_level3:
+                        level_variants = [row for row in prompt_variants if row_matches_requested_level(row)]
+                        if level_variants:
+                            for row in level_variants:
+                                if row not in results:
+                                    results.append(row)
                             continue
                     if len(prompt_variants) < 2:
                         continue
@@ -1260,6 +1295,30 @@ def find_moves_in_text(deps, text):
                 if upgraded_charged_results:
                     results = upgraded_charged_results
 
+        if mentioned_chars and "akuma" in mentioned_chars and query_mentions_fireball_terms():
+            akuma_charged_fireballs = [
+                row for row in FRAME_DATA.get("akuma", [])
+                if get_special_canonical_base_name(row) == "fireball"
+                and row_is_charged_variant(row)
+                and not row_is_od_variant(row)
+            ]
+            if query_requests_level2 or query_requests_level3:
+                level_results = [row for row in akuma_charged_fireballs if row_matches_requested_level(row)]
+                if level_results:
+                    results = level_results
+            elif query_requires_charged and query_has_explicit_strength and not query_wants_od_strength and len(akuma_charged_fireballs) > 1:
+                variant_lines = "\n".join(
+                    f"- {row.get('moveName', '?')} ({row.get('numCmd', '?')})"
+                    for row in akuma_charged_fireballs
+                )
+                special_prompt_blocks.append(
+                    "**Special Strength Options (Akuma)**\n"
+                    f"Fireball variants:\n{variant_lines}\n"
+                    "Reply or make a new prompt with the exact charged level."
+                )
+                allow_explicit_special_prompt = True
+                results = []
+
         if query_has_explicit_strength and results:
             wants_od_strength = bool(re.search(r"\b(od|ex)\b", text_lower))
             wants_non_od_strength = bool(
@@ -1400,6 +1459,9 @@ def find_moves_in_text(deps, text):
                 ):
                     continue
 
+                if query_requests_level2 or query_requests_level3:
+                    continue
+
                 if len(variants) < 2:
                     continue
 
@@ -1438,6 +1500,8 @@ def find_moves_in_text(deps, text):
                 results = filtered_results
 
     if special_prompt_blocks and (
+        allow_explicit_special_prompt
+        or
         (
             not query_has_explicit_strength
             and not query_requires_stocked

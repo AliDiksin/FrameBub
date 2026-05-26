@@ -197,10 +197,38 @@ def register_slash_commands(tree, deps):
             return match.group(2).strip() or match.group(1).strip()
         return text
 
+    def selected_choice_row(move_name, choices):
+        selected = str(move_name or "").strip()
+        if not selected:
+            return None
+        selected_lower = selected.lower()
+        selected_short = selected[:100].lower()
+        for row, label in choices or []:
+            label_text = str(label or "").strip()
+            if not label_text:
+                continue
+            if selected_lower in {label_text.lower(), label_text[:100].lower()}:
+                return row
+            if selected_short == label_text[:100].lower():
+                return row
+        return None
+
+    def sf6_selected_row(char_name, move_name):
+        char_key = resolve_character_key(char_name)
+        if not char_key:
+            return None, None
+        choices = move_choices(
+            frame_data.get(char_key, []),
+            label_fn=move_choice_label,
+            key_fields=("moveName", "numCmd", "moveType"),
+        )
+        return selected_choice_row(move_name, choices), char_key
+
     async def send_sf6_slash_frame(interaction, char_name, move_name, char_state=None):
         if char_state and char_state not in sf6_char_state_choice_values(char_name):
             await interaction.response.send_message(f"{char_name} does not use the `{char_state}` state for SF6 lookups.")
             return
+        selected_row, selected_char_key = sf6_selected_row(char_name, move_name)
         query = f"{char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
         await send_slash_frame_result(
             interaction,
@@ -211,6 +239,8 @@ def register_slash_commands(tree, deps):
             embed_fn=build_frame_embed,
             view_fn=frame_output_module.FrameDataGifView,
             game_label="SF6",
+            selected_row=selected_row,
+            selected_char_key=selected_char_key,
             prompt_predicate=lambda payload: "Special Strength Options" in str(payload.get("data", "") or "") or "Target Combo Options" in str(payload.get("data", "") or ""),
         )
 

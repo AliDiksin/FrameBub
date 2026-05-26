@@ -1177,6 +1177,17 @@ def check_quiz_answer(quiz_state, text):
     if char_key != correct_char:
         return False
 
+    correct_level_match = re.search(
+        r"\b(?:lvl|level)\s*([23])\b",
+        " ".join(
+            str(correct_row.get(field, "")).lower()
+            for field in ("moveName", "cmnName", "numCmd")
+        ),
+    )
+    user_level_match = re.search(r"\b(?:lvl|level)\s*([23])\b", move_text.lower())
+    if correct_level_match and user_level_match and correct_level_match.group(1) != user_level_match.group(1):
+        return False
+
     user_move_compact = _normalize_quiz_numcmd(move_text)
     user_has_explicit_strength = _quiz_has_explicit_strength(move_text)
     allow_generic_strength = (

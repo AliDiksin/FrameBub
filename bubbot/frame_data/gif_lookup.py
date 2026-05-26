@@ -298,6 +298,17 @@ def lookup_hitbox_gif_link(row):
         or "(hold" in row_num_cmd_raw
     )
 
+    if char_key == "akuma" and "gou hadoken" in row_move_name_norm and re.search(r"\blvl\s*[23]\b", row_move_name_norm):
+        level_match = re.search(r"\blvl\s*([23])\b", row_move_name_norm)
+        preferred_level = f"lv{level_match.group(1)}" if level_match else ""
+        for gif_row in gif_rows:
+            move_link = str(gif_row.get("moveLink", "")).strip()
+            if not move_link:
+                continue
+            gif_name_norm = normalize_move_name_for_gif_text(gif_row.get("moveName", ""))
+            if "gou hadoken" in gif_name_norm and preferred_level in gif_name_norm and "zanku" not in gif_name_norm:
+                return move_link
+
     if (
         char_key == "akuma"
         and (
