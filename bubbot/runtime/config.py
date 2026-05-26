@@ -12,5 +12,4 @@ RANGE_MISSING_PLACEHOLDERS = {"{{{atkrange}}}"}
 LOCAL_HITBOX_GIF_ROOT = os.path.join(BASE_DIR, "sf6frames", "files")
 LOCAL_HITBOX_GIF_EXTENSIONS = {".webp", ".gif", ".png", ".jpg", ".jpeg"}
 
-# Public builds do not include private prose generation. The value stays as a
-# harmless placeholder for optional Buenavista follow-up context.
+

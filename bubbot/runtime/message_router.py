@@ -327,6 +327,184 @@ def _format_requested_property_reply(rows, property_key):
     return truncate_message("\n".join(lines))
 
 
+def _game_key_for_frame_module(module):
+    if module is ggst_module:
+        return "ggst"
+    if module is sfv_module:
+        return "sfv"
+    if module is tuco_module:
+        return "tuco"
+    if module is bbcf_module:
+        return "bbcf"
+    if module is cotw_module:
+        return "cotw"
+    if module is third_strike_module:
+        return "third_strike"
+    if module is mk1_module:
+        return "mk1"
+    return "sf6"
+
+
+def _property_reply_view(game, rows, property_key, owner_id, content):
+    unique_rows = iter_unique_frame_rows(rows or [])
+    if not unique_rows or not property_key or owner_id is None:
+        return None
+    char_key = menu_system._row_character_key(game, unique_rows[0])
+    if not char_key:
+        return None
+    return PropertyValueView(game, char_key, unique_rows, property_key, owner_id, content)
+
+
+async def _send_property_value_reply(message, rows, property_key, content=None, game="sf6"):
+    property_reply = content or _format_requested_property_reply(rows, property_key)
+    if not property_reply:
+        return None
+    view = _property_reply_view(game, rows, property_key, getattr(message.author, "id", None), property_reply)
+    return _record_frame_data_reply(await message.reply(property_reply, view=view))
+
+
+class PropertyValueView(discord.ui.View):
+    def __init__(self, game, char_key, rows, property_key, owner_id, content):
+        super().__init__(timeout=300)
+        self.game = game
+        self.char_key = char_key
+        self.rows = iter_unique_frame_rows(rows or [])
+        self.row = self.rows[0] if self.rows else None
+        self.property_key = property_key
+        self.owner_id = owner_id
+        self.content = content
+        self.add_item(PropertyCompareButton())
+        self.add_item(PropertyFullFrameDataButton())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the person who opened this result can control it.", ephemeral=True)
+            return False
+        return True
+
+
+class PropertyCompareButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Compare", style=discord.ButtonStyle.success)
+
+    async def callback(self, interaction: discord.Interaction):
+        parent = self.view
+        moves = menu_system._move_list(parent.game, parent.char_key)
+        if not moves:
+            await interaction.response.send_message("No moves found for this character.", ephemeral=True)
+            return
+        display = menu_system._character_display_name(parent.game, parent.char_key)
+        await interaction.response.edit_message(
+            content=f"Choose another move to compare {parent.property_key.replace('_', ' ')} with.",
+            embed=menu_system._move_select_embed(display, page=0, total_pages=max(1, (len(moves) + 24) // 25), compare_row=parent.row),
+            view=PropertyCompareSelectView(parent, moves, page=0),
+            attachments=[],
+        )
+
+
+class PropertyFullFrameDataButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Show Full Framedata", style=discord.ButtonStyle.primary)
+
+    async def callback(self, interaction: discord.Interaction):
+        parent = self.view
+        await interaction.response.defer()
+        for row in parent.rows:
+            row_char_key = menu_system._row_character_key(parent.game, row, parent.char_key)
+            sent = await menu_system._send_frame_result_message(
+                interaction.channel,
+                parent.game,
+                row_char_key or parent.char_key,
+                row,
+                parent.owner_id,
+            )
+            _record_frame_data_reply(sent)
+
+
+class PropertyCompareSelectView(discord.ui.View):
+    def __init__(self, parent_view, moves, page=0):
+        super().__init__(timeout=300)
+        self.parent_view = parent_view
+        self.moves = moves
+        self.page = page
+        select = PropertyCompareSelect()
+        self.add_item(select)
+        select._refresh_options()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.parent_view.owner_id:
+            await interaction.response.send_message("Only the person who opened this result can control it.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary, row=4)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        page_count = max(1, (len(self.moves) + 24) // 25)
+        new_page = self.page - 1 if self.page > 0 else page_count - 1
+        await self._edit_page(interaction, new_page)
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.primary, row=4)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        page_count = max(1, (len(self.moves) + 24) // 25)
+        new_page = self.page + 1 if self.page < page_count - 1 else 0
+        await self._edit_page(interaction, new_page)
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, row=4)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        parent = self.parent_view
+        await interaction.response.edit_message(content=parent.content, embed=None, view=parent, attachments=[])
+
+    async def _edit_page(self, interaction, new_page):
+        parent = self.parent_view
+        display = menu_system._character_display_name(parent.game, parent.char_key)
+        page_count = max(1, (len(self.moves) + 24) // 25)
+        await interaction.response.edit_message(
+            content=f"Choose another move to compare {parent.property_key.replace('_', ' ')} with.",
+            embed=menu_system._move_select_embed(display, page=new_page, total_pages=page_count, compare_row=parent.row),
+            view=PropertyCompareSelectView(parent, self.moves, page=new_page),
+            attachments=[],
+        )
+
+
+class PropertyCompareSelect(discord.ui.Select):
+    def __init__(self):
+        super().__init__(placeholder="Select a move", options=[discord.SelectOption(label="Loading...", value="0")])
+
+    def _refresh_options(self):
+        parent_view = self.view
+        start = parent_view.page * 25
+        page_moves = parent_view.moves[start : start + 25]
+        self.options = [
+            discord.SelectOption(label=(label[:100] if len(label) > 100 else label), value=str(start + index))
+            for index, (_row, label) in enumerate(page_moves)
+        ] or [discord.SelectOption(label="No moves", value="none")]
+
+    async def callback(self, interaction: discord.Interaction):
+        self._refresh_options()
+        if self.values[0] == "none":
+            await interaction.response.send_message("No moves found for this character.", ephemeral=True)
+            return
+        idx = int(self.values[0])
+        parent = self.view.parent_view
+        row, _label = self.view.moves[idx]
+        next_rows = iter_unique_frame_rows(parent.rows + [row])
+        property_reply = _format_requested_property_reply(next_rows, parent.property_key)
+        if not property_reply:
+            await interaction.response.send_message("I could not format that value for the selected move.", ephemeral=True)
+            return
+        next_char_key = menu_system._row_character_key(parent.game, row, parent.char_key) or parent.char_key
+        await interaction.response.edit_message(
+            content=property_reply,
+            embed=None,
+            view=PropertyValueView(parent.game, next_char_key, next_rows, parent.property_key, parent.owner_id, property_reply),
+            attachments=[],
+        )
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        self._refresh_options()
+        return True
+
+
 async def _send_cross_game_lookup_response(message, module, rows, payload, query_text):
     if payload.get("gif_query") and payload.get("frame_query"):
         _record_frame_data_ids(await module.send_frame_response(message, rows))
@@ -335,9 +513,9 @@ async def _send_cross_game_lookup_response(message, module, rows, payload, query
     if payload.get("gif_query"):
         _record_frame_data_ids(await module.send_hitbox_response(message, rows))
         return True
-    property_reply = _format_requested_property_reply(rows, _requested_property_key(query_text))
-    if property_reply:
-        _record_frame_data_reply(await message.reply(property_reply))
+    property_key = _requested_property_key(query_text)
+    if _format_requested_property_reply(rows, property_key):
+        await _send_property_value_reply(message, rows, property_key, game=_game_key_for_frame_module(module))
         return True
     _record_frame_data_ids(await module.send_frame_response(message, rows))
     return True
@@ -408,8 +586,8 @@ async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
     elif rows and output_mode == "both":
         _record_frame_data_ids(await module.send_frame_response(message, rows))
         _record_frame_data_ids(await module.send_hitbox_response(message, rows))
-    elif rows and (property_reply := _format_requested_property_reply(rows, _requested_property_key(source_text))):
-        _record_frame_data_reply(await message.reply(property_reply))
+    elif rows and _format_requested_property_reply(rows, _requested_property_key(source_text)):
+        await _send_property_value_reply(message, rows, _requested_property_key(source_text), game=_game_key_for_frame_module(module))
     elif rows:
         _record_frame_data_ids(await module.send_frame_response(message, rows))
     else:
@@ -2001,7 +2179,7 @@ async def _handle_message(message):
             property_reply = _format_requested_property_reply(fd_context_rows, requested_sf6_property_key)
             if property_reply:
                 try:
-                    _record_frame_data_reply(await message.reply(property_reply))
+                    await _send_property_value_reply(message, fd_context_rows, requested_sf6_property_key, content=property_reply, game="sf6")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct property reply target deleted. Triggering failsafe.", flush=True)
@@ -2013,7 +2191,7 @@ async def _handle_message(message):
             range_reply = format_range_only_reply(fd_context_rows)
             if range_reply:
                 try:
-                    _record_frame_data_reply(await message.reply(range_reply))
+                    await _send_property_value_reply(message, fd_context_rows, "range", content=range_reply, game="sf6")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct range reply target deleted. Triggering failsafe.", flush=True)
@@ -2025,7 +2203,7 @@ async def _handle_message(message):
             super_gain_reply = format_super_gain_only_reply(fd_context_rows)
             if super_gain_reply:
                 try:
-                    _record_frame_data_reply(await message.reply(super_gain_reply))
+                    await _send_property_value_reply(message, fd_context_rows, "super_gain", content=super_gain_reply, game="sf6")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct super gain reply target deleted. Triggering failsafe.", flush=True)
@@ -2037,7 +2215,7 @@ async def _handle_message(message):
             hitconfirm_reply = format_hitconfirm_only_reply(fd_context_rows)
             if hitconfirm_reply:
                 try:
-                    _record_frame_data_reply(await message.reply(hitconfirm_reply))
+                    await _send_property_value_reply(message, fd_context_rows, "hitconfirm", content=hitconfirm_reply, game="sf6")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct hitconfirm reply target deleted. Triggering failsafe.", flush=True)
@@ -2049,7 +2227,7 @@ async def _handle_message(message):
             startup_reply = format_startup_only_reply(fd_context_rows)
             if startup_reply:
                 try:
-                    _record_frame_data_reply(await message.reply(startup_reply))
+                    await _send_property_value_reply(message, fd_context_rows, "startup", content=startup_reply, game="sf6")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct startup reply target deleted. Triggering failsafe.", flush=True)

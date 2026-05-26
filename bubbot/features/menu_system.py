@@ -1006,7 +1006,7 @@ async def _send_frame_result_message(channel, game, char_key, row, owner_id):
             view.cotw_image_bytes = file.fp.getvalue()
             view.cotw_image_filename = file.filename
             files = [file]
-    await channel.send(embed=view.build_embed(), view=view, files=files)
+    return await channel.send(embed=view.build_embed(), view=view, files=files)
 
 
 async def _edit_frame_result_message(message, game, char_key, row, owner_id):
