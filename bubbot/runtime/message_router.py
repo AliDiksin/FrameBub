@@ -3,6 +3,8 @@ import asyncio
 import random
 import datetime
 import difflib
+import json
+import os
 import re
 from dotenv import load_dotenv
 
@@ -51,6 +53,93 @@ from bubbot.runtime.startup import handle_ready
 
 
 _FRAME_DATA_RESPONSE_IDS = deque(maxlen=500)
+_RESPONSE_LOG_DM_USER_ID = 427263312217243668
+
+
+def _response_log_file_path():
+    path_text = str(os.getenv("BUB_RESPONSE_LOG_FILE", "bub_response_log.jsonl") or "").strip()
+    if not path_text:
+        path_text = "bub_response_log.jsonl"
+    if os.path.isabs(path_text):
+        return path_text
+    return os.path.join(BASE_DIR, path_text)
+
+
+def _log_response_event(message, reason, response_text=None):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    guild = getattr(message, "guild", None)
+    channel = getattr(message, "channel", None)
+    author = getattr(message, "author", None)
+    payload = {
+        "timestamp_utc": now.isoformat(),
+        "date_utc": now.date().isoformat(),
+        "time_utc": now.time().replace(microsecond=0).isoformat(),
+        "reason": str(reason or "").strip(),
+        "server_id": getattr(guild, "id", None),
+        "server_name": getattr(guild, "name", None),
+        "channel_id": getattr(channel, "id", None),
+        "channel_name": getattr(channel, "name", None),
+        "user_id": getattr(author, "id", None),
+        "user_name": getattr(author, "display_name", None) or getattr(author, "name", None),
+        "prompt": str(getattr(message, "content", "") or ""),
+        "response": str(response_text or ""),
+    }
+    try:
+        log_path = _response_log_file_path()
+        with open(log_path, "a", encoding="utf-8") as log_file:
+            log_file.write(json.dumps(payload, ensure_ascii=True) + "\n")
+        return log_path
+    except Exception as error:
+        print(f"[response-log] write error: {error}", flush=True)
+        return None
+
+
+def _latest_response_log_entry_text(log_path):
+    try:
+        with open(log_path, "r", encoding="utf-8") as log_file:
+            lines = [line.strip() for line in log_file if line.strip()]
+        if not lines:
+            return ""
+        payload = json.loads(lines[-1])
+    except Exception as error:
+        print(f"[response-log] latest entry read error: {error}", flush=True)
+        return ""
+    return truncate_message(
+        "Latest entry:\n"
+        f"Time: {payload.get('timestamp_utc')}\n"
+        f"Reason: {payload.get('reason')}\n"
+        f"Server: {payload.get('server_name')} ({payload.get('server_id')})\n"
+        f"Channel: {payload.get('channel_name')} ({payload.get('channel_id')})\n"
+        f"User: {payload.get('user_name')} ({payload.get('user_id')})\n"
+        f"Prompt: {payload.get('prompt')}\n"
+        f"Response: {payload.get('response')}",
+        limit=1700,
+    )
+
+
+async def _send_response_log_dm(log_path):
+    if not log_path or not os.path.exists(log_path):
+        return
+    try:
+        user = client.get_user(_RESPONSE_LOG_DM_USER_ID) or await client.fetch_user(_RESPONSE_LOG_DM_USER_ID)
+        if not user:
+            return
+        latest_entry = _latest_response_log_entry_text(log_path)
+        content = "Bub response log updated."
+        if latest_entry:
+            content = f"{content}\n\n{latest_entry}"
+        await user.send(
+            content,
+            file=discord.File(log_path, filename=os.path.basename(log_path)),
+        )
+    except Exception as error:
+        print(f"[response-log] DM send error: {error}", flush=True)
+
+
+async def _reply_and_log_response(message, response_text, reason, **kwargs):
+    log_path = _log_response_event(message, reason, response_text)
+    await _send_response_log_dm(log_path)
+    return await message.reply(response_text, **kwargs)
 
 
 def _record_frame_data_ids(ids):
@@ -66,11 +155,91 @@ def _record_frame_data_reply(sent_message):
     return sent_message
 
 
+_FRAME_RESULT_COMPONENT_LABELS = {
+    "back to menu",
+    "compare",
+    "hide image",
+    "hide notes",
+    "return to menu",
+    "show all images",
+    "show full framedata",
+    "show gif",
+    "show hitbox",
+    "show image",
+    "show notes",
+}
+
+
+def _message_component_labels(message):
+    labels = set()
+    for component in getattr(message, "components", []) or []:
+        children = getattr(component, "children", None) or []
+        for child in children:
+            label = str(getattr(child, "label", "") or "").strip().lower()
+            if label:
+                labels.add(label)
+    return labels
+
+
+def _is_frame_data_embed(embed):
+    field_names = {
+        str(getattr(field, "name", "") or "").strip().lower()
+        for field in getattr(embed, "fields", []) or []
+    }
+    if {"startup", "active", "recovery"}.issubset(field_names):
+        return True
+    if "input" in field_names and "startup" in field_names and {"on hit", "on block"} & field_names:
+        return True
+    title = str(getattr(embed, "title", "") or "").strip().lower()
+    if title.startswith(("ggst - ", "2xko - ", "bbcf - ", "cotw - ", "third strike - ", "mk1 - ")):
+        return bool(field_names & {"startup", "input", "on hit", "on block"})
+    return False
+
+
+def _message_looks_like_frame_data_output(message):
+    if any(_is_frame_data_embed(embed) for embed in getattr(message, "embeds", []) or []):
+        return True
+
+    labels = _message_component_labels(message)
+    if labels and labels <= _FRAME_RESULT_COMPONENT_LABELS:
+        return True
+    if {"compare", "show full framedata"}.issubset(labels):
+        return True
+
+    if getattr(message, "attachments", None):
+        return True
+
+    content = str(getattr(message, "content", "") or "").strip().lower()
+    if not content:
+        return False
+    if "wiki.supercombo.gg/images" in content:
+        return True
+    if "dustloop.com" in content or "dreamcancel.com" in content:
+        return True
+    if re.fullmatch(r"(?:https?://\S+\s*)+", content) and re.search(r"\.(?:png|webp|gif|jpg|jpeg)(?:\?|\b)", content):
+        return True
+    if re.search(r"\b\w[\w .'-]*'s .+ \(.+\) .+ is .+\.\s*$", content):
+        return True
+    return False
+
+
 async def _is_reply_to_frame_data(message):
     if not message.reference:
         return False
     replied_id = message.reference.message_id
     if replied_id in _FRAME_DATA_RESPONSE_IDS:
+        return True
+    try:
+        replied_message = await _fetch_referenced_message(message)
+    except (discord.NotFound, discord.Forbidden):
+        return False
+    except Exception as error:
+        print(f"Frame data reply guard fetch error: {error}", flush=True)
+        return False
+    if not replied_message or getattr(replied_message, "author", None) != client.user:
+        return False
+    if _message_looks_like_frame_data_output(replied_message):
+        _FRAME_DATA_RESPONSE_IDS.append(replied_id)
         return True
     return False
 
@@ -93,6 +262,16 @@ def strip_url_like_text(text):
     cleaned = re.sub(r"\b\S+\.gifv(?:\?\S*)?\b", " ", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned.strip()
+
+
+def message_directly_mentions_bot(message):
+    bot_user = getattr(client, "user", None)
+    bot_id = getattr(bot_user, "id", None)
+    if bot_id is None:
+        return False
+    if any(getattr(user, "id", None) == bot_id for user in getattr(message, "mentions", []) or []):
+        return True
+    return bot_id in (getattr(message, "raw_mentions", []) or [])
 
 
 def has_explicit_gif_lookup_intent(text):
@@ -919,6 +1098,7 @@ def configure_extracted_modules():
         strip_discord_mentions=strip_discord_mentions,
         find_moves_in_text=find_moves_in_text,
         lookup_frame_data=lookup_frame_data,
+        get_sf6_move_image_url=frame_output_module.get_sf6_move_image_url,
     )
     frame_output_module.configure(
         is_missing_attack_range_value=is_missing_attack_range_value,
@@ -1009,11 +1189,13 @@ async def _handle_message(message):
     content_no_mentions = strip_discord_mentions(content_raw)
     content_lower = content_no_mentions.lower()
 
-    if client.user.mentioned_in(message) and content_lower.strip() == "menu":
+    directly_mentions_bot = message_directly_mentions_bot(message)
+
+    if directly_mentions_bot and content_lower.strip() == "menu":
         await menu_system.send_main_menu(message.channel, owner_id=message.author.id)
         return
 
-    if client.user.mentioned_in(message) and re.fullmatch(r"\s*(?:.+\s+)?moves\s*", content_lower):
+    if directly_mentions_bot and re.fullmatch(r"\s*(?:.+\s+)?moves\s*", content_lower):
         sf6_char_key = resolve_character_from_aliases_in_text(
             content_lower,
             CHARACTER_ALIASES,
@@ -1374,7 +1556,7 @@ async def _handle_message(message):
         except Exception as reply_check_error:
             print(f"Frame route reply check error: {reply_check_error}", flush=True)
     frame_command_is_addressed = bool(
-        client.user.mentioned_in(message)
+        directly_mentions_bot
         or message_replies_to_bot
     )
     fd_context_payload = find_moves_in_text(content_lower)
@@ -1475,7 +1657,11 @@ async def _handle_message(message):
         return
     elif frame_command_is_addressed and sfv_route_allowed and sfv_lookup_intent and sfv_payload.get("explicit_move_attempt"):
         char_label = sfv_module.display_char_name(sfv_payload.get("char_key"))
-        await message.reply(f"I have SFV scrolls for {char_label}, but I couldn't find that move.")
+        await _reply_and_log_response(
+            message,
+            f"I have SFV scrolls for {char_label}, but I couldn't find that move.",
+            "missing_scrolls",
+        )
         return
 
     tuco_rows = tuco_payload.get("rows", [])
@@ -1606,7 +1792,11 @@ async def _handle_message(message):
         return
     elif frame_command_is_addressed and third_strike_route_allowed and third_strike_lookup_intent and third_strike_payload.get("explicit_move_attempt"):
         char_label = third_strike_module.display_char_name(third_strike_payload.get("char_key"))
-        await message.reply(f"I have Third Strike scrolls for {char_label}, but I couldn't find that move.")
+        await _reply_and_log_response(
+            message,
+            f"I have Third Strike scrolls for {char_label}, but I couldn't find that move.",
+            "missing_scrolls",
+        )
         return
 
     mk1_rows = mk1_payload.get("rows", [])
@@ -1653,7 +1843,11 @@ async def _handle_message(message):
         return
     elif frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("explicit_move_attempt"):
         char_label = mk1_module.display_char_name(mk1_payload.get("char_key"))
-        await message.reply(f"I have MK1 scrolls for {char_label}, but I couldn't find that move.")
+        await _reply_and_log_response(
+            message,
+            f"I have MK1 scrolls for {char_label}, but I couldn't find that move.",
+            "missing_scrolls",
+        )
         return
 
     if (
@@ -1756,7 +1950,7 @@ async def _handle_message(message):
     
     
     # check mentions
-    if client.user.mentioned_in(message):
+    if directly_mentions_bot:
         check_media = True
 
     replied_context = None 
@@ -1830,7 +2024,7 @@ async def _handle_message(message):
     )
 
     should_try_private_lookup_rewrite = bool(
-        client.user.mentioned_in(message)
+        directly_mentions_bot
         and (fd_context_payload.get("gif_query") or re.search(r"\b(?:framedata|frame\s*data|frames?)\b", content_lower))
         and (not fd_context_rows or payload_strength_mismatch)
         and "Special Strength Options" not in str(fd_context_data)
@@ -2013,7 +2207,7 @@ async def _handle_message(message):
                     f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
                 )
                 try:
-                    await message.reply(missing_msg)
+                    await _reply_and_log_response(message, missing_msg, "missing_scrolls")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Missing-scrolls both reply target deleted. Triggering failsafe.", flush=True)
@@ -2061,7 +2255,7 @@ async def _handle_message(message):
                     f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
                 )
                 try:
-                    await message.reply(missing_gif_msg)
+                    await _reply_and_log_response(message, missing_gif_msg, "missing_scrolls")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Missing-gif both reply target deleted. Triggering failsafe.", flush=True)
@@ -2124,7 +2318,7 @@ async def _handle_message(message):
                     f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
                 )
                 try:
-                    await message.reply(missing_gif_msg)
+                    await _reply_and_log_response(message, missing_gif_msg, "missing_scrolls")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Missing-gif reply target deleted. Triggering failsafe.", flush=True)
@@ -2139,7 +2333,7 @@ async def _handle_message(message):
                 f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
             )
             try:
-                await message.reply(missing_msg)
+                await _reply_and_log_response(message, missing_msg, "missing_scrolls")
             except Exception as reply_error:
                 if is_deleted_message_reference_error(reply_error):
                     print("Missing-scrolls reply target deleted. Triggering failsafe.", flush=True)
@@ -2344,6 +2538,7 @@ async def _handle_message(message):
             "send_gif_links_response": send_gif_links_response,
             "format_frame_data": format_frame_data,
             "find_moves_in_text": find_moves_in_text,
+            "reply_and_log_response": _reply_and_log_response,
         },
         message,
         replied_context,
@@ -2380,9 +2575,13 @@ async def _handle_message(message):
             return
 
     if frame_command_is_addressed and buenavista_extension.should_send_public_invalid_query_notice(message):
-        await message.reply(
-            "I only respond to fighting game syntax and frame-data queries here. "
-            "If you think this is an error, contact yimbo3560 on discord."
+        await _reply_and_log_response(
+            message,
+            (
+                "I only respond to fighting game syntax and frame-data queries here. "
+                "If you think this is an error, contact yimbo3560 on discord."
+            ),
+            "public_invalid_query",
         )
         return
 

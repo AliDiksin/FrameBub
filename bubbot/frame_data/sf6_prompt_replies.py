@@ -121,6 +121,12 @@ async def handle_special_strength_reply(
     send_gif_links_response = deps["send_gif_links_response"]
     format_frame_data = deps["format_frame_data"]
     find_moves_in_text = deps["find_moves_in_text"]
+    reply_and_log_response = deps.get("reply_and_log_response")
+
+    async def send_missing_scrolls_reply(text):
+        if reply_and_log_response:
+            return await reply_and_log_response(message, text, "missing_scrolls")
+        return await message.reply(text)
 
     char_match = re.search(r"Special Strength Options \(([^)]+)\)", replied_context)
     char_hint = char_match.group(1).strip() if char_match else ""
@@ -243,7 +249,7 @@ async def handle_special_strength_reply(
                                 "I have frame data for that move but no hitbox gif link yet. "
                                 f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
                             )
-                            await message.reply(missing_gif_msg)
+                            await send_missing_scrolls_reply(missing_gif_msg)
                     elif special_request_mode == "both":
                         await send_frame_table_response(message, [direct_row], format_frame_data(direct_row))
                         gif_links = []
@@ -263,7 +269,7 @@ async def handle_special_strength_reply(
                                 "I have frame data for that move but no hitbox gif link yet. "
                                 f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
                             )
-                            await message.reply(missing_gif_msg)
+                            await send_missing_scrolls_reply(missing_gif_msg)
                     else:
                         await send_frame_table_response(message, [direct_row], format_frame_data(direct_row))
                     return True
@@ -322,7 +328,7 @@ async def handle_special_strength_reply(
             "I have frame data for that move but no hitbox gif link yet. "
             f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
         )
-        await message.reply(missing_gif_msg)
+        await send_missing_scrolls_reply(missing_gif_msg)
         return True
     if special_request_mode == "both" and special_rows:
         await send_frame_table_response(message, special_rows, special_data)
@@ -344,7 +350,7 @@ async def handle_special_strength_reply(
             "I have frame data for that move but no hitbox gif link yet. "
             f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
         )
-        await message.reply(missing_gif_msg)
+        await send_missing_scrolls_reply(missing_gif_msg)
         return True
     if special_payload.get("mode") == "frame" and special_rows and special_data:
         await send_frame_table_response(message, special_rows, special_data)

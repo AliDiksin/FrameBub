@@ -1491,6 +1491,8 @@ COMMAND_JUMP_NORMAL_ALIASES = {
             "j2hp": "gong fu",
             "j.2hp": "gong fu",
             "jump 2hp": "gong fu",
+            "anal sodomy": "gong fu",
+            "get out of jail free card": "gong fu",
         },
         "akuma": {
             "j2mk": "tenmaku blade kick",

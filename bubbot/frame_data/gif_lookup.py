@@ -17,6 +17,7 @@ iter_unique_frame_rows = None
 strip_discord_mentions = None
 find_moves_in_text = None
 lookup_frame_data = None
+get_sf6_move_image_url = None
 
 
 def configure(**deps):
@@ -262,6 +263,29 @@ def build_num_cmd_candidates_for_gif(row):
     return candidates
 
 
+def should_use_sf6_move_image_for_gif(row):
+    char_key = resolve_character_key(str(row.get("char_name", "")).strip())
+    row_num_cmd = normalize_num_cmd_token(row.get("numCmd", ""))
+    row_move_name_norm = normalize_move_name_for_gif_text(row.get("moveName", ""))
+
+    return bool(
+        (char_key == "rashid" and row_num_cmd == "8hk" and row_move_name_norm == "jump h")
+        or (
+            char_key == "akuma"
+            and row_num_cmd == "5lp>5lp>6lk>5hp"
+            and row_move_name_norm == "shun goku satsu"
+        )
+    )
+
+
+def get_sf6_move_image_gif_fallback(row):
+    if not should_use_sf6_move_image_for_gif(row):
+        return ""
+    if not callable(get_sf6_move_image_url):
+        return ""
+    return str(get_sf6_move_image_url(row) or "").strip()
+
+
 def lookup_hitbox_gif_link(row):
     row_char = str(row.get("char_name", "")).strip()
     char_key = resolve_character_key(row_char)
@@ -270,6 +294,9 @@ def lookup_hitbox_gif_link(row):
 
     gif_rows = HITBOX_GIF_DATA.get(char_key, [])
     if not gif_rows:
+        return None
+
+    if should_use_sf6_move_image_for_gif(row):
         return None
 
     row_num_cmd_raw = str(row.get("numCmd", "")).lower()
@@ -1144,6 +1171,11 @@ def get_frame_row_gif_links(row, limit=4):
                 return lookup_hitbox_gif_links_from_query(char_key, query_name, limit=limit)
 
     row_num_cmd_norm = normalize_num_cmd_token(row.get("numCmd", ""))
+
+    image_fallback = get_sf6_move_image_gif_fallback(row)
+    if image_fallback:
+        return [image_fallback]
+
     if char_key == "alex" and row_num_cmd_norm.startswith("2pp>"):
         alex_query_links = lookup_hitbox_gif_links_from_query(
             char_key,

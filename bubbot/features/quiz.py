@@ -2256,6 +2256,16 @@ async def handle_quiz_answer(message):
 
 # ==================== END QUIZ FEATURE ====================
 
+
+def _quiz_message_directly_mentions_user(user, message):
+    user_id = getattr(user, "id", None)
+    if user_id is None:
+        return False
+    if any(getattr(mention, "id", None) == user_id for mention in getattr(message, "mentions", []) or []):
+        return True
+    return user_id in (getattr(message, "raw_mentions", []) or [])
+
+
 async def route_message(client, message, content_lower):
     # Quiz flow
     channel_id = message.channel.id
@@ -2263,10 +2273,11 @@ async def route_message(client, message, content_lower):
     quiz_state = ACTIVE_QUIZZES.get(channel_id)
     requested_quiz_mode = _quiz_extract_mode_from_text(content_lower)
     requested_quiz_game = _quiz_extract_game_from_text(content_lower, default=(quiz_state or {}).get("game", "sf6"))
-    answer_is_addressed = client.user.mentioned_in(message) or _is_reply_to_quiz_msg(message)
+    directly_mentions_bot = _quiz_message_directly_mentions_user(client.user, message)
+    answer_is_addressed = directly_mentions_bot or _is_reply_to_quiz_msg(message)
     mode_prompt_reply = _is_reply_to_quiz_mode_prompt(message)
     command_is_addressed = (
-        client.user.mentioned_in(message)
+        directly_mentions_bot
         or _is_reply_to_quiz_followup_msg(message)
         or mode_prompt_reply
     )

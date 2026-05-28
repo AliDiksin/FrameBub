@@ -44,6 +44,15 @@ else:
 TZ_REGEX = re.compile(rf"(?<!\w){tz_pattern}(?!\w)", re.IGNORECASE)
 
 
+def message_directly_mentions_user(user, message):
+    user_id = getattr(user, "id", None)
+    if user_id is None:
+        return False
+    if any(getattr(mention, "id", None) == user_id for mention in getattr(message, "mentions", []) or []):
+        return True
+    return user_id in (getattr(message, "raw_mentions", []) or [])
+
+
 class ReminderManager:
     def __init__(self, client, truncate_message_func, build_reminder_ack_text, build_reminder_fire_text):
         self.client = client
@@ -330,7 +339,7 @@ class ReminderManager:
                         await message.reply(reply_text)
                         return True
 
-        if self.client.user.mentioned_in(message) and self.is_reminder_request_text(content_lower):
+        if message_directly_mentions_user(self.client.user, message) and self.is_reminder_request_text(content_lower):
             notify_user_ids = self.get_reminder_target_user_ids(message)
             task, reminder_dt, reminder_utc, tz_label, error, pending = self.parse_reminder_request(
                 content_no_mentions,
