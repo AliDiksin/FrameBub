@@ -658,13 +658,13 @@ def find_followup_rows(character, move_input):
 
 def build_disambiguation_prompt(char_key, rows):
     char_name = display_char_name(char_key)
-    lines = [f"Multiple GGST moves match {char_name}. Please specify one:"]
-    for row in rows[:12]:
+    lines = [f"Multiple GGST moves match {char_name}. Reply with the option number:"]
+    for index, row in enumerate(rows[:12], start=1):
         state_label = clean_value(row.get("state_label"))
         state_text = f" [{state_label}]" if state_label else ""
         move_name = clean_value(row.get("moveName"), "Unknown")
         num_cmd = clean_value(row.get("numCmd"), "?")
-        lines.append(f"- {move_name}{state_text}: `{num_cmd}`")
+        lines.append(f"{index}. {move_name}{state_text}: `{num_cmd}`")
     return "\n".join(lines)
 
 
@@ -672,11 +672,11 @@ def build_followup_prompt(char_key, rows):
     char_name = display_char_name(char_key)
     lines = [f"**GGST Follow-up Options ({char_name})**"]
     lines.append("Follow-ups:")
-    for row in rows[:12]:
+    for index, row in enumerate(rows[:12], start=1):
         move_name = clean_value(row.get("moveName"), "Unknown")
         num_cmd = clean_value(row.get("numCmd"), "?")
-        lines.append(f"- {move_name}: `{num_cmd}`")
-    lines.append("Reply or make a new prompt with the exact follow-up.")
+        lines.append(f"{index}. {move_name}: `{num_cmd}`")
+    lines.append("Reply with the option number, or make a new prompt with the exact follow-up.")
     return "\n".join(lines)
 
 

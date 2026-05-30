@@ -105,6 +105,7 @@ COTW_MOVE_ALIASES = {
     "jumping b": "j.b",
     "jumping c": "j.c",
     "jumping d": "j.d",
+    "counter": "secret mademoiselle",
 }
 
 

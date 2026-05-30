@@ -198,11 +198,11 @@ def find_matching_rows(char_key, move_text):
 
 
 def build_disambiguation_prompt(char_key, rows):
-    lines = [f"Multiple COTW moves match {display_char_name(char_key)}. Please specify one:"]
-    for row in rows[:12]:
+    lines = [f"Multiple COTW moves match {display_char_name(char_key)}. Reply with the option number:"]
+    for index, row in enumerate(rows[:12], start=1):
         move_name = str(row.get("moveName") or "Unknown").strip()
         num_cmd = str(row.get("numCmd") or "?").strip()
-        lines.append(f"- {move_name}: `{num_cmd}`")
+        lines.append(f"{index}. {move_name}: `{num_cmd}`")
     return "\n".join(lines)
 
 

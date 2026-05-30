@@ -723,13 +723,13 @@ def find_moves_in_text(deps, text):
                         continue
                     seen_special_prompts.add(prompt_key)
                     variant_lines = "\n".join(
-                        f"- {row.get('moveName', '?')} ({row.get('numCmd', '?')})"
-                        for row in prompt_variants
+                        f"{index}. {row.get('moveName', '?')} ({row.get('numCmd', '?')})"
+                        for index, row in enumerate(prompt_variants, start=1)
                     )
                     special_prompt_blocks.append(
                         f"**Special Strength Options ({char.capitalize()})**\n"
                         f"{base_name.title()} variants:\n{variant_lines}\n"
-                        "Reply or make a new prompt with the exact strength+move."
+                        "Reply with the option number, or make a new prompt with the exact strength+move."
                     )
         dp_strength_inputs = []
         dp_strength_prefix_matches = re.findall(
@@ -910,11 +910,11 @@ def find_moves_in_text(deps, text):
                             extra_inputs.append(combo_token)
                         continue
                     tc_ambiguous_inputs.add(base_key)
-                    combo_list = "\n".join(f"- {combo}" for combo in combos)
+                    combo_list = "\n".join(f"{index}. {combo}" for index, combo in enumerate(combos, start=1))
                     tc_prompt_blocks.append(
                         f"**Target Combo Options ({char.capitalize()})**\n"
                         f"{base_key.upper()} follow-ups:\n{combo_list}\n"
-                        "Reply or Make a new prompt with the exact target combo "
+                        "Reply with the option number, or make a new prompt with the exact target combo."
                     )
         keyword_inputs = [
             # 46P moves
@@ -1252,13 +1252,13 @@ def find_moves_in_text(deps, text):
                         grab_variants.append(row)
                 if len(grab_variants) >= 2:
                     variant_lines = "\n".join(
-                        f"- {row.get('moveName', '?')} ({row.get('numCmd', '?')})"
-                        for row in grab_variants
+                        f"{index}. {row.get('moveName', '?')} ({row.get('numCmd', '?')})"
+                        for index, row in enumerate(grab_variants, start=1)
                     )
                     special_prompt_blocks.append(
                         f"**Special Strength Options ({char.capitalize()})**\n"
                         f"Command Grab variants:\n{variant_lines}\n"
-                        "Reply or make a new prompt with the exact command or move name."
+                        "Reply with the option number, or make a new prompt with the exact command or move name."
                     )
 
         if query_requires_variant_state and results:
@@ -1308,13 +1308,13 @@ def find_moves_in_text(deps, text):
                     results = level_results
             elif query_requires_charged and query_has_explicit_strength and not query_wants_od_strength and len(akuma_charged_fireballs) > 1:
                 variant_lines = "\n".join(
-                    f"- {row.get('moveName', '?')} ({row.get('numCmd', '?')})"
-                    for row in akuma_charged_fireballs
+                    f"{index}. {row.get('moveName', '?')} ({row.get('numCmd', '?')})"
+                    for index, row in enumerate(akuma_charged_fireballs, start=1)
                 )
                 special_prompt_blocks.append(
                     "**Special Strength Options (Akuma)**\n"
                     f"Fireball variants:\n{variant_lines}\n"
-                    "Reply or make a new prompt with the exact charged level."
+                    "Reply with the option number, or make a new prompt with the exact charged level."
                 )
                 allow_explicit_special_prompt = True
                 results = []
@@ -1475,13 +1475,13 @@ def find_moves_in_text(deps, text):
                         continue
 
                 variant_lines = "\n".join(
-                    f"- {candidate.get('moveName', '?')} ({candidate.get('numCmd', '?')})"
-                    for candidate in variants
+                    f"{index}. {candidate.get('moveName', '?')} ({candidate.get('numCmd', '?')})"
+                    for index, candidate in enumerate(variants, start=1)
                 )
                 special_prompt_blocks.append(
                     f"**Special Strength Options ({row_char_key.capitalize()})**\n"
                     f"{base_name.title()} variants:\n{variant_lines}\n"
-                    "Reply or make a new prompt with the exact strength+move."
+                    "Reply with the option number, or make a new prompt with the exact strength+move."
                 )
                 ambiguous_special_keys.add(key)
 

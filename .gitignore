@@ -68,3 +68,8 @@ GGST Frame Data.backup.ods
 inspo.md
 /regressions
 bubbot/runtime/buenavista_extension.py
+# Bub server/message-log GUI app artifacts
+/build/
+/dist/
+/scripts/list_bub_servers_gui.py
+/scripts/build_bub_servers_gui_exe.ps1

@@ -303,16 +303,16 @@ def find_matching_rows(char_key, move_text):
 
 
 def build_disambiguation_prompt(char_key, rows):
-    lines = [f"Multiple SFV moves match {display_char_name(char_key)}. Please specify one:"]
+    lines = [f"Multiple SFV moves match {display_char_name(char_key)}. Reply with the option number:"]
     multiple_characters = len({str(row.get("char_key", "")).strip() for row in rows if str(row.get("char_key", "")).strip()}) > 1
-    for row in rows[:12]:
+    for index, row in enumerate(rows[:12], start=1):
         move_name = clean_value(row.get("moveName"), "Unknown")
         num_cmd = clean_value(row.get("numCmd"), "?")
         if multiple_characters:
             move_name = f"{clean_value(row.get('char_name'), display_char_name(row.get('char_key')))} - {move_name}"
         state_label = clean_value(row.get("state_label"), "")
         suffix = f" [{state_label}]" if state_label else ""
-        lines.append(f"- {move_name}: `{num_cmd}`{suffix}")
+        lines.append(f"{index}. {move_name}: `{num_cmd}`{suffix}")
     return "\n".join(lines)
 
 

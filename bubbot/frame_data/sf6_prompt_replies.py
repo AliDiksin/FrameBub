@@ -60,6 +60,34 @@ def compact_token(value):
     return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
 
 
+def reply_option_number(reply_text):
+    text = str(reply_text or "").strip().lower()
+    ordinal_words = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+        "sixth": 6,
+        "seventh": 7,
+        "eighth": 8,
+        "ninth": 9,
+        "tenth": 10,
+        "eleventh": 11,
+        "twelfth": 12,
+    }
+    digit_match = re.fullmatch(r"(?:#|number\s+|option\s+|pick\s+|choice\s+)?(\d+)(?:st|nd|rd|th)?(?:\s+one)?", text)
+    if digit_match:
+        return int(digit_match.group(1))
+    word_match = re.fullmatch(
+        r"(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)(?:\s+one)?",
+        text,
+    )
+    if word_match:
+        return ordinal_words.get(word_match.group(1))
+    return None
+
+
 async def handle_target_combo_reply(deps, message, replied_context, content_no_mentions):
     if not replied_context or "Target Combo Options" not in replied_context:
         return False
@@ -71,6 +99,17 @@ async def handle_target_combo_reply(deps, message, replied_context, content_no_m
     match = re.search(r"Target Combo Options \(([^)]+)\)", replied_context)
     char_hint = match.group(1).strip() if match else ""
     tc_query = (content_no_mentions or "").strip()
+    selected_number = reply_option_number(tc_query)
+    if selected_number is not None:
+        options = []
+        for raw_line in replied_context.splitlines():
+            line = raw_line.strip()
+            option_match = re.match(r"^(\d+)\s*[\.)]\s*(.+)$", line)
+            if option_match:
+                options.append((int(option_match.group(1)), option_match.group(2).strip()))
+        number_matches = [option_text for option_number, option_text in options if option_number == selected_number]
+        if len(number_matches) == 1:
+            tc_query = number_matches[0]
     tc_query_lower = tc_query.lower()
     if char_hint:
         normalized_hint = normalize_char_name(char_hint)
@@ -136,9 +175,9 @@ async def handle_special_strength_reply(
     option_matches = []
     for raw_line in replied_context.splitlines():
         line = raw_line.strip()
-        if not line.startswith(("-", "•", "·")):
+        if not re.match(r"^(?:\d+\s*[\.)]|[\-•·])", line):
             continue
-        option_line = re.sub(r"^[\s\-•·]+", "", line).strip()
+        option_line = re.sub(r"^(?:\d+\s*[\.)]\s*|[\s\-•·]+)", "", line).strip()
         if not option_line:
             continue
         option_name, option_cmd = parse_special_option_line(option_line)
@@ -177,8 +216,14 @@ async def handle_special_strength_reply(
     selected_option_cmd = None
     reply_compact = compact_token(raw_special_reply_lower)
     if option_matches and reply_compact:
+        selected_number = reply_option_number(raw_special_reply_lower)
+        if selected_number is not None and 1 <= selected_number <= len(option_matches):
+            selected_option_name, selected_option_cmd = option_matches[selected_number - 1]
+
         exact_option_matches = []
         for option_name, option_cmd in option_matches:
+            if selected_option_name or selected_option_cmd:
+                break
             option_name_lower = option_name.lower()
             option_name_fireball_alias = re.sub(r"hadou?ken", "fireball", option_name_lower)
             if (

@@ -196,6 +196,15 @@ def _is_frame_data_embed(embed):
     return False
 
 
+def _is_quiz_embed(embed):
+    title = str(getattr(embed, "title", "") or "").strip().lower()
+    return "frame data quiz" in title
+
+
+def _message_looks_like_quiz_output(message):
+    return any(_is_quiz_embed(embed) for embed in getattr(message, "embeds", []) or [])
+
+
 def _message_looks_like_frame_data_output(message):
     if any(_is_frame_data_embed(embed) for embed in getattr(message, "embeds", []) or []):
         return True
@@ -223,7 +232,7 @@ def _message_looks_like_frame_data_output(message):
     return False
 
 
-async def _is_reply_to_frame_data(message):
+async def _is_reply_to_suppressed_bub_message(message):
     if not message.reference:
         return False
     replied_id = message.reference.message_id
@@ -238,10 +247,21 @@ async def _is_reply_to_frame_data(message):
         return False
     if not replied_message or getattr(replied_message, "author", None) != client.user:
         return False
+
+    if _message_looks_like_quiz_output(replied_message):
+        return False
+
+    if getattr(replied_message, "embeds", None):
+        return True
+
     if _message_looks_like_frame_data_output(replied_message):
         _FRAME_DATA_RESPONSE_IDS.append(replied_id)
         return True
     return False
+
+
+async def _is_reply_to_frame_data(message):
+    return await _is_reply_to_suppressed_bub_message(message)
 
 
 def is_missing_attack_range_value(raw_value):
@@ -288,43 +308,43 @@ DISAMBIGUATION_GAME_CONFIGS = [
         "label": "SFV",
         "prefix": "sfv",
         "module": sfv_module,
-        "prompt_re": re.compile(r"Multiple SFV moves match (.+?)\. Please specify one:"),
+        "prompt_re": re.compile(r"Multiple SFV moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
     {
         "label": "GGST",
         "prefix": "ggst",
         "module": ggst_module,
-        "prompt_re": re.compile(r"Multiple GGST moves match (.+?)\. Please specify one:"),
+        "prompt_re": re.compile(r"Multiple GGST moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
     {
         "label": "2XKO",
         "prefix": "2xko",
         "module": tuco_module,
-        "prompt_re": re.compile(r"Multiple 2XKO moves match (.+?)\. Please specify one:"),
+        "prompt_re": re.compile(r"Multiple 2XKO moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
     {
         "label": "BBCF",
         "prefix": "bbcf",
         "module": bbcf_module,
-        "prompt_re": re.compile(r"Multiple BBCF moves match (.+?)\. Please specify one:"),
+        "prompt_re": re.compile(r"Multiple BBCF moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
     {
         "label": "COTW",
         "prefix": "cotw",
         "module": cotw_module,
-        "prompt_re": re.compile(r"Multiple COTW moves match (.+?)\. Please specify one:"),
+        "prompt_re": re.compile(r"Multiple COTW moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
     {
         "label": "Third Strike",
         "prefix": "3s",
         "module": third_strike_module,
-        "prompt_re": re.compile(r"Multiple Third Strike moves match (.+?)\. Please specify one:"),
+        "prompt_re": re.compile(r"Multiple Third Strike moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
     {
         "label": "MK1",
         "prefix": "mk1",
         "module": mk1_module,
-        "prompt_re": re.compile(r"Multiple MK1 moves match (.+?)\. Please specify one:"),
+        "prompt_re": re.compile(r"Multiple MK1 moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
 ]
 
@@ -337,22 +357,60 @@ def _parse_disambiguation_options(prompt_text):
     options = []
     for raw_line in str(prompt_text or "").splitlines():
         line = raw_line.strip()
-        option_match = re.match(r"^[\-•·]\s*(.+?):\s*`([^`]+)`(?:\s*\[([^\]]+)\])?", line)
+        option_match = re.match(r"^(?:(\d+)\s*[\.)]\s*|[\-•·]\s*)(.+?):\s*`([^`]+)`(?:\s*\[([^\]]+)\])?", line)
         if option_match:
             options.append(
                 {
-                    "name": option_match.group(1).strip(),
-                    "cmd": option_match.group(2).strip(),
-                    "version": (option_match.group(3) or "").strip(),
+                    "number": int(option_match.group(1)) if option_match.group(1) else len(options) + 1,
+                    "name": option_match.group(2).strip(),
+                    "cmd": option_match.group(3).strip(),
+                    "version": (option_match.group(4) or "").strip(),
                 }
             )
     return options
+
+
+def _disambiguation_reply_number(reply_text):
+    text = str(reply_text or "").strip().lower()
+    if not text:
+        return None
+
+    ordinal_words = {
+        "first": 1,
+        "second": 2,
+        "third": 3,
+        "fourth": 4,
+        "fifth": 5,
+        "sixth": 6,
+        "seventh": 7,
+        "eighth": 8,
+        "ninth": 9,
+        "tenth": 10,
+        "eleventh": 11,
+        "twelfth": 12,
+    }
+    digit_match = re.fullmatch(r"(?:#|number\s+|option\s+|pick\s+|choice\s+)?(\d+)(?:st|nd|rd|th)?(?:\s+one)?", text)
+    if digit_match:
+        return int(digit_match.group(1))
+    word_match = re.fullmatch(
+        r"(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)(?:\s+one)?",
+        text,
+    )
+    if word_match:
+        return ordinal_words.get(word_match.group(1))
+    return None
 
 
 def _select_disambiguation_option(reply_text, options):
     reply_compact = _compact_disambiguation_text(reply_text)
     if not reply_compact or not options:
         return None
+
+    selected_number = _disambiguation_reply_number(reply_text)
+    if selected_number is not None:
+        number_matches = [option for option in options if option.get("number") == selected_number]
+        if len(number_matches) == 1:
+            return number_matches[0]
 
     exact_matches = []
     contains_matches = []
@@ -396,6 +454,9 @@ def _row_matches_disambiguation_option(row, option):
 def _find_selected_disambiguation_row(rows, option):
     if not option:
         return None
+    option_number = option.get("number")
+    if isinstance(option_number, int) and 1 <= option_number <= len(rows or []):
+        return list(rows or [])[option_number - 1]
     matches = [row for row in rows or [] if _row_matches_disambiguation_option(row, option)]
     return matches[0] if len(matches) == 1 else None
 
@@ -1191,6 +1252,13 @@ async def _handle_message(message):
 
     directly_mentions_bot = message_directly_mentions_bot(message)
 
+    quiz_result = await quiz_module.route_message(client, message, content_lower)
+    if quiz_result is not False:
+        return
+
+    if await _is_reply_to_suppressed_bub_message(message):
+        return
+
     if directly_mentions_bot and content_lower.strip() == "menu":
         await menu_system.send_main_menu(message.channel, owner_id=message.author.id)
         return
@@ -1280,10 +1348,6 @@ async def _handle_message(message):
     if await reminder_manager.handle_message(message, content_no_mentions, content_lower):
         return
 
-    quiz_result = await quiz_module.route_message(client, message, content_lower)
-    if quiz_result is not False:
-        return
-
     if await _handle_cross_game_disambiguation_reply(message, content_no_mentions):
         return
 
@@ -1313,7 +1377,10 @@ async def _handle_message(message):
                     or "GGST Follow-up Options" in ggst_replied_content
                 )
             ):
-                ggst_char_match = re.search(r"Multiple GGST moves match ([^.]+)\. Please specify one:", ggst_replied_content)
+                ggst_char_match = re.search(
+                    r"Multiple GGST moves match ([^.]+)\. (?:Please specify one|Reply with the option number):",
+                    ggst_replied_content,
+                )
                 if not ggst_char_match:
                     ggst_char_match = re.search(r"GGST Follow-up Options \(([^)]+)\)", ggst_replied_content)
                 ggst_char_hint = ggst_char_match.group(1).strip() if ggst_char_match else ""
@@ -1324,7 +1391,7 @@ async def _handle_message(message):
                     followup_options = []
                     for raw_line in ggst_replied_content.splitlines():
                         line = raw_line.strip()
-                        option_match = re.match(r"^[\-•·]\s*(.+?):\s*`([^`]+)`", line)
+                        option_match = re.match(r"^(?:\d+\s*[\.)]\s*|[\-•·]\s*)(.+?):\s*`([^`]+)`", line)
                         if option_match:
                             followup_options.append((option_match.group(1).strip(), option_match.group(2).strip()))
                     selected_followup_cmd = None
@@ -1417,7 +1484,7 @@ async def _handle_message(message):
                 and "Multiple Third Strike moves match" in third_strike_replied_content
             ):
                 third_strike_char_match = re.search(
-                    r"Multiple Third Strike moves match ([^.]+)\. Please specify one:",
+                    r"Multiple Third Strike moves match ([^.]+)\. (?:Please specify one|Reply with the option number):",
                     third_strike_replied_content,
                 )
                 third_strike_char_hint = third_strike_char_match.group(1).strip() if third_strike_char_match else ""
@@ -1426,7 +1493,7 @@ async def _handle_message(message):
                 options = []
                 for raw_line in third_strike_replied_content.splitlines():
                     line = raw_line.strip()
-                    option_match = re.match(r"^[\-•·]\s*(.+?):\s*`([^`]+)`(?:\s*\[([^\]]+)\])?", line)
+                    option_match = re.match(r"^(?:\d+\s*[\.)]\s*|[\-•·]\s*)(.+?):\s*`([^`]+)`(?:\s*\[([^\]]+)\])?", line)
                     if option_match:
                         options.append(
                             (
