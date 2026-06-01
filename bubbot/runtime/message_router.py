@@ -1631,6 +1631,11 @@ async def _handle_message(message):
         directly_mentions_bot
         or message_replies_to_bot
     )
+    allow_implied_frame_routing = bool(
+        not message.reference
+        or message_replies_to_bot
+        or directly_mentions_bot
+    )
     fd_context_payload = find_moves_in_text(content_lower)
 
     ggst_payload = ggst_module.find_moves_in_text(content_lower)
@@ -1926,7 +1931,7 @@ async def _handle_message(message):
         frame_command_is_addressed
         and mk1_route_allowed
         and not mk1_lookup_intent
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and (mk1_rows or mk1_payload.get("needs_disambiguation"))
     ):
         if mk1_payload.get("needs_disambiguation"):
@@ -1939,7 +1944,7 @@ async def _handle_message(message):
         frame_command_is_addressed
         and sfv_route_allowed
         and not sfv_lookup_intent
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and (sfv_rows or sfv_payload.get("needs_disambiguation"))
     ):
         if sfv_payload.get("needs_disambiguation"):
@@ -1952,7 +1957,7 @@ async def _handle_message(message):
         frame_command_is_addressed
         and third_strike_route_allowed
         and not third_strike_lookup_intent
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and (third_strike_rows or third_strike_payload.get("needs_disambiguation"))
     ):
         if third_strike_payload.get("needs_disambiguation"):
@@ -1965,7 +1970,7 @@ async def _handle_message(message):
         frame_command_is_addressed
         and tuco_route_allowed
         and not tuco_lookup_intent
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and (tuco_rows or tuco_payload.get("needs_disambiguation"))
     ):
         if tuco_payload.get("needs_disambiguation"):
@@ -1978,7 +1983,7 @@ async def _handle_message(message):
         frame_command_is_addressed
         and bbcf_route_allowed
         and not bbcf_lookup_intent
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and (bbcf_rows or bbcf_payload.get("needs_disambiguation"))
     ):
         if bbcf_payload.get("needs_disambiguation"):
@@ -1991,7 +1996,7 @@ async def _handle_message(message):
         frame_command_is_addressed
         and cotw_route_allowed
         and not cotw_lookup_intent
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and (cotw_rows or cotw_payload.get("needs_disambiguation"))
     ):
         if cotw_payload.get("needs_disambiguation"):
@@ -2004,7 +2009,7 @@ async def _handle_message(message):
         frame_command_is_addressed
         and ggst_route_allowed
         and not ggst_lookup_intent
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and (ggst_rows or ggst_payload.get("needs_disambiguation"))
     ):
         if ggst_payload.get("needs_disambiguation"):
@@ -2199,7 +2204,7 @@ async def _handle_message(message):
     implied_data = ""
     if (
         frame_command_is_addressed
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and not gif_query
         and not explicit_frame_request
         and not property_only_query
@@ -2231,7 +2236,7 @@ async def _handle_message(message):
     if (
         not vague_move_query_without_output_intent
         and frame_command_is_addressed
-        and (not message.reference or message_replies_to_bot)
+        and allow_implied_frame_routing
         and target_combo_query
         and explicit_move_attempt
         and fd_context_mode == "frame"
