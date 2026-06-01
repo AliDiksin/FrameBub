@@ -93,7 +93,7 @@ python bot.py
 bubbot/
   runtime/          # Bot entrypoint, message routing, slash commands
   frame_data/       # Per-game parsers, embeds, and lookup helpers
-  features/         # Quiz, menu, reminders, LLM persona
+  features/         # Quiz, menu, reminders
   data/             # Alias maps, generated image caches
   utils/            # Shared text, comparison, Discord helpers
 scripts/            # Cache builders and scrapers
