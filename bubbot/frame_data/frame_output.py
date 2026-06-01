@@ -14,6 +14,7 @@ from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url
 from bubbot.utils.mediawiki_images import mediawiki_thumb_url as shared_mediawiki_thumb_url
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.row_utils import unique_rows
+from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT, MISSING_HITBOX_GIF_TEXT
 from bubbot.utils.text_utils import compact_key
 
 is_missing_attack_range_value = None
@@ -352,6 +353,59 @@ def sanitize_embed_followup_text(text):
             return sentence
     return "Noted. The relevant frame data is in the embeds above."
 
+class MissingHitboxGifShowFramedataButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Show Framedata", style=discord.ButtonStyle.primary)
+
+    async def callback(self, interaction: discord.Interaction):
+        parent = self.view
+        if not getattr(parent, "rows", None):
+            await interaction.response.send_message("No frame data available.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        sent_ids = await send_frame_embeds_with_views(
+            interaction.channel,
+            parent.rows,
+            owner_id=getattr(parent, "owner_id", None) or getattr(interaction.user, "id", None),
+        )
+        on_frame_sent = getattr(parent, "on_frame_sent", None)
+        if on_frame_sent:
+            on_frame_sent(sent_ids)
+        if not sent_ids:
+            await interaction.followup.send("I could not load that framedata table.", ephemeral=True)
+
+
+class MissingHitboxGifView(discord.ui.View):
+    def __init__(self, rows, owner_id=None, on_frame_sent=None):
+        super().__init__(timeout=300)
+        self.rows = list(rows or [])
+        self.owner_id = owner_id
+        self.on_frame_sent = on_frame_sent
+        self.add_item(MissingHitboxGifShowFramedataButton())
+
+
+async def send_missing_hitbox_gif_reply(
+    message,
+    rows,
+    *,
+    include_framedata_button=True,
+    reply_and_log_response=None,
+    record_frame_data_ids=None,
+):
+    unique_rows = iter_unique_frame_rows(rows or [])
+    view = None
+    if include_framedata_button and unique_rows:
+        on_frame_sent = record_frame_data_ids
+        view = MissingHitboxGifView(
+            unique_rows,
+            owner_id=getattr(message.author, "id", None),
+            on_frame_sent=on_frame_sent,
+        )
+    if reply_and_log_response:
+        return await reply_and_log_response(message, MISSING_HITBOX_GIF_TEXT, "missing_scrolls", view=view)
+    return await message.reply(MISSING_HITBOX_GIF_TEXT, view=view)
+
+
 class FrameDataGifButton(discord.ui.Button):
     def __init__(self, row, gif_links, showing_gif=False):
         super().__init__(
@@ -367,8 +421,11 @@ class FrameDataGifButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         move_name = str((self.frame_row or {}).get("moveName", "This move")).strip() or "This move"
         if not self.gif_links:
+            view = MissingHitboxGifView([self.frame_row], owner_id=getattr(interaction.user, "id", None))
             await interaction.response.send_message(
-                f"I have frame data for {move_name} but no hitbox gif link yet.",
+                f"I have frame data for {move_name} but no hitbox gif link yet. "
+                f"{FRAME_DATA_ERROR_CONTACT_TEXT}",
+                view=view,
                 ephemeral=True,
             )
             return

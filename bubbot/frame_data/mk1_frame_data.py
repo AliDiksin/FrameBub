@@ -7,6 +7,7 @@ import re
 import discord
 
 from bubbot.data.mk1_aliases import MK1_CHARACTER_ALIASES, MK1_LOOKUP_WORDS, MK1_MOVE_ALIASES
+from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.discord_formatting import (
@@ -713,7 +714,10 @@ async def send_frame_response(message, rows):
 async def send_hitbox_response(message, rows):
     if not rows:
         return []
-    response_text = "I have MK1 frame data for that move, but no MK1 hitbox image links are in the scrolls yet."
+    response_text = (
+        "I have MK1 frame data for that move, but no MK1 hitbox image links are in the scrolls yet. "
+        f"{FRAME_DATA_ERROR_CONTACT_TEXT}"
+    )
     _log_missing_scrolls_response(message, response_text)
     sent = await message.reply(response_text)
     return [sent.id]

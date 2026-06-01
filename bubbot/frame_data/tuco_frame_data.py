@@ -6,6 +6,7 @@ import discord
 import pandas as pd
 
 from bubbot.data.tuco_aliases import TUCO_CHARACTER_ALIASES, TUCO_LOOKUP_WORDS, TUCO_MOVE_ALIASES
+from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.discord_formatting import (
@@ -372,7 +373,11 @@ class TUCOHitboxButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         if not self.hitbox_links:
-            await interaction.response.send_message("I have 2XKO frame data for this move but no hitbox image link yet.", ephemeral=True)
+            await interaction.response.send_message(
+                f"I have 2XKO frame data for this move but no hitbox image link yet. "
+                f"{FRAME_DATA_ERROR_CONTACT_TEXT}",
+                ephemeral=True,
+            )
             return
         self.showing_hitbox = not self.showing_hitbox
         self.label = "Hide Image" if self.showing_hitbox else "Show Hitbox"

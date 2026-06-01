@@ -149,8 +149,7 @@ async def handle_special_strength_reply(
         return False
 
     FRAME_DATA = deps["FRAME_DATA"]
-    SCROLLS_MAINTAINER_USER_ID = deps["SCROLLS_MAINTAINER_USER_ID"]
-    SCROLLS_FIX_REQUEST_TEXT = deps["SCROLLS_FIX_REQUEST_TEXT"]
+    send_missing_hitbox_gif_reply = deps["send_missing_hitbox_gif_reply"]
     normalize_char_name = deps["normalize_char_name"]
     resolve_character_key = deps["resolve_character_key"]
     lookup_frame_data = deps["lookup_frame_data"]
@@ -166,6 +165,14 @@ async def handle_special_strength_reply(
         if reply_and_log_response:
             return await reply_and_log_response(message, text, "missing_scrolls")
         return await message.reply(text)
+
+    async def send_missing_gif_reply(rows, *, include_framedata_button=True):
+        return await send_missing_hitbox_gif_reply(
+            message,
+            rows,
+            include_framedata_button=include_framedata_button,
+            reply_and_log_response=reply_and_log_response,
+        )
 
     char_match = re.search(r"Special Strength Options \(([^)]+)\)", replied_context)
     char_hint = char_match.group(1).strip() if char_match else ""
@@ -290,11 +297,7 @@ async def handle_special_strength_reply(
                         if gif_links:
                             await message.reply(gif_links[0])
                         else:
-                            missing_gif_msg = (
-                                "I have frame data for that move but no hitbox gif link yet. "
-                                f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
-                            )
-                            await send_missing_scrolls_reply(missing_gif_msg)
+                            await send_missing_gif_reply([direct_row])
                     elif special_request_mode == "both":
                         await send_frame_table_response(message, [direct_row], format_frame_data(direct_row))
                         gif_links = []
@@ -310,11 +313,7 @@ async def handle_special_strength_reply(
                         if gif_links:
                             await send_gif_links_response(message, gif_links)
                         else:
-                            missing_gif_msg = (
-                                "I have frame data for that move but no hitbox gif link yet. "
-                                f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
-                            )
-                            await send_missing_scrolls_reply(missing_gif_msg)
+                            await send_missing_gif_reply([direct_row], include_framedata_button=False)
                     else:
                         await send_frame_table_response(message, [direct_row], format_frame_data(direct_row))
                     return True
@@ -369,11 +368,7 @@ async def handle_special_strength_reply(
         if gif_links:
             await message.reply(gif_links[0])
             return True
-        missing_gif_msg = (
-            "I have frame data for that move but no hitbox gif link yet. "
-            f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
-        )
-        await send_missing_scrolls_reply(missing_gif_msg)
+        await send_missing_gif_reply(special_rows)
         return True
     if special_request_mode == "both" and special_rows:
         await send_frame_table_response(message, special_rows, special_data)
@@ -391,11 +386,7 @@ async def handle_special_strength_reply(
         if gif_links:
             await send_gif_links_response(message, gif_links)
             return True
-        missing_gif_msg = (
-            "I have frame data for that move but no hitbox gif link yet. "
-            f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
-        )
-        await send_missing_scrolls_reply(missing_gif_msg)
+        await send_missing_gif_reply(special_rows, include_framedata_button=False)
         return True
     if special_payload.get("mode") == "frame" and special_rows and special_data:
         await send_frame_table_response(message, special_rows, special_data)

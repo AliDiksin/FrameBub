@@ -32,16 +32,21 @@ import bubbot.frame_data.cotw_frame_data as cotw_module
 import bubbot.frame_data.third_strike_frame_data as third_strike_module
 import bubbot.frame_data.mk1_frame_data as mk1_module
 import bubbot.features.menu_system as menu_system
-from bubbot.frame_data.frame_output import send_frame_embeds_with_views, send_frame_table_response, send_gif_links_response
+from bubbot.frame_data.frame_output import (
+    send_frame_embeds_with_views,
+    send_frame_table_response,
+    send_gif_links_response,
+    send_missing_hitbox_gif_reply,
+)
 from bubbot.frame_data.gif_lookup import get_frame_row_gif_links
 from bubbot.runtime.config import (
     BASE_DIR,
     LOCAL_HITBOX_GIF_EXTENSIONS,
     LOCAL_HITBOX_GIF_ROOT,
     RANGE_MISSING_PLACEHOLDERS,
+    MISSING_SCROLLS_TEXT,
+    PUBLIC_INVALID_QUERY_TEXT,
     RANGE_SCROLLS_MISSING_TEXT,
-    SCROLLS_FIX_REQUEST_TEXT,
-    SCROLLS_MAINTAINER_USER_ID,
     TOKEN,
 )
 from bubbot.utils.character_lookup import find_aliases_in_text, resolve_alias_key, text_mentions_alias
@@ -2269,12 +2274,8 @@ async def _handle_message(message):
                 return
 
             if missing_scrolls_query:
-                missing_msg = (
-                    f"I don't have the scrolls for that move. "
-                    f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
-                )
                 try:
-                    await _reply_and_log_response(message, missing_msg, "missing_scrolls")
+                    await _reply_and_log_response(message, MISSING_SCROLLS_TEXT, "missing_scrolls")
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Missing-scrolls both reply target deleted. Triggering failsafe.", flush=True)
@@ -2283,8 +2284,10 @@ async def _handle_message(message):
                         print(f"Missing-scrolls both reply error: {reply_error}", flush=True)
                 return
 
+            frame_table_already_sent = False
             if fd_context_rows:
                 _record_frame_data_ids(await send_frame_table_response(message, fd_context_rows, fd_context_data))
+                frame_table_already_sent = True
 
                 gif_frame_rows = fd_context_rows
                 if wants_comparison and fd_context_rows:
@@ -2317,12 +2320,14 @@ async def _handle_message(message):
                     ))
                     return
 
-                missing_gif_msg = (
-                    f"I have frame data for that move but no hitbox gif link yet. "
-                    f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
-                )
                 try:
-                    await _reply_and_log_response(message, missing_gif_msg, "missing_scrolls")
+                    await send_missing_hitbox_gif_reply(
+                        message,
+                        fd_context_rows,
+                        include_framedata_button=not frame_table_already_sent,
+                        reply_and_log_response=_reply_and_log_response,
+                        record_frame_data_ids=_record_frame_data_ids,
+                    )
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Missing-gif both reply target deleted. Triggering failsafe.", flush=True)
@@ -2380,12 +2385,13 @@ async def _handle_message(message):
                 return
 
             if fd_context_rows:
-                missing_gif_msg = (
-                    f"I have frame data for that move but no hitbox gif link yet. "
-                    f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
-                )
                 try:
-                    await _reply_and_log_response(message, missing_gif_msg, "missing_scrolls")
+                    await send_missing_hitbox_gif_reply(
+                        message,
+                        fd_context_rows,
+                        reply_and_log_response=_reply_and_log_response,
+                        record_frame_data_ids=_record_frame_data_ids,
+                    )
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Missing-gif reply target deleted. Triggering failsafe.", flush=True)
@@ -2395,12 +2401,8 @@ async def _handle_message(message):
                 return
 
         if missing_scrolls_query:
-            missing_msg = (
-                f"I don't have the scrolls for that move. "
-                f"<@{SCROLLS_MAINTAINER_USER_ID}> {SCROLLS_FIX_REQUEST_TEXT}"
-            )
             try:
-                await _reply_and_log_response(message, missing_msg, "missing_scrolls")
+                await _reply_and_log_response(message, MISSING_SCROLLS_TEXT, "missing_scrolls")
             except Exception as reply_error:
                 if is_deleted_message_reference_error(reply_error):
                     print("Missing-scrolls reply target deleted. Triggering failsafe.", flush=True)
@@ -2594,8 +2596,7 @@ async def _handle_message(message):
     if await sf6_prompt_replies.handle_sf6_prompt_reply(
         {
             "FRAME_DATA": FRAME_DATA,
-            "SCROLLS_MAINTAINER_USER_ID": SCROLLS_MAINTAINER_USER_ID,
-            "SCROLLS_FIX_REQUEST_TEXT": SCROLLS_FIX_REQUEST_TEXT,
+            "send_missing_hitbox_gif_reply": send_missing_hitbox_gif_reply,
             "normalize_char_name": normalize_char_name,
             "resolve_character_key": resolve_character_key,
             "lookup_frame_data": lookup_frame_data,
@@ -2644,10 +2645,7 @@ async def _handle_message(message):
     if frame_command_is_addressed and buenavista_extension.should_send_public_invalid_query_notice(message):
         await _reply_and_log_response(
             message,
-            (
-                "I only respond to fighting game syntax and frame-data queries here. "
-                "If you think this is an error, contact yimbo3560 on discord."
-            ),
+            PUBLIC_INVALID_QUERY_TEXT,
             "public_invalid_query",
         )
         return
