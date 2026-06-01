@@ -387,22 +387,20 @@ class CompareFrameButton(discord.ui.Button):
         if not char_key:
             await interaction.response.send_message("I could not find that character's move list.", ephemeral=True)
             return
-        moves = _move_list(self.game, char_key)
-        if not moves:
-            await interaction.response.send_message("No moves found for this character.", ephemeral=True)
+        chars = _character_list(self.game)
+        if not chars:
+            await interaction.response.send_message("No characters found for this game.", ephemeral=True)
             return
-        display = _character_display_name(self.game, char_key)
         await interaction.response.edit_message(
-            embed=_move_select_embed(
-                display,
+            embed=_character_select_embed(
+                self.game,
                 page=0,
-                total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT)),
+                total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT)),
                 compare_row=self.frame_row,
             ),
-            view=MoveSelectView(
+            view=CharacterSelectView(
                 self.game,
-                char_key,
-                moves,
+                chars,
                 self.owner_id,
                 page=0,
                 compare_row=self.frame_row,
