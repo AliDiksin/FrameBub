@@ -33,6 +33,7 @@ import bubbot.frame_data.third_strike_frame_data as third_strike_module
 import bubbot.frame_data.mk1_frame_data as mk1_module
 import bubbot.features.menu_system as menu_system
 from bubbot.frame_data.frame_output import (
+    send_character_stats_response,
     send_frame_embeds_with_views,
     send_frame_table_response,
     send_gif_links_response,
@@ -508,7 +509,7 @@ PROPERTY_VALUE_ALIASES = [
     ("super_gain", "Super Gain", ("SelfSoH", "SelfSoB"), r"\bsuper\s*gain\b|\bsuper\s*meter\s*gain\b|\bsuper\s*build\b|\bsa\s*gain\b"),
     ("meter_gain", "Meter Gain", ("meterGain",), r"\bmeter\s*gain\b"),
     ("drive_gain", "Drive Gain", ("DGain",), r"\bdrive\s+gain\b"),
-    ("drive_damage", "Drive Damage", ("DDoH", "DDoB"), r"\bdrive\s+(?:chip|dmg|damage)\b"),
+    ("chip_damage", "Chip Damage", ("chp",), r"\bchip\s+damage\b"),
     ("stun", "Stun", ("hitstun", "blockstun", "stun"), r"\bhitstun\b|\bblockstun\b|\bstun\b"),
     ("risc_gain", "RISC Gain", ("riscGain",), r"\brisc\s*gain\b|\brisc\b"),
     ("proration", "Proration", ("prorate",), r"\bproration\b|\bprorate\b"),
@@ -522,7 +523,7 @@ def _requested_property_key(text):
     if re.search(r"\b(?:all|full)\s+(?:frame\s*)?data\b|\btable\b", lowered):
         return None
     matches = [key for key, _label, _fields, pattern in PROPERTY_VALUE_ALIASES if re.search(pattern, lowered)]
-    if "damage" in matches and any(key in matches for key in ("block_damage", "guard_damage", "rev_damage", "drive_damage")):
+    if "damage" in matches and any(key in matches for key in ("block_damage", "guard_damage", "rev_damage", "chip_damage")):
         matches = [key for key in matches if key != "damage"]
     if "guard" in matches and "guard_damage" in matches:
         matches = [key for key in matches if key != "guard"]
@@ -550,7 +551,7 @@ def _format_requested_property_reply(rows, property_key):
             hc_tc = str(row.get("hcWinTc") or "-").replace("*", ",").strip() or "-"
             hc_notes = str(row.get("hcWinNotes") or "-").replace("[", "").replace("]", "").replace('"', "").strip() or "-"
             value = f"Sp/Su: {hc_sp}, TC: {hc_tc}. Notes: {hc_notes}"
-        elif property_key in {"super_gain", "drive_damage", "stun"} or (
+        elif property_key in {"super_gain", "stun"} or (
             property_key == "meter_gain" and (row.get("SelfSoH") is not None or row.get("SelfSoB") is not None) and row.get("meterGain") is None
         ):
             hit_value = str(row.get(fields[0]) or "-").replace("*", ",").strip() or "-"
@@ -1174,6 +1175,8 @@ def configure_extracted_modules():
         get_existing_local_gif_asset_paths=gif_lookup_module.get_existing_local_gif_asset_paths,
         is_deleted_message_reference_error=is_deleted_message_reference_error,
         RANGE_SCROLLS_MISSING_TEXT=RANGE_SCROLLS_MISSING_TEXT,
+        FRAME_STATS=FRAME_STATS,
+        normalize_char_name=normalize_char_name,
     )
 
 def is_deleted_message_reference_error(error):
@@ -1217,6 +1220,7 @@ async def on_ready():
             "third_strike_module": third_strike_module,
             "mk1_module": mk1_module,
             "FRAME_DATA": FRAME_DATA,
+            "FRAME_STATS": FRAME_STATS,
             "CHARACTER_ALIASES": CHARACTER_ALIASES,
             "resolve_character_key": resolve_character_key,
             "normalize_char_name": normalize_char_name,
@@ -2252,6 +2256,21 @@ async def _handle_message(message):
         vague_move_query_without_output_intent = True
 
     if should_handle_direct_frame:
+        if (
+            frame_command_is_addressed
+            and fd_context_payload.get("stats_only")
+            and fd_context_payload.get("stats_char_keys")
+        ):
+            stats_sent_ids = await send_character_stats_response(
+                message,
+                fd_context_payload.get("stats_char_keys"),
+                fd_context_payload.get("stats_keys"),
+            )
+            _record_frame_data_ids(stats_sent_ids)
+            if not stats_sent_ids:
+                await message.reply("I don't have stats scrolls for that character.")
+            return
+
         if vague_move_query_without_output_intent:
             default_rows = implied_rows or fd_context_rows
             default_data = implied_data or fd_context_data
@@ -2660,6 +2679,7 @@ register_slash_commands(
     tree,
     {
         "frame_data": FRAME_DATA,
+        "frame_stats": FRAME_STATS,
         "resolve_character_key": resolve_character_key,
         "find_moves_in_text": find_moves_in_text,
         "build_frame_embed": build_frame_embed,

@@ -1609,5 +1609,63 @@ DP_PREFIX_EXCEPTIONS = {
     }
 
 
+# SF6 {Character}Stats sheet query aliases (FAT ODS). Notation tokens use word boundaries
+# via contains_token_sequence() in sf6_character_stats.match_stat_keys_in_text().
+SF6_STAT_NOTATION_ALIASES = {
+    "66": ("fDash", "fDashDist"),
+    "44": ("bDash", "bDashDist"),
+    "8": ("nJump",),
+    "7": ("bJump", "bJumpDist"),
+    "9": ("fJump", "fJumpDist"),
+}
+
+SF6_STAT_TOKEN_SEQUENCE_ALIASES = (
+    (("6", "6"), ("fDash", "fDashDist")),
+    (("4", "4"), ("bDash", "bDashDist")),
+)
+
+SF6_STAT_PHRASE_ALIASES = (
+    (("health", "hp", "life bar", "life"), ("health",)),
+    (("best reversal", "reversal", "reversals", "defensive reversal"), ("bestReversal",)),
+    (
+        ("forward dash", "f dash", "fdash", "front dash", "forward 66", "f66"),
+        ("fDash", "fDashDist"),
+    ),
+    (
+        ("back dash", "b dash", "bdash", "backwards dash", "backward dash", "back 44", "b44"),
+        ("bDash", "bDashDist"),
+    ),
+    (("dash speed", "dash frame", "dash frames", "dashes", "dash"), ("fDash", "bDash", "fDashDist", "bDashDist")),
+    (("neutral jump", "n jump", "normal jump", "8 jump"), ("nJump",)),
+    (("forward jump", "f jump", "9 jump"), ("fJump", "fJumpDist")),
+    (("back jump", "b jump", "7 jump"), ("bJump", "bJumpDist")),
+    (("jump distance", "jump dist", "jump distances"), ("fJumpDist", "bJumpDist", "nJump", "fJump", "bJump")),
+    (("jump", "jumps"), ("nJump", "fJump", "bJump")),
+    (("forward walk", "f walk", "walk forward"), ("fWalk",)),
+    (("back walk", "b walk", "walk back", "backward walk"), ("bWalk",)),
+    (("walk speed", "walk speeds", "walk"), ("fWalk", "bWalk")),
+    (
+        ("drive rush", "drive rush distance", "dr distance", "dr dist", "drive rush dist", "dr"),
+        ("dRushDist", "dRushDistMin", "dRushDistBlock", "dRushDistMax"),
+    ),
+    (("throw range", "throw ranges", "throw box"), ("throwRange",)),
+    (("throw hurtbox", "throw hurt", "throwable"), ("throwHurt",)),
+    (("throw",), ("throwRange", "throwHurt")),
+    (("phrase", "win quote", "quote"), ("phrase",)),
+)
+
+SF6_STAT_BROAD_TERMS = ("stats", "stat")
+SF6_STAT_LEGACY_TERMS = (
+    "health",
+    "reversal",
+    "jump",
+    "dash",
+    "speed",
+    "throw",
+    "walk",
+    "drive rush",
+)
+
+
 def get_character_input_aliases():
     return deepcopy(CHARACTER_INPUT_ALIASES)

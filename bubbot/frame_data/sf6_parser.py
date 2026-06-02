@@ -17,6 +17,7 @@ from bubbot.frame_data.sf6_character_aliases import (
     should_append_single_token_candidate,
     should_skip_keyword_input,
 )
+from bubbot.frame_data.sf6_character_stats import apply_stats_context
 from bubbot.frame_data.sf6_special_prompt_rules import (
     choose_character_special_variant,
     should_skip_ambiguous_special_key,
@@ -160,7 +161,7 @@ def find_moves_in_text(deps, text):
         "cancel": bool(re.search(r"\bcancel(?:l?able)?\b", text_lower)),
         "damage": bool(re.search(r"\bdamage\b|\bdmg\b", text_lower)),
         "guard": bool(re.search(r"\bguard\b|\battack\s+level\b|\batk\s*lvl\b|\batk\s*level\b", text_lower)),
-        "drive_chip": bool(re.search(r"\bdrive\s+chip\b|\bdrive\s+dmg\b|\bdrive\s+damage\b", text_lower)),
+        "chip_damage": bool(re.search(r"\bchip\s+damage\b", text_lower)),
         "drive_gain": bool(re.search(r"\bdrive\s+gain\b", text_lower)),
         "stun": bool(re.search(r"\bhitstun\b|\bblockstun\b|\bstun\b", text_lower)),
         "invuln": bool(re.search(r"\binvuln(?:erability)?\b|\binvul\b", text_lower)),
@@ -168,7 +169,7 @@ def find_moves_in_text(deps, text):
         "super_gain": super_gain_alias_query,
         "range": range_alias_query,
     }
-    if property_alias_flags.get("damage") and property_alias_flags.get("drive_chip"):
+    if property_alias_flags.get("damage") and property_alias_flags.get("chip_damage"):
         property_alias_flags["damage"] = False
     property_match_count = sum(1 for matched in property_alias_flags.values() if matched)
     table_intent_query = bool(
@@ -1552,41 +1553,22 @@ def find_moves_in_text(deps, text):
     # Format the results
     formatted_blocks = []
 
-    # 3. Add Character Stats if relevant keywords found
-    stats_keywords = ["stats", "health", "health", "drive", "reversal", "jump", "dash", "speed", "throw"]
-    wants_stats = any(k in text_lower for k in stats_keywords)
-    if startup_alias_query and re.search(r"\b[1-9][0-9]*[a-zA-Z]{1,3}\b", text_lower):
-        wants_stats = False
-    if property_only_query:
-        wants_stats = False
-    if wants_frame_data and explicit_move_attempt:
-        wants_stats = False
-
-    if wants_stats:
-        for char in mentioned_chars:
-            if char in FRAME_STATS:
-                s = FRAME_STATS[char]
-                # Format specific stats or all of them? 
-                # Let's provide the key ones: Health, Best Reversal, Dashes, Jumps
-                # The user asked for "best reversal" specifically.
-                reversal_name = s.get('bestReversal', '?')
-                
-                stats_block = (
-                    f"**{char.capitalize()} Stats**\n"
-                    f"Health: {s.get('health', '?')}\n"
-                    f"Best Reversal: {reversal_name}\n"
-                    f"Forward Dash: {s.get('fDash', '?')}f // Back Dash: {s.get('bDash', '?')}f\n"
-                    f"Jump: {s.get('nJump', '?')}f\n"
-                )
-                formatted_blocks.append(stats_block)
-                
-                # RECURSIVE LOOKUP: If we have a best reversal name, fetch its REAL frame data
-                # so optional private prose cannot invent it.
-                if reversal_name and reversal_name != '?':
-                     # Try to find this move in the moves list
-                     rev_row = lookup_frame_data(char, str(reversal_name))
-                     if rev_row and rev_row not in results:
-                         results.append(rev_row)
+    stats_intent, results, formatted_blocks = apply_stats_context(
+        text_lower,
+        mentioned_chars,
+        FRAME_STATS,
+        lookup_frame_data,
+        results,
+        formatted_blocks,
+        explicit_move_attempt=explicit_move_attempt,
+        wants_frame_data=wants_frame_data,
+        gif_query=gif_query,
+        property_only_query=property_only_query,
+        startup_alias_query=startup_alias_query,
+    )
+    wants_stats = stats_intent.wants_stats
+    stats_only = stats_intent.stats_only
+    stats_char_keys = list(stats_intent.character_keys)
 
     # 4. AUTO-INJECT KEY MOVES (Context Injection)
     # If we have a character but NO specific moves found (e.g. "Help me with Ryu"),
@@ -1650,16 +1632,14 @@ def find_moves_in_text(deps, text):
         on_block = clean(move_data.get('onBlock', '-'))
         extra_info = clean(move_data.get('extraInfo', '-')).replace('[', '').replace(']', '').replace('"', '')
         
-        # New Stats (Drive/Super)
-        ddoh = clean(move_data.get('DDoH', '-'))
-        ddob = clean(move_data.get('DDoB', '-'))
-        dgain = clean(move_data.get('DGain', '-'))
-        ssoh = clean(move_data.get('SelfSoH', '-'))
-        ssob = clean(move_data.get('SelfSoB', '-'))
-        
+        chip = clean(move_data.get("chp", "-"))
+        dgain = clean(move_data.get("DGain", "-"))
+        ssoh = clean(move_data.get("SelfSoH", "-"))
+        ssob = clean(move_data.get("SelfSoB", "-"))
+
         gauge_info = (
-             f"Drive Dmg: Hit {ddoh} / Block {ddob} // Drive Gain: {dgain}\n"
-             f"Super Gain: Hit {ssoh} / Block {ssob}\n"
+            f"Chip Damage: {chip} // Drive Gain: {dgain}\n"
+            f"Super Gain: Hit {ssoh} / Block {ssob}\n"
         )
         
         # Hit Confirm Data (Always Included)
@@ -1718,7 +1698,10 @@ def find_moves_in_text(deps, text):
     has_frame_blocks = bool(formatted_blocks)
     has_combo_blocks = bool(bnb_context)
     has_overview_blocks = bool(info_blocks)
-    if has_frame_blocks:
+    has_stats_blocks = bool(wants_stats and stats_char_keys)
+    if stats_only and has_stats_blocks and not results and not has_combo_blocks and not has_overview_blocks:
+        mode = "stats"
+    elif has_frame_blocks:
         mode = "frame"
     elif has_combo_blocks:
         mode = "combo"
@@ -1731,6 +1714,10 @@ def find_moves_in_text(deps, text):
         "data": output,
         "mode": mode,
         "rows": results,
+        "stats_query": wants_stats,
+        "stats_only": stats_only,
+        "stats_char_keys": stats_char_keys,
+        "stats_keys": list(stats_intent.stat_keys) if stats_intent.stat_keys else None,
         "startup_alias_query": startup_alias_query,
         "hitconfirm_alias_query": hitconfirm_alias_query,
         "super_gain_alias_query": super_gain_alias_query,

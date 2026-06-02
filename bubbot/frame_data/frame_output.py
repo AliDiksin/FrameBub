@@ -14,8 +14,15 @@ from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url
 from bubbot.utils.mediawiki_images import mediawiki_thumb_url as shared_mediawiki_thumb_url
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.row_utils import unique_rows
+from bubbot.frame_data.sf6_character_stats import (
+    build_character_stats_embed,
+    character_key_from_row,
+)
 from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT, MISSING_HITBOX_GIF_TEXT
 from bubbot.utils.text_utils import compact_key
+
+FRAME_STATS = {}
+normalize_char_name = None
 
 is_missing_attack_range_value = None
 truncate_message = None
@@ -258,8 +265,7 @@ def build_frame_embed(row, image_url_override=None, show_notes=False):
     on_hit = clean_embed_value(row.get("onHit", ""))
     on_block = clean_embed_value(row.get("onBlock", ""))
 
-    drive_hit = clean_embed_value(row.get("DDoH", ""))
-    drive_block = clean_embed_value(row.get("DDoB", ""))
+    chip_damage = clean_embed_value(row.get("chp", ""))
     drive_gain = clean_embed_value(row.get("DGain", ""))
     super_hit = clean_embed_value(row.get("SelfSoH", ""))
     super_block = clean_embed_value(row.get("SelfSoB", ""))
@@ -283,8 +289,7 @@ def build_frame_embed(row, image_url_override=None, show_notes=False):
     add_embed_field(embed, "Guard", guard, inline=True)
     add_embed_field(embed, "Range", atk_range, inline=True)
     add_embed_field(embed, "Drive Gain", drive_gain, inline=True)
-
-    add_embed_field(embed, "Drive Dmg", format_hit_block_value(drive_hit, drive_block), inline=True)
+    add_embed_field(embed, "Chip Damage", chip_damage, inline=True)
     add_embed_field(embed, "Super Gain", format_hit_block_value(super_hit, super_block), inline=True)
     add_embed_field(embed, "Stun", format_hit_block_value(stun_hit, stun_block), inline=True)
 
@@ -325,7 +330,7 @@ def sanitize_embed_followup_text(text):
         "Range:",
         "On Hit:",
         "On Block:",
-        "Drive Dmg",
+        "Chip Damage",
         "Super Gain",
         "Hit Confirm",
         "Stun Frames",
@@ -472,10 +477,88 @@ class FrameDataGifButton(discord.ui.Button):
         await interaction.response.send_message("\n".join(self.gif_links))
 
 
-class SF6NotesButton(discord.ui.Button):
+async def _edit_frame_data_view(interaction, view, attachments):
+    await interaction.response.edit_message(
+        embed=view.build_embed(),
+        view=view,
+        attachments=attachments,
+    )
+
+
+def _set_toggle_button_style(button, active):
+    button.label = f"Hide {button.panel_label}" if active else f"Show {button.panel_label}"
+    button.style = discord.ButtonStyle.danger if active else discord.ButtonStyle.primary
+
+
+class SF6PanelToggleButton(discord.ui.Button):
+    panel_label = "Panel"
+    toggle_attr = ""
+
+    async def callback(self, interaction: discord.Interaction):
+        if not hasattr(self.view, "build_embed"):
+            await interaction.response.defer()
+            return
+        if await self.before_toggle(interaction):
+            return
+        show = not getattr(self.view, self.toggle_attr, False)
+        setattr(self.view, self.toggle_attr, show)
+        if show:
+            self.reset_other_panels()
+        _set_toggle_button_style(self, show)
+        attachments = self.attachments_for_toggle()
+        await _edit_frame_data_view(interaction, self.view, attachments)
+
+    async def before_toggle(self, interaction):
+        return False
+
+    def reset_other_panels(self):
+        pass
+
+    def attachments_for_toggle(self):
+        return []
+
+
+class SF6ShowStatsButton(SF6PanelToggleButton):
+    panel_label = "Stats"
+
+    def __init__(self, disabled=False):
+        super().__init__(
+            label="Show Stats",
+            style=discord.ButtonStyle.primary,
+            disabled=disabled,
+            row=0,
+        )
+        self.toggle_attr = "show_stats"
+
+    async def before_toggle(self, interaction):
+        if getattr(self.view, "character_stats", None):
+            return False
+        await interaction.response.send_message(
+            "No character stats are loaded for this fighter.",
+            ephemeral=True,
+        )
+        return True
+
+    def reset_other_panels(self):
+        self.view.show_notes = False
+        if hasattr(self.view, "notes_button"):
+            _set_toggle_button_style(self.view.notes_button, False)
+
+    def attachments_for_toggle(self):
+        if getattr(self.view, "show_stats", False):
+            return []
+        if hasattr(self.view, "active_files"):
+            return self.view.active_files()
+        return []
+
+
+class SF6NotesButton(SF6PanelToggleButton):
+    panel_label = "Notes"
+
     def __init__(self, row):
         self.frame_row = row
         self.notes_text = get_notes_text(row)
+        self.toggle_attr = "show_notes"
         super().__init__(
             label="Show Notes",
             style=discord.ButtonStyle.primary,
@@ -483,18 +566,15 @@ class SF6NotesButton(discord.ui.Button):
             row=0,
         )
 
-    async def callback(self, interaction: discord.Interaction):
-        if not hasattr(self.view, "build_embed"):
-            await interaction.response.defer()
-            return
-        self.view.show_notes = not self.view.show_notes
-        self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
-        self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
-        files = self.view.active_files() if hasattr(self.view, "active_files") else []
-        kwargs = {"embed": self.view.build_embed(), "view": self.view}
-        if files:
-            kwargs["attachments"] = files
-        await interaction.response.edit_message(**kwargs)
+    def reset_other_panels(self):
+        self.view.show_stats = False
+        if hasattr(self.view, "stats_button"):
+            _set_toggle_button_style(self.view.stats_button, False)
+
+    def attachments_for_toggle(self):
+        if hasattr(self.view, "active_files"):
+            return self.view.active_files()
+        return []
 
 
 class ReturnToMenuButton(discord.ui.Button):
@@ -514,11 +594,18 @@ class FrameDataGifView(discord.ui.View):
         super().__init__(timeout=3600)
         self.row = row
         self.show_notes = False
+        self.show_stats = False
+        self.char_key = char_key
+        if not self.char_key:
+            self.char_key = character_key_from_row(row, normalize_char_name)
+        self.character_stats = (FRAME_STATS or {}).get(self.char_key or "", {})
         self.gif_links = list(get_frame_row_gif_links(row) or [])
         self.default_gif_asset_path = self._default_gif_asset_path()
         self.gif_button = FrameDataGifButton(row, self.gif_links, showing_gif=bool(self.default_gif_asset_path))
+        self.stats_button = SF6ShowStatsButton(disabled=not self.character_stats)
         self.notes_button = SF6NotesButton(row)
         self.add_item(self.gif_button)
+        self.add_item(self.stats_button)
         self.add_item(self.notes_button)
         from bubbot.features import menu_system
         menu_system.attach_compare_button(self, "sf6", row, owner_id=owner_id, char_key=char_key)
@@ -532,6 +619,8 @@ class FrameDataGifView(discord.ui.View):
         return asset_paths[0] if asset_paths else None
 
     def build_embed(self):
+        if self.show_stats and self.character_stats:
+            return build_character_stats_embed(self.char_key, self.character_stats)
         if self.default_gif_asset_path and self.gif_button.showing_gif:
             filename = os.path.basename(self.default_gif_asset_path)
             return build_frame_embed(
@@ -551,6 +640,23 @@ class FrameDataGifView(discord.ui.View):
             return []
         filename = os.path.basename(self.default_gif_asset_path)
         return [discord.File(self.default_gif_asset_path, filename=filename)]
+
+
+async def send_character_stats_response(message, char_keys, stat_keys=None):
+    channel = getattr(message, "channel", message)
+    unique_keys = []
+    for char_key in char_keys or []:
+        if char_key and char_key not in unique_keys:
+            unique_keys.append(char_key)
+    sent_ids = []
+    for char_key in unique_keys:
+        stats = (FRAME_STATS or {}).get(char_key)
+        if not stats:
+            continue
+        embed = build_character_stats_embed(char_key, stats, stat_keys)
+        sent = await channel.send(embed=embed)
+        sent_ids.append(sent.id)
+    return sent_ids
 
 
 async def send_frame_embeds_with_views(channel, rows, embeds=None, owner_id=None):

@@ -166,6 +166,7 @@ async def handle_ready(deps):
 
     menu_system.configure(
         frame_data=frame_data,
+        frame_stats=deps.get("FRAME_STATS") or {},
         character_aliases=character_aliases,
         ggst_frame_data=ggst_module.GGST_FRAME_DATA,
         ggst_character_aliases=ggst_module.GGST_CHARACTER_ALIASES,

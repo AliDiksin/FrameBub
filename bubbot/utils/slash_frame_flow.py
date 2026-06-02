@@ -38,3 +38,24 @@ async def send_slash_frame_result(
     embed = view.build_embed() if hasattr(view, "build_embed") else embed_fn(row)
     files = view.initial_files() if hasattr(view, "initial_files") else []
     await interaction.response.send_message(embed=embed, view=view, files=files)
+
+
+async def send_slash_stats_result(
+    interaction,
+    *,
+    char_name,
+    char_key,
+    stats_row,
+    build_stats_embed_fn,
+    stat_keys=None,
+    game_label="SF6",
+):
+    """Shared slash-command flow for one character stats embed."""
+    if not char_key:
+        await interaction.response.send_message(f"{char_name} is not a valid {game_label} character.")
+        return
+    if not stats_row:
+        await interaction.response.send_message(f"No stats scrolls are loaded for {char_name}.")
+        return
+    embed = build_stats_embed_fn(char_key, stats_row, stat_keys)
+    await interaction.response.send_message(embed=embed)

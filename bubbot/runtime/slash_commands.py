@@ -3,13 +3,19 @@ import re
 import discord
 
 from bubbot.utils.choice_utils import autocomplete_values, character_choices, move_choices
-from bubbot.utils.slash_frame_flow import send_slash_frame_result
+from bubbot.frame_data.sf6_character_stats import (
+    build_character_stats_embed,
+    build_slash_stats_query,
+    sf6_stat_slash_autocomplete_values,
+)
+from bubbot.utils.slash_frame_flow import send_slash_frame_result, send_slash_stats_result
 
 
 def register_slash_commands(tree, deps):
     """Register public slash commands and autocomplete handlers."""
 
     frame_data = deps["frame_data"]
+    frame_stats = deps["frame_stats"]
     resolve_character_key = deps["resolve_character_key"]
     find_moves_in_text = deps["find_moves_in_text"]
     build_frame_embed = deps["build_frame_embed"]
@@ -224,6 +230,29 @@ def register_slash_commands(tree, deps):
         )
         return selected_choice_row(move_name, choices), char_key
 
+    async def send_sf6_slash_stats(interaction, char_name, stat=None):
+        char_key = resolve_character_key(char_name)
+        stats_row = (frame_stats or {}).get(char_key or "")
+        query = build_slash_stats_query(char_name, stat)
+        payload = find_moves_in_text(query)
+        if not payload.get("stats_query"):
+            await interaction.response.send_message(
+                f"{char_name} with `{stat or 'stats'}` is not a valid character/stat combination for SF6."
+            )
+            return
+        stat_keys = payload.get("stats_keys")
+        if stat_keys is not None:
+            stat_keys = tuple(stat_keys)
+        await send_slash_stats_result(
+            interaction,
+            char_name=char_name,
+            char_key=char_key,
+            stats_row=stats_row,
+            build_stats_embed_fn=build_character_stats_embed,
+            stat_keys=stat_keys,
+            game_label="SF6",
+        )
+
     async def send_sf6_slash_frame(interaction, char_name, move_name, char_state=None):
         if char_state and char_state not in sf6_char_state_choice_values(char_name):
             await interaction.response.send_message(f"{char_name} does not use the `{char_state}` state for SF6 lookups.")
@@ -356,6 +385,22 @@ def register_slash_commands(tree, deps):
     @discord.app_commands.describe(char_name="The characters name", move_name="The move name", char_state="Optional char specific states like Installs.")
     async def sf6(interaction: discord.Interaction, char_name: str, move_name: str, char_state: str = None):
         return await send_sf6_slash_frame(interaction, char_name, move_name, char_state)
+
+    @tree.command(name="sf6-stats", description="Show SF6 character stats (dash, jump, health, throw, drive rush, etc.)")
+    @discord.app_commands.describe(
+        char_name="The character name",
+        stat="Optional stat filter (e.g. All stats, 66 — Forward dash, Health, Drive rush (dr))",
+    )
+    async def sf6_stats(interaction: discord.Interaction, char_name: str, stat: str = None):
+        return await send_sf6_slash_stats(interaction, char_name, stat)
+
+    @sf6_stats.autocomplete("char_name")
+    async def sf6_stats_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, sf6_character_choice_values()))
+
+    @sf6_stats.autocomplete("stat")
+    async def sf6_stats_stat_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, sf6_stat_slash_autocomplete_values()))
 
     @sf6.autocomplete("char_state")
     async def sf6_char_state_autocomplete(interaction: discord.Interaction, current: str):
