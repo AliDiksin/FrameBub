@@ -1098,7 +1098,13 @@ class MoveSelect(discord.ui.Select):
                 self.compare_row,
                 self.view.owner_id,
             )
-            await _send_frame_result_message(interaction.channel, self.game, self.char_key, row, self.view.owner_id)
+            sent = await _send_frame_result_message(
+                interaction.channel,
+                self.game,
+                self.char_key,
+                row,
+                self.view.owner_id,
+            )
             return
         view = FrameResultView(self.game, self.char_key, row, self.view.owner_id)
         files = view.initial_files()
@@ -1124,7 +1130,9 @@ async def _send_frame_result_message(channel, game, char_key, row, owner_id):
             view.cotw_image_bytes = file.fp.getvalue()
             view.cotw_image_filename = file.filename
             files = [file]
-    return await channel.send(embed=view.build_embed(), view=view, files=files)
+    embed = view.build_embed()
+    sent = await channel.send(embed=embed, view=view, files=files)
+    return sent
 
 
 async def _edit_frame_result_message(message, game, char_key, row, owner_id):

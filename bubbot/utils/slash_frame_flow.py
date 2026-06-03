@@ -49,6 +49,7 @@ async def send_slash_stats_result(
     build_stats_embed_fn,
     stat_keys=None,
     game_label="SF6",
+    query="",
 ):
     """Shared slash-command flow for one character stats embed."""
     if not char_key:

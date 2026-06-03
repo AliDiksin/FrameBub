@@ -1,5 +1,4 @@
 import difflib
-import datetime
 import json
 import os
 import re
@@ -18,41 +17,6 @@ from bubbot.utils.discord_formatting import (
 )
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
-
-
-def _response_log_file_path():
-    path_text = str(os.getenv("BUB_RESPONSE_LOG_FILE", "bub_response_log.jsonl") or "").strip()
-    if not path_text:
-        path_text = "bub_response_log.jsonl"
-    if os.path.isabs(path_text):
-        return path_text
-    return os.path.join(os.getcwd(), path_text)
-
-
-def _log_missing_scrolls_response(message, response_text):
-    now = datetime.datetime.now(datetime.timezone.utc)
-    guild = getattr(message, "guild", None)
-    channel = getattr(message, "channel", None)
-    author = getattr(message, "author", None)
-    payload = {
-        "timestamp_utc": now.isoformat(),
-        "date_utc": now.date().isoformat(),
-        "time_utc": now.time().replace(microsecond=0).isoformat(),
-        "reason": "missing_scrolls",
-        "server_id": getattr(guild, "id", None),
-        "server_name": getattr(guild, "name", None),
-        "channel_id": getattr(channel, "id", None),
-        "channel_name": getattr(channel, "name", None),
-        "user_id": getattr(author, "id", None),
-        "user_name": getattr(author, "display_name", None) or getattr(author, "name", None),
-        "prompt": str(getattr(message, "content", "") or ""),
-        "response": str(response_text or ""),
-    }
-    try:
-        with open(_response_log_file_path(), "a", encoding="utf-8") as log_file:
-            log_file.write(json.dumps(payload, ensure_ascii=True) + "\n")
-    except Exception as error:
-        print(f"[response-log] write error: {error}", flush=True)
 
 
 MK1_MOVE_LIST_FILE = os.path.join("mk1", "move_list.json")
@@ -718,7 +682,6 @@ async def send_hitbox_response(message, rows):
         "I have MK1 frame data for that move, but no MK1 hitbox image links are in the scrolls yet. "
         f"{FRAME_DATA_ERROR_CONTACT_TEXT}"
     )
-    _log_missing_scrolls_response(message, response_text)
     sent = await message.reply(response_text)
     return [sent.id]
 

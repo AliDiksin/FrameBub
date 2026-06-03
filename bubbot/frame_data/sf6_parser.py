@@ -162,14 +162,16 @@ def find_moves_in_text(deps, text):
         "damage": bool(re.search(r"\bdamage\b|\bdmg\b", text_lower)),
         "guard": bool(re.search(r"\bguard\b|\battack\s+level\b|\batk\s*lvl\b|\batk\s*level\b", text_lower)),
         "chip_damage": bool(re.search(r"\bchip\s+damage\b", text_lower)),
-        "drive_gain": bool(re.search(r"\bdrive\s+gain\b", text_lower)),
+        "drive_damage": bool(re.search(r"\bdrive\s+(?:chip|dmg|damage)\b", text_lower)),
         "stun": bool(re.search(r"\bhitstun\b|\bblockstun\b|\bstun\b", text_lower)),
         "invuln": bool(re.search(r"\binvuln(?:erability)?\b|\binvul\b", text_lower)),
         "hitconfirm": hitconfirm_alias_query,
         "super_gain": super_gain_alias_query,
         "range": range_alias_query,
     }
-    if property_alias_flags.get("damage") and property_alias_flags.get("chip_damage"):
+    if property_alias_flags.get("damage") and (
+        property_alias_flags.get("chip_damage") or property_alias_flags.get("drive_damage")
+    ):
         property_alias_flags["damage"] = False
     property_match_count = sum(1 for matched in property_alias_flags.values() if matched)
     table_intent_query = bool(
@@ -1633,12 +1635,14 @@ def find_moves_in_text(deps, text):
         extra_info = clean(move_data.get('extraInfo', '-')).replace('[', '').replace(']', '').replace('"', '')
         
         chip = clean(move_data.get("chp", "-"))
-        dgain = clean(move_data.get("DGain", "-"))
+        ddoh = clean(move_data.get("DDoH", "-"))
+        ddob = clean(move_data.get("DDoB", "-"))
         ssoh = clean(move_data.get("SelfSoH", "-"))
         ssob = clean(move_data.get("SelfSoB", "-"))
 
         gauge_info = (
-            f"Chip Damage: {chip} // Drive Gain: {dgain}\n"
+            f"Chip Damage: {chip}\n"
+            f"Drive Dmg: Hit {ddoh} / Block {ddob}\n"
             f"Super Gain: Hit {ssoh} / Block {ssob}\n"
         )
         

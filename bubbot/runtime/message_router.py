@@ -59,92 +59,9 @@ from bubbot.runtime.startup import handle_ready
 
 
 _FRAME_DATA_RESPONSE_IDS = deque(maxlen=500)
-_RESPONSE_LOG_DM_USER_ID = 427263312217243668
-
-
-def _response_log_file_path():
-    path_text = str(os.getenv("BUB_RESPONSE_LOG_FILE", "bub_response_log.jsonl") or "").strip()
-    if not path_text:
-        path_text = "bub_response_log.jsonl"
-    if os.path.isabs(path_text):
-        return path_text
-    return os.path.join(BASE_DIR, path_text)
-
-
-def _log_response_event(message, reason, response_text=None):
-    now = datetime.datetime.now(datetime.timezone.utc)
-    guild = getattr(message, "guild", None)
-    channel = getattr(message, "channel", None)
-    author = getattr(message, "author", None)
-    payload = {
-        "timestamp_utc": now.isoformat(),
-        "date_utc": now.date().isoformat(),
-        "time_utc": now.time().replace(microsecond=0).isoformat(),
-        "reason": str(reason or "").strip(),
-        "server_id": getattr(guild, "id", None),
-        "server_name": getattr(guild, "name", None),
-        "channel_id": getattr(channel, "id", None),
-        "channel_name": getattr(channel, "name", None),
-        "user_id": getattr(author, "id", None),
-        "user_name": getattr(author, "display_name", None) or getattr(author, "name", None),
-        "prompt": str(getattr(message, "content", "") or ""),
-        "response": str(response_text or ""),
-    }
-    try:
-        log_path = _response_log_file_path()
-        with open(log_path, "a", encoding="utf-8") as log_file:
-            log_file.write(json.dumps(payload, ensure_ascii=True) + "\n")
-        return log_path
-    except Exception as error:
-        print(f"[response-log] write error: {error}", flush=True)
-        return None
-
-
-def _latest_response_log_entry_text(log_path):
-    try:
-        with open(log_path, "r", encoding="utf-8") as log_file:
-            lines = [line.strip() for line in log_file if line.strip()]
-        if not lines:
-            return ""
-        payload = json.loads(lines[-1])
-    except Exception as error:
-        print(f"[response-log] latest entry read error: {error}", flush=True)
-        return ""
-    return truncate_message(
-        "Latest entry:\n"
-        f"Time: {payload.get('timestamp_utc')}\n"
-        f"Reason: {payload.get('reason')}\n"
-        f"Server: {payload.get('server_name')} ({payload.get('server_id')})\n"
-        f"Channel: {payload.get('channel_name')} ({payload.get('channel_id')})\n"
-        f"User: {payload.get('user_name')} ({payload.get('user_id')})\n"
-        f"Prompt: {payload.get('prompt')}\n"
-        f"Response: {payload.get('response')}",
-        limit=1700,
-    )
-
-
-async def _send_response_log_dm(log_path):
-    if not log_path or not os.path.exists(log_path):
-        return
-    try:
-        user = client.get_user(_RESPONSE_LOG_DM_USER_ID) or await client.fetch_user(_RESPONSE_LOG_DM_USER_ID)
-        if not user:
-            return
-        latest_entry = _latest_response_log_entry_text(log_path)
-        content = "Bub response log updated."
-        if latest_entry:
-            content = f"{content}\n\n{latest_entry}"
-        await user.send(
-            content,
-            file=discord.File(log_path, filename=os.path.basename(log_path)),
-        )
-    except Exception as error:
-        print(f"[response-log] DM send error: {error}", flush=True)
 
 
 async def _reply_and_log_response(message, response_text, reason, **kwargs):
-    log_path = _log_response_event(message, reason, response_text)
-    await _send_response_log_dm(log_path)
     return await message.reply(response_text, **kwargs)
 
 
@@ -152,13 +69,6 @@ def _record_frame_data_ids(ids):
     for mid in (ids or []):
         if mid:
             _FRAME_DATA_RESPONSE_IDS.append(mid)
-
-
-def _record_frame_data_reply(sent_message):
-    if sent_message and hasattr(sent_message, "id"):
-        _FRAME_DATA_RESPONSE_IDS.append(sent_message.id)
-        return sent_message
-    return sent_message
 
 
 _FRAME_RESULT_COMPONENT_LABELS = {
@@ -508,8 +418,8 @@ PROPERTY_VALUE_ALIASES = [
     ("hitconfirm", "Hit Confirm Window", ("hcWinSpCa", "hcWinTc", "hcWinNotes"), r"\bhit\s*-?\s*confirm\b|\bhitconfirm\b|\bhc\b|\bconfirm\s+(?:window|timing)\b|\bconfirmable\b"),
     ("super_gain", "Super Gain", ("SelfSoH", "SelfSoB"), r"\bsuper\s*gain\b|\bsuper\s*meter\s*gain\b|\bsuper\s*build\b|\bsa\s*gain\b"),
     ("meter_gain", "Meter Gain", ("meterGain",), r"\bmeter\s*gain\b"),
-    ("drive_gain", "Drive Gain", ("DGain",), r"\bdrive\s+gain\b"),
     ("chip_damage", "Chip Damage", ("chp",), r"\bchip\s+damage\b"),
+    ("drive_damage", "Drive Damage", ("DDoH", "DDoB"), r"\bdrive\s+(?:chip|dmg|damage)\b"),
     ("stun", "Stun", ("hitstun", "blockstun", "stun"), r"\bhitstun\b|\bblockstun\b|\bstun\b"),
     ("risc_gain", "RISC Gain", ("riscGain",), r"\brisc\s*gain\b|\brisc\b"),
     ("proration", "Proration", ("prorate",), r"\bproration\b|\bprorate\b"),
@@ -523,7 +433,9 @@ def _requested_property_key(text):
     if re.search(r"\b(?:all|full)\s+(?:frame\s*)?data\b|\btable\b", lowered):
         return None
     matches = [key for key, _label, _fields, pattern in PROPERTY_VALUE_ALIASES if re.search(pattern, lowered)]
-    if "damage" in matches and any(key in matches for key in ("block_damage", "guard_damage", "rev_damage", "chip_damage")):
+    if "damage" in matches and any(
+        key in matches for key in ("block_damage", "guard_damage", "rev_damage", "chip_damage", "drive_damage")
+    ):
         matches = [key for key in matches if key != "damage"]
     if "guard" in matches and "guard_damage" in matches:
         matches = [key for key in matches if key != "guard"]
@@ -551,7 +463,7 @@ def _format_requested_property_reply(rows, property_key):
             hc_tc = str(row.get("hcWinTc") or "-").replace("*", ",").strip() or "-"
             hc_notes = str(row.get("hcWinNotes") or "-").replace("[", "").replace("]", "").replace('"', "").strip() or "-"
             value = f"Sp/Su: {hc_sp}, TC: {hc_tc}. Notes: {hc_notes}"
-        elif property_key in {"super_gain", "stun"} or (
+        elif property_key in {"super_gain", "drive_damage", "stun"} or (
             property_key == "meter_gain" and (row.get("SelfSoH") is not None or row.get("SelfSoB") is not None) and row.get("meterGain") is None
         ):
             hit_value = str(row.get(fields[0]) or "-").replace("*", ",").strip() or "-"
@@ -606,7 +518,9 @@ async def _send_property_value_reply(message, rows, property_key, content=None, 
     if not property_reply:
         return None
     view = _property_reply_view(game, rows, property_key, getattr(message.author, "id", None), property_reply)
-    return _record_frame_data_reply(await message.reply(property_reply, view=view))
+    sent = await message.reply(property_reply, view=view)
+    _record_frame_data_ids([sent.id])
+    return sent
 
 
 class PropertyValueView(discord.ui.View):
@@ -664,7 +578,8 @@ class PropertyFullFrameDataButton(discord.ui.Button):
                 row,
                 parent.owner_id,
             )
-            _record_frame_data_reply(sent)
+            if sent:
+                _record_frame_data_ids([sent.id])
 
 
 class PropertyCompareSelectView(discord.ui.View):
@@ -2277,7 +2192,8 @@ async def _handle_message(message):
             frame_sent_ids = await send_frame_table_response(message, default_rows, default_data)
             _record_frame_data_ids(frame_sent_ids)
             if not frame_sent_ids and default_data:
-                _record_frame_data_reply(await message.reply(default_data))
+                sent = await message.reply(default_data)
+                _record_frame_data_ids([sent.id])
             return
 
         if combined_frame_gif_request and frame_command_is_addressed:
@@ -2539,7 +2455,8 @@ async def _handle_message(message):
             _record_frame_data_ids(frame_sent_ids)
             if not frame_sent_ids and fd_context_data:
                 try:
-                    _record_frame_data_reply(await message.reply(fd_context_data))
+                    sent = await message.reply(fd_context_data)
+                    _record_frame_data_ids([sent.id])
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct frame reply target deleted. Triggering failsafe.", flush=True)

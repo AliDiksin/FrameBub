@@ -266,7 +266,8 @@ def build_frame_embed(row, image_url_override=None, show_notes=False):
     on_block = clean_embed_value(row.get("onBlock", ""))
 
     chip_damage = clean_embed_value(row.get("chp", ""))
-    drive_gain = clean_embed_value(row.get("DGain", ""))
+    drive_hit = clean_embed_value(row.get("DDoH", ""))
+    drive_block = clean_embed_value(row.get("DDoB", ""))
     super_hit = clean_embed_value(row.get("SelfSoH", ""))
     super_block = clean_embed_value(row.get("SelfSoB", ""))
 
@@ -288,8 +289,8 @@ def build_frame_embed(row, image_url_override=None, show_notes=False):
     add_embed_field(embed, "Damage", damage, inline=True)
     add_embed_field(embed, "Guard", guard, inline=True)
     add_embed_field(embed, "Range", atk_range, inline=True)
-    add_embed_field(embed, "Drive Gain", drive_gain, inline=True)
     add_embed_field(embed, "Chip Damage", chip_damage, inline=True)
+    add_embed_field(embed, "Drive Dmg", format_hit_block_value(drive_hit, drive_block), inline=True)
     add_embed_field(embed, "Super Gain", format_hit_block_value(super_hit, super_block), inline=True)
     add_embed_field(embed, "Stun", format_hit_block_value(stun_hit, stun_block), inline=True)
 
@@ -331,6 +332,7 @@ def sanitize_embed_followup_text(text):
         "On Hit:",
         "On Block:",
         "Chip Damage",
+        "Drive Dmg",
         "Super Gain",
         "Hit Confirm",
         "Stun Frames",
@@ -684,7 +686,11 @@ async def send_frame_table_response(message, rows, data_text):
     unique_rows = iter_unique_frame_rows(rows or [])
     if unique_rows:
         try:
-            return await send_frame_embeds_with_views(message.channel, unique_rows, owner_id=getattr(message.author, "id", None))
+            return await send_frame_embeds_with_views(
+                message.channel,
+                unique_rows,
+                owner_id=getattr(message.author, "id", None),
+            )
         except Exception as e:
             print(f"Direct frame embed send failed: {e}", flush=True)
     return []

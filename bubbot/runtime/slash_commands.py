@@ -251,6 +251,7 @@ def register_slash_commands(tree, deps):
             build_stats_embed_fn=build_character_stats_embed,
             stat_keys=stat_keys,
             game_label="SF6",
+            query=query,
         )
 
     async def send_sf6_slash_frame(interaction, char_name, move_name, char_state=None):
