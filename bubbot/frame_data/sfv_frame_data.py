@@ -549,39 +549,16 @@ class SFVHitboxButton(discord.ui.Button):
         await interaction.response.send_message("\n".join(links), ephemeral=True)
 
 
-class ReturnToMenuButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Back to Menu", style=discord.ButtonStyle.primary)
-
-    async def callback(self, interaction):
-        from bubbot.features import menu_system
-        await interaction.response.send_message(embed=menu_system._main_menu_embed(), view=menu_system.MainMenuView(interaction.user.id))
-
-
-class SFVFrameDataView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
-        super().__init__(timeout=3600)
-        self.row = row
-        self.show_notes = False
-        self.add_item(SFVNotesButton(row))
-        from bubbot.features import menu_system
-        menu_system.attach_compare_button(self, "sfv", row, owner_id=owner_id, char_key=char_key)
-        if include_menu_button:
-            self.add_item(ReturnToMenuButton())
-
-    def build_embed(self):
-        return build_frame_embed(self.row, show_notes=self.show_notes)
-
-
 async def send_frame_response(message, rows):
-    if not rows:
-        return []
-    sent_ids = []
-    for row in rows:
-        view = SFVFrameDataView(row, owner_id=getattr(message.author, "id", None))
-        sent = await message.channel.send(embed=view.build_embed(), view=view)
-        sent_ids.append(sent.id)
-    return sent_ids
+    from bubbot.features.menu_system import send_frame_result_messages
+
+    return await send_frame_result_messages(
+        message.channel,
+        "sfv",
+        rows,
+        owner_id=getattr(message.author, "id", None),
+        menu_locked=False,
+    )
 
 
 async def send_hitbox_response(message, rows):

@@ -267,7 +267,7 @@ def register_slash_commands(tree, deps):
             query=query,
             parse_fn=find_moves_in_text,
             embed_fn=build_frame_embed,
-            view_fn=frame_output_module.FrameDataGifView,
+            game="sf6",
             game_label="SF6",
             selected_row=selected_row,
             selected_char_key=selected_char_key,
@@ -276,7 +276,7 @@ def register_slash_commands(tree, deps):
 
     async def send_ggst_slash_frame(interaction, char_name, move_name, char_state=None):
         query = f"ggst {char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=ggst_module.find_moves_in_text, embed_fn=ggst_module.build_frame_embed, view_fn=ggst_module.GGSTFrameDataView, game_label="GGST", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=ggst_module.find_moves_in_text, embed_fn=ggst_module.build_frame_embed, game="ggst", game_label="GGST", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
 
     async def send_sfv_slash_frame(interaction, char_name, move_name, char_state=None):
@@ -286,43 +286,38 @@ def register_slash_commands(tree, deps):
             elif re.search(r"\[\s*v-?trigger\s*2\s*\]", str(move_name or ""), re.IGNORECASE):
                 char_state = "vt2"
         query = f"sfv {char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=sfv_module.find_moves_in_text, embed_fn=sfv_module.build_frame_embed, view_fn=sfv_module.SFVFrameDataView, game_label="SFV", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=sfv_module.find_moves_in_text, embed_fn=sfv_module.build_frame_embed, game="sfv", game_label="SFV", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
 
     async def send_tuco_slash_frame(interaction, char_name, move_name):
         query = f"2xko {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=tuco_module.find_moves_in_text, embed_fn=tuco_module.build_frame_embed, view_fn=tuco_module.TUCOFrameDataView, game_label="2XKO", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=tuco_module.find_moves_in_text, embed_fn=tuco_module.build_frame_embed, game="tuco", game_label="2XKO", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_bbcf_slash_frame(interaction, char_name, move_name):
         query = f"bbcf {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=bbcf_module.find_moves_in_text, embed_fn=bbcf_module.build_frame_embed, view_fn=bbcf_module.BBCFFrameDataView, game_label="BBCF", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=bbcf_module.find_moves_in_text, embed_fn=bbcf_module.build_frame_embed, game="bbcf", game_label="BBCF", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_cotw_slash_frame(interaction, char_name, move_name):
         query = f"cotw {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        payload = cotw_module.find_moves_in_text(query)
-        rows = payload.get("rows", []) or []
-        if payload.get("needs_disambiguation"):
-            await interaction.response.send_message(str(payload.get("data", "Please specify which COTW move you mean."))[:2000])
-            return
-        if not rows:
-            await interaction.response.send_message(f"{char_name} with {move_name} is not a valid character/move combination for COTW")
-            return
-        row = rows[0]
-        view = cotw_module.COTWFrameDataView(row, owner_id=interaction.user.id, char_key=payload.get("char_key") or row.get("char_key"))
-        file, attachment_url = await cotw_module.build_image_attachment(row)
-        if file and attachment_url:
-            view.image_url_override = attachment_url
-            view.cotw_image_bytes = file.fp.getvalue()
-            view.cotw_image_filename = file.filename
-        await interaction.response.send_message(embed=view.build_embed(), view=view, files=view.active_files())
+        await send_slash_frame_result(
+            interaction,
+            char_name=char_name,
+            move_name=move_name,
+            query=query,
+            parse_fn=cotw_module.find_moves_in_text,
+            embed_fn=cotw_module.build_frame_embed,
+            game="cotw",
+            game_label="COTW",
+            disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
+        )
 
     async def send_third_strike_slash_frame(interaction, char_name, move_name):
         query = f"3s {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=third_strike_module.find_moves_in_text, embed_fn=third_strike_module.build_frame_embed, view_fn=third_strike_module.ThirdStrikeFrameDataView, game_label="Third Strike", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=third_strike_module.find_moves_in_text, embed_fn=third_strike_module.build_frame_embed, game="third_strike", game_label="Third Strike", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_mk1_slash_frame(interaction, char_name, move_name):
         query = f"mk1 {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=mk1_module.find_moves_in_text, embed_fn=mk1_module.build_frame_embed, view_fn=mk1_module.MK1FrameDataView, game_label="MK1", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=mk1_module.find_moves_in_text, embed_fn=mk1_module.build_frame_embed, game="mk1", game_label="MK1", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_mk1_slash_combos(interaction, char_name, difficulty=None, position=None):
         query_parts = ["mk1", char_name, difficulty or "", position or "", "combos"]

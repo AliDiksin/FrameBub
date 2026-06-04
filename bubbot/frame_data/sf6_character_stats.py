@@ -191,6 +191,38 @@ def build_character_stats_embed(char_key, stats, stat_keys=None):
     return embed
 
 
+def build_character_stats_comparison_embed(char_key_a, stats_a, char_key_b, stats_b, stat_keys=None):
+    name_a = display_character_name(char_key_a, stats_a)
+    name_b = display_character_name(char_key_b, stats_b)
+    fields_a = iter_stats_fields(stats_a, stat_keys)
+    fields_b = dict(iter_stats_fields(stats_b, stat_keys))
+    embed = discord.Embed(
+        title=shared_truncate_value(f"{name_a} vs {name_b} — Stats", 256),
+        colour=_embed_colour(stats_a),
+    )
+    if not fields_a and not fields_b:
+        embed.description = "No matching stats were found for that comparison."
+        return embed
+    for label, value_a in fields_a:
+        value_b = fields_b.get(label, "?")
+        shared_add_embed_field(
+            embed,
+            label,
+            f"**{name_a}:** {value_a}\n**{name_b}:** {value_b}",
+            inline=True,
+        )
+    for label, value_b in fields_b.items():
+        if any(existing_label == label for existing_label, _ in fields_a):
+            continue
+        shared_add_embed_field(
+            embed,
+            label,
+            f"**{name_a}:** ?\n**{name_b}:** {value_b}",
+            inline=True,
+        )
+    return embed
+
+
 def should_attach_reversal_frame_row(stats_intent, text_lower):
     if re.search(r"\breversal\b", text_lower):
         return True

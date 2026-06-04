@@ -4,7 +4,9 @@ import os
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-FRAME_DATA_ERROR_CONTACT_TEXT = "If you think this is an error, contact yimbo3560 on discord."
+FRAME_DATA_ERROR_CONTACT_TEXT = (
+    "If you think this is an error, use **Report Issue** on this message or contact yimbo3560 on Discord."
+)
 PUBLIC_INVALID_QUERY_TEXT = (
     "I only respond to fighting game syntax and frame-data queries here. "
     f"{FRAME_DATA_ERROR_CONTACT_TEXT}"

@@ -1026,56 +1026,16 @@ class GGSTNotesButton(discord.ui.Button):
         await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
 
 
-class ReturnToMenuButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="ggst_frame_return_menu", row=0)
-
-    async def callback(self, interaction: discord.Interaction):
-        from bubbot.features import menu_system
-        await interaction.response.send_message(
-            embed=menu_system._main_menu_embed(),
-            view=menu_system.MainMenuView(interaction.user.id),
-        )
-
-
-class GGSTFrameDataView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
-        super().__init__(timeout=3600)
-        self.row = row
-        self.show_notes = False
-        self.all_hitbox_images_button = GGSTAllHitboxImagesButton(row)
-        if len(self.all_hitbox_images_button.hitbox_links) > 1:
-            self.hitbox_button = None
-            self.add_item(self.all_hitbox_images_button)
-        else:
-            self.hitbox_button = GGSTHitboxButton(row, showing_hitbox=True)
-            self.add_item(self.hitbox_button)
-        self.notes_button = GGSTNotesButton(row)
-        self.add_item(self.notes_button)
-        from bubbot.features import menu_system
-        menu_system.attach_compare_button(self, "ggst", row, owner_id=owner_id, char_key=char_key)
-        if include_menu_button:
-            self.add_item(ReturnToMenuButton())
-
-    def build_embed(self):
-        embed = build_frame_embed(self.row, show_notes=self.show_notes)
-        if len(self.all_hitbox_images_button.hitbox_links) > 1:
-            embed.set_image(url=self.all_hitbox_images_button.hitbox_links[0])
-            return embed
-        if self.hitbox_button and self.hitbox_button.showing_hitbox and self.hitbox_button.hitbox_links:
-            embed.set_image(url=self.hitbox_button.hitbox_links[0])
-        return embed
-
-
 async def send_frame_response(message, rows):
-    if not rows:
-        return []
-    sent_ids = []
-    for row in rows:
-        view = GGSTFrameDataView(row, owner_id=getattr(message.author, "id", None))
-        sent = await message.channel.send(embed=view.build_embed(), view=view)
-        sent_ids.append(sent.id)
-    return sent_ids
+    from bubbot.features.menu_system import send_frame_result_messages
+
+    return await send_frame_result_messages(
+        message.channel,
+        "ggst",
+        rows,
+        owner_id=getattr(message.author, "id", None),
+        menu_locked=False,
+    )
 
 
 async def send_hitbox_response(message, rows):

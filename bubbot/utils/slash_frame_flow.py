@@ -6,7 +6,7 @@ async def send_slash_frame_result(
     query,
     parse_fn,
     embed_fn,
-    view_fn,
+    game,
     game_label,
     selected_row=None,
     selected_char_key=None,
@@ -30,14 +30,34 @@ async def send_slash_frame_result(
         await interaction.response.send_message(f"{char_name} with {move_name} is not a valid character/move combination for {game_label}")
         return
     row = rows[0]
-    view = view_fn(
+    from bubbot.features.menu_system import build_frame_result_view, prepare_cotw_frame_view
+
+    char_key = selected_char_key or payload.get("char_key") or row.get("char_key")
+    view = build_frame_result_view(
+        game,
         row,
         owner_id=getattr(interaction.user, "id", None),
-        char_key=selected_char_key or payload.get("char_key") or row.get("char_key"),
+        char_key=char_key,
+        menu_locked=False,
     )
-    embed = view.build_embed() if hasattr(view, "build_embed") else embed_fn(row)
-    files = view.initial_files() if hasattr(view, "initial_files") else []
+    if game == "cotw":
+        await prepare_cotw_frame_view(view)
+    embed = view.build_embed()
+    files = view.initial_files()
     await interaction.response.send_message(embed=embed, view=view, files=files)
+    try:
+        from bubbot.utils.response_log import INTERACTION_SLASH, log_from_interaction, summarize_embed
+
+        log_from_interaction(
+            interaction,
+            interaction_type=INTERACTION_SLASH,
+            reason="slash_frame_data",
+            prompt=query,
+            response_text=summarize_embed(embed) or f"{char_name} {move_name}",
+            response_kind="embed",
+        )
+    except Exception as log_error:
+        print(f"Slash frame log error: {log_error}", flush=True)
 
 
 async def send_slash_stats_result(
@@ -59,4 +79,20 @@ async def send_slash_stats_result(
         await interaction.response.send_message(f"No stats scrolls are loaded for {char_name}.")
         return
     embed = build_stats_embed_fn(char_key, stats_row, stat_keys)
-    await interaction.response.send_message(embed=embed)
+    from bubbot.features.menu_system import StatsResultView
+
+    view = StatsResultView(char_key, interaction.user.id, stat_keys=stat_keys, menu_locked=False)
+    await interaction.response.send_message(embed=embed, view=view)
+    try:
+        from bubbot.utils.response_log import INTERACTION_SLASH, log_from_interaction, summarize_embed
+
+        log_from_interaction(
+            interaction,
+            interaction_type=INTERACTION_SLASH,
+            reason="slash_stats",
+            prompt=query or f"{char_name} stats",
+            response_text=summarize_embed(embed) or f"{char_name} stats",
+            response_kind="embed",
+        )
+    except Exception as log_error:
+        print(f"Slash stats log error: {log_error}", flush=True)

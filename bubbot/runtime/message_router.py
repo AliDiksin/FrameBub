@@ -50,7 +50,20 @@ from bubbot.runtime.config import (
     RANGE_SCROLLS_MISSING_TEXT,
     TOKEN,
 )
+from bubbot.features.failed_prompt_report import (
+    attach_failed_prompt_report_button,
+    build_failed_prompt_report_view,
+)
 from bubbot.utils.character_lookup import find_aliases_in_text, resolve_alias_key, text_mentions_alias
+from bubbot.utils.response_log import (
+    FAILED_PROMPT_REASONS,
+    INTERACTION_MENU,
+    INTERACTION_PROMPT,
+    build_log_record,
+    log_message_and_reply,
+    notify_owner,
+    log_record,
+)
 from bubbot.utils.text_utils import compact_key, contains_token_sequence, word_tokens
 from bubbot.runtime.buenavista_extension import buenavista_extension
 from collections import deque
@@ -62,7 +75,50 @@ _FRAME_DATA_RESPONSE_IDS = deque(maxlen=500)
 
 
 async def _reply_and_log_response(message, response_text, reason, **kwargs):
-    return await message.reply(response_text, **kwargs)
+    view = kwargs.pop("view", None)
+    if reason in FAILED_PROMPT_REASONS:
+        if view is None:
+            view = build_failed_prompt_report_view(
+                message,
+                bub_response_text=response_text,
+                failure_reason=reason,
+            )
+        else:
+            attach_failed_prompt_report_button(
+                view,
+                message,
+                bub_response_text=response_text,
+                failure_reason=reason,
+            )
+    sent = await message.reply(response_text, view=view, **kwargs)
+    for child in getattr(view, "children", []) or []:
+        report_context = getattr(child, "report_context", None)
+        if isinstance(report_context, dict):
+            report_context["reply_message_id"] = getattr(sent, "id", None)
+            report_context["reply_jump_url"] = str(getattr(sent, "jump_url", "") or "")
+            report_context["client"] = client
+    try:
+        await log_message_and_reply(
+            message,
+            sent,
+            interaction_type=INTERACTION_PROMPT,
+            reason=reason,
+            response_text=response_text,
+        )
+        if reason in FAILED_PROMPT_REASONS:
+            record = build_log_record(
+                interaction_type=INTERACTION_PROMPT,
+                reason=reason,
+                prompt=str(getattr(message, "content", "") or ""),
+                response_text=response_text,
+                failure_reason=reason,
+                source_message=message,
+                reply_message=sent,
+            )
+            await notify_owner(client, record)
+    except Exception as log_error:
+        print(f"Response log error: {log_error}", flush=True)
+    return sent
 
 
 def _record_frame_data_ids(ids):
@@ -208,6 +264,31 @@ def message_directly_mentions_bot(message):
     if any(getattr(user, "id", None) == bot_id for user in getattr(message, "mentions", []) or []):
         return True
     return bot_id in (getattr(message, "raw_mentions", []) or [])
+
+
+def is_plain_bot_mention_only(message):
+    """True when the message is only a direct @Bub ping (works for replies too)."""
+    if not message_directly_mentions_bot(message):
+        return False
+    content_no_mentions = strip_discord_mentions(getattr(message, "content", "") or "")
+    return not content_no_mentions.strip()
+
+
+async def _send_main_menu_for_plain_mention(message):
+    await menu_system.send_main_menu(message.channel, owner_id=message.author.id)
+    try:
+        log_record(
+            build_log_record(
+                interaction_type=INTERACTION_MENU,
+                reason="empty_mention_menu",
+                prompt=str(getattr(message, "content", "") or ""),
+                response_text="Opened main menu embed.",
+                response_kind="embed",
+                source_message=message,
+            )
+        )
+    except Exception as log_error:
+        print(f"Response log error: {log_error}", flush=True)
 
 
 def has_explicit_gif_lookup_intent(text):
@@ -1173,6 +1254,10 @@ async def _handle_message(message):
     content_raw = message.content or ""
     content_no_mentions = strip_discord_mentions(content_raw)
     content_lower = content_no_mentions.lower()
+
+    if is_plain_bot_mention_only(message):
+        await _send_main_menu_for_plain_mention(message)
+        return
 
     directly_mentions_bot = message_directly_mentions_bot(message)
 

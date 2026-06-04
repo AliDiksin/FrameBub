@@ -110,18 +110,27 @@ MENU_SELECT_LIMIT = 25
 
 
 class OwnedView(discord.ui.View):
-    def __init__(self, owner_id, timeout=300):
+    def __init__(self, owner_id, *, menu_locked=False, timeout=None):
         super().__init__(timeout=timeout)
         self.owner_id = owner_id
+        self.menu_locked = bool(menu_locked)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message(
-                "Only the person who opened this menu can control it.",
-                ephemeral=True,
-            )
-            return False
-        return True
+        if not self.menu_locked:
+            return True
+        if self.owner_id is None or interaction.user.id == self.owner_id:
+            return True
+        await interaction.response.send_message(
+            "Only the person who opened this menu can control it.",
+            ephemeral=True,
+        )
+        return False
+
+
+def _menu_locked_owner_id(view):
+    if getattr(view, "menu_locked", False):
+        return getattr(view, "owner_id", None)
+    return None
 
 
 def _sf6_character_list():
@@ -191,19 +200,35 @@ async def _open_quiz_difficulty(interaction, game, owner_id):
     )
 
 
-async def _show_sf6_stats_embed(interaction, char_key, owner_id):
+async def _show_sf6_stats_embed(interaction, char_key, owner_id, stat_keys=None):
     stats_row = FRAME_STATS.get(char_key)
     if not stats_row:
         await interaction.response.send_message("No stats loaded for this character.", ephemeral=True)
         return
     from bubbot.frame_data.sf6_character_stats import build_character_stats_embed
 
-    embed = build_character_stats_embed(char_key, stats_row)
-    await interaction.response.edit_message(
-        embed=embed,
-        view=BackToGameMenuView("sf6", owner_id),
-        attachments=[],
+    embed = build_character_stats_embed(char_key, stats_row, stat_keys)
+    view = StatsResultView(char_key, owner_id, stat_keys=stat_keys, menu_locked=True)
+    await interaction.response.edit_message(embed=embed, view=view, attachments=[])
+
+
+async def _show_sf6_stats_compare_embed(interaction, char_key_a, char_key_b, owner_id, stat_keys=None, *, menu_locked=True):
+    stats_a = FRAME_STATS.get(char_key_a)
+    stats_b = FRAME_STATS.get(char_key_b)
+    if not stats_a or not stats_b:
+        await interaction.response.send_message("No stats loaded for one of those characters.", ephemeral=True)
+        return
+    from bubbot.frame_data.sf6_character_stats import build_character_stats_comparison_embed
+
+    embed = build_character_stats_comparison_embed(char_key_a, stats_a, char_key_b, stats_b, stat_keys)
+    view = StatsResultView(
+        char_key_a,
+        owner_id,
+        stat_keys=stat_keys,
+        compare_char_key=char_key_b,
+        menu_locked=menu_locked,
     )
+    await interaction.response.edit_message(embed=embed, view=view, attachments=[])
 
 
 def _ggst_character_list():
@@ -449,6 +474,51 @@ def _row_character_key(game, row, fallback=None):
     return None
 
 
+class StatsCompareButton(discord.ui.Button):
+    def __init__(self, char_key, owner_id, stat_keys=None):
+        super().__init__(label="Compare", style=discord.ButtonStyle.success)
+        self.char_key = char_key
+        self.owner_id = owner_id
+        self.stat_keys = tuple(stat_keys) if stat_keys else None
+
+    async def callback(self, interaction: discord.Interaction):
+        if getattr(self.view, "menu_locked", False) and interaction.user.id != getattr(self.view, "owner_id", None):
+            await interaction.response.send_message(
+                "Only the person who opened this menu can control it.",
+                ephemeral=True,
+            )
+            return
+        chars = _sf6_stats_character_list()
+        if not chars:
+            await interaction.response.send_message("No character stats loaded.", ephemeral=True)
+            return
+        from bubbot.frame_data.sf6_character_stats import display_character_name
+
+        stats_row = FRAME_STATS.get(self.char_key) or {}
+        compare_label = display_character_name(self.char_key, stats_row)
+        await interaction.response.edit_message(
+            embed=_character_select_embed(
+                "sf6",
+                page=0,
+                total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT)),
+                stats_mode=True,
+                compare_char_key=self.char_key,
+                compare_stat_label=compare_label,
+            ),
+            view=CharacterSelectView(
+                "sf6",
+                chars,
+                _menu_locked_owner_id(self.view) or interaction.user.id,
+                page=0,
+                stats_mode=True,
+                compare_char_key=self.char_key,
+                compare_stat_keys=self.stat_keys,
+                menu_locked=getattr(self.view, "menu_locked", False),
+            ),
+            attachments=[],
+        )
+
+
 class CompareFrameButton(discord.ui.Button):
     def __init__(self, game, row, owner_id, char_key=None):
         super().__init__(label="Compare", style=discord.ButtonStyle.success)
@@ -458,7 +528,7 @@ class CompareFrameButton(discord.ui.Button):
         self.char_key = char_key
 
     async def callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.owner_id:
+        if getattr(self.view, "menu_locked", False) and interaction.user.id != getattr(self.view, "owner_id", None):
             await interaction.response.send_message(
                 "Only the person who opened this menu can control it.",
                 ephemeral=True,
@@ -482,18 +552,89 @@ class CompareFrameButton(discord.ui.Button):
             view=CharacterSelectView(
                 self.game,
                 chars,
-                self.owner_id,
+                _menu_locked_owner_id(self.view) or interaction.user.id,
                 page=0,
                 compare_row=self.frame_row,
                 compare_char_key=char_key,
+                menu_locked=getattr(self.view, "menu_locked", False),
             ),
             attachments=[],
         )
 
 
-def attach_compare_button(view, game, row, owner_id=None, char_key=None):
-    if owner_id is None:
+class FrameReturnMenuButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="frame_return_menu", row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        menu_owner = getattr(self.view, "owner_id", None) if getattr(self.view, "menu_locked", False) else interaction.user.id
+        await interaction.response.edit_message(
+            embed=_main_menu_embed(),
+            view=MainMenuView(menu_owner),
+            attachments=[],
+        )
+
+
+class FrameBackToMovesButton(discord.ui.Button):
+    def __init__(self, game, char_key):
+        super().__init__(label="Back to Moves", style=discord.ButtonStyle.danger, custom_id="frame_back_moves", row=1)
+        self.game = game
+        self.char_key = char_key
+
+    async def callback(self, interaction: discord.Interaction):
+        moves = _move_list(self.game, self.char_key)
+        display = _character_display_name(self.game, self.char_key)
+        owner_id = _menu_locked_owner_id(self.view) or interaction.user.id
+        await interaction.response.edit_message(
+            embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
+            view=MoveSelectView(self.game, self.char_key, moves, owner_id, page=0, menu_locked=True),
+            attachments=[],
+        )
+
+
+def build_frame_result_view(game, row, owner_id=None, char_key=None, *, menu_locked=False, show_back_to_moves=None):
+    resolved_char_key = char_key or _row_character_key(game, row)
+    if show_back_to_moves is None:
+        show_back_to_moves = menu_locked
+    return FrameResultView(
+        game,
+        resolved_char_key,
+        row,
+        owner_id,
+        menu_locked=menu_locked,
+        show_back_to_moves=show_back_to_moves,
+        show_return_menu=True,
+    )
+
+
+async def prepare_cotw_frame_view(view):
+    if getattr(view, "game", None) != "cotw":
         return
+    from bubbot.frame_data.cotw_frame_data import build_image_attachment
+
+    file, attachment_url = await build_image_attachment(view.row)
+    if file and attachment_url:
+        view.image_url_override = attachment_url
+        view.cotw_image_bytes = file.fp.getvalue()
+        view.cotw_image_filename = file.filename
+
+
+async def send_frame_result_messages(channel, game, rows, *, owner_id=None, menu_locked=False):
+    sent_ids = []
+    for row in rows or []:
+        view = build_frame_result_view(
+            game,
+            row,
+            owner_id=owner_id,
+            menu_locked=menu_locked,
+        )
+        await prepare_cotw_frame_view(view)
+        sent = await channel.send(embed=view.build_embed(), view=view, files=view.initial_files())
+        sent_ids.append(sent.id)
+    return sent_ids
+
+
+def attach_compare_button(view, game, row, owner_id=None, char_key=None):
     resolved_char_key = _row_character_key(game, row, char_key)
     if not resolved_char_key or not _move_list(game, resolved_char_key):
         return
@@ -502,7 +643,7 @@ def attach_compare_button(view, game, row, owner_id=None, char_key=None):
 
 class MainMenuView(OwnedView):
     def __init__(self, owner_id):
-        super().__init__(owner_id=owner_id, timeout=300)
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
 
     @discord.ui.button(label="Street Fighter 6", style=discord.ButtonStyle.primary, custom_id="menu_sf6", row=0)
     async def sf6_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -579,7 +720,7 @@ class MainMenuView(OwnedView):
 
 class ReadmeView(OwnedView):
     def __init__(self, owner_id):
-        super().__init__(owner_id=owner_id, timeout=300)
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="readme_back")
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -592,7 +733,7 @@ class ReadmeView(OwnedView):
 
 class GameMenuView(OwnedView):
     def __init__(self, game, owner_id):
-        super().__init__(owner_id=owner_id, timeout=300)
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
         self.game = game
 
     @discord.ui.button(label="Frame Data", style=discord.ButtonStyle.primary, custom_id="game_framedata", row=0)
@@ -637,7 +778,7 @@ class GameMenuView(OwnedView):
 
 class SF6GameMenuView(OwnedView):
     def __init__(self, owner_id):
-        super().__init__(owner_id=owner_id, timeout=300)
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
         self.game = "sf6"
 
     @discord.ui.button(label="Frame Data", style=discord.ButtonStyle.primary, custom_id="sf6_game_framedata", row=0)
@@ -674,14 +815,26 @@ class SF6GameMenuView(OwnedView):
 
 
 class CharacterSelectView(OwnedView):
-    def __init__(self, game, chars, owner_id, page=0, compare_row=None, compare_char_key=None, stats_mode=False):
-        super().__init__(owner_id=owner_id, timeout=300)
+    def __init__(
+        self,
+        game,
+        chars,
+        owner_id,
+        page=0,
+        compare_row=None,
+        compare_char_key=None,
+        stats_mode=False,
+        compare_stat_keys=None,
+        menu_locked=True,
+    ):
+        super().__init__(owner_id=owner_id, menu_locked=menu_locked, timeout=None)
         self.game = game
         self.chars = chars
         self.page = page
         self.compare_row = compare_row
         self.compare_char_key = compare_char_key
         self.stats_mode = stats_mode
+        self.compare_stat_keys = compare_stat_keys
         self._add_select()
         self._update_page_buttons()
 
@@ -696,6 +849,8 @@ class CharacterSelectView(OwnedView):
         self.next_button.label = f"Next ({next_page + 1}/{page_count})"
         if self.compare_row is not None:
             self.back_button.label = "Back to Moves"
+        elif self.stats_mode and self.compare_char_key:
+            self.back_button.label = "Back to Stats"
 
     def _add_select(self):
         start = self.page * MENU_SELECT_LIMIT
@@ -713,8 +868,22 @@ class CharacterSelectView(OwnedView):
             compare_row=self.compare_row,
             compare_char_key=self.compare_char_key,
             stats_mode=self.stats_mode,
+            compare_stat_keys=self.compare_stat_keys,
         )
         self.add_item(select)
+
+    def _child_character_select_view(self, page):
+        return CharacterSelectView(
+            self.game,
+            self.chars,
+            self.owner_id,
+            page=page,
+            compare_row=self.compare_row,
+            compare_char_key=self.compare_char_key,
+            stats_mode=self.stats_mode,
+            compare_stat_keys=self.compare_stat_keys,
+            menu_locked=self.menu_locked,
+        )
 
     @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary, row=4)
     async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -727,16 +896,10 @@ class CharacterSelectView(OwnedView):
                 total_pages=max_page + 1,
                 compare_row=self.compare_row,
                 stats_mode=self.stats_mode,
-            ),
-            view=CharacterSelectView(
-                self.game,
-                self.chars,
-                self.owner_id,
-                page=new_page,
-                compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
-                stats_mode=self.stats_mode,
+                compare_stat_label=self._stats_compare_label(),
             ),
+            view=self._child_character_select_view(new_page),
             attachments=[],
         )
 
@@ -751,18 +914,20 @@ class CharacterSelectView(OwnedView):
                 total_pages=max_page + 1,
                 compare_row=self.compare_row,
                 stats_mode=self.stats_mode,
-            ),
-            view=CharacterSelectView(
-                self.game,
-                self.chars,
-                self.owner_id,
-                page=new_page,
-                compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
-                stats_mode=self.stats_mode,
+                compare_stat_label=self._stats_compare_label(),
             ),
+            view=self._child_character_select_view(new_page),
             attachments=[],
         )
+
+    def _stats_compare_label(self):
+        if not self.stats_mode or not self.compare_char_key:
+            return None
+        from bubbot.frame_data.sf6_character_stats import display_character_name
+
+        stats_row = FRAME_STATS.get(self.compare_char_key) or {}
+        return display_character_name(self.compare_char_key, stats_row)
 
     @discord.ui.button(label="Search", style=discord.ButtonStyle.primary, row=4)
     async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -773,11 +938,21 @@ class CharacterSelectView(OwnedView):
                 compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
                 stats_mode=self.stats_mode,
+                compare_stat_keys=self.compare_stat_keys,
+                menu_locked=self.menu_locked,
             )
         )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.stats_mode and self.compare_char_key:
+            await _show_sf6_stats_embed(
+                interaction,
+                self.compare_char_key,
+                self.owner_id,
+                stat_keys=self.compare_stat_keys,
+            )
+            return
         if self.compare_row is not None:
             moves = _move_list(self.game, self.compare_char_key or self.chars[0][0])
             display = _character_display_name(self.game, self.compare_char_key or self.chars[0][0])
@@ -796,6 +971,7 @@ class CharacterSelectView(OwnedView):
                     page=0,
                     compare_row=self.compare_row,
                     compare_char_key=self.compare_char_key,
+                    menu_locked=self.menu_locked,
                 ),
                 attachments=[],
             )
@@ -810,13 +986,24 @@ class CharacterSelectView(OwnedView):
 
 
 class CharacterSearchModal(discord.ui.Modal):
-    def __init__(self, game, owner_id, compare_row=None, compare_char_key=None, stats_mode=False):
+    def __init__(
+        self,
+        game,
+        owner_id,
+        compare_row=None,
+        compare_char_key=None,
+        stats_mode=False,
+        compare_stat_keys=None,
+        menu_locked=True,
+    ):
         super().__init__(title="Search Characters")
         self.game = game
         self.owner_id = owner_id
         self.compare_row = compare_row
         self.compare_char_key = compare_char_key
         self.stats_mode = stats_mode
+        self.compare_stat_keys = compare_stat_keys
+        self.menu_locked = menu_locked
         self.query = discord.ui.TextInput(
             label="Character search",
             placeholder="Example: ryu, sol, happy chaos",
@@ -826,7 +1013,7 @@ class CharacterSearchModal(discord.ui.Modal):
         self.add_item(self.query)
 
     async def on_submit(self, interaction: discord.Interaction):
-        if interaction.user.id != self.owner_id:
+        if self.menu_locked and interaction.user.id != self.owner_id:
             await interaction.response.send_message("Only the person who opened this menu can search it.", ephemeral=True)
             return
         chars = _sf6_stats_character_list() if self.stats_mode else _character_list(self.game)
@@ -834,6 +1021,12 @@ class CharacterSearchModal(discord.ui.Modal):
         if not filtered:
             await interaction.response.send_message("No characters matched that search.", ephemeral=True)
             return
+        compare_stat_label = None
+        if self.stats_mode and self.compare_char_key:
+            from bubbot.frame_data.sf6_character_stats import display_character_name
+
+            stats_row = FRAME_STATS.get(self.compare_char_key) or {}
+            compare_stat_label = display_character_name(self.compare_char_key, stats_row)
         await interaction.response.edit_message(
             embed=_character_select_embed(
                 self.game,
@@ -842,6 +1035,8 @@ class CharacterSearchModal(discord.ui.Modal):
                 search_query=str(self.query.value).strip(),
                 compare_row=self.compare_row,
                 stats_mode=self.stats_mode,
+                compare_char_key=self.compare_char_key,
+                compare_stat_label=compare_stat_label,
             ),
             view=CharacterSelectView(
                 self.game,
@@ -851,19 +1046,33 @@ class CharacterSearchModal(discord.ui.Modal):
                 compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
                 stats_mode=self.stats_mode,
+                compare_stat_keys=self.compare_stat_keys,
+                menu_locked=self.menu_locked,
             ),
             attachments=[],
         )
 
 
 class CharacterSelect(discord.ui.Select):
-    def __init__(self, game, chars, page, owner_id, options, compare_row=None, compare_char_key=None, stats_mode=False):
+    def __init__(
+        self,
+        game,
+        chars,
+        page,
+        owner_id,
+        options,
+        compare_row=None,
+        compare_char_key=None,
+        stats_mode=False,
+        compare_stat_keys=None,
+    ):
         self.game = game
         self.chars = chars
         self.page = page
         self.compare_row = compare_row
         self.compare_char_key = compare_char_key
         self.stats_mode = stats_mode
+        self.compare_stat_keys = compare_stat_keys
         placeholder = "Select a character"
         super().__init__(placeholder=placeholder, options=options, custom_id=f"char_select:{game}:{page}:{owner_id}")
 
@@ -875,7 +1084,17 @@ class CharacterSelect(discord.ui.Select):
                 display = opt.label
                 break
         if self.stats_mode:
-            await _show_sf6_stats_embed(interaction, char_key, self.view.owner_id)
+            if self.compare_char_key:
+                await _show_sf6_stats_compare_embed(
+                    interaction,
+                    self.compare_char_key,
+                    char_key,
+                    self.view.owner_id,
+                    stat_keys=self.compare_stat_keys,
+                    menu_locked=getattr(self.view, "menu_locked", True),
+                )
+            else:
+                await _show_sf6_stats_embed(interaction, char_key, self.view.owner_id)
             return
         moves = _move_list(self.game, char_key)
         if not moves:
@@ -896,14 +1115,15 @@ class CharacterSelect(discord.ui.Select):
                 page=0,
                 compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
+                menu_locked=getattr(self.view, "menu_locked", True),
             ),
             attachments=[],
         )
 
 
 class MoveSelectView(OwnedView):
-    def __init__(self, game, char_key, moves, owner_id, page=0, compare_row=None, compare_char_key=None):
-        super().__init__(owner_id=owner_id, timeout=300)
+    def __init__(self, game, char_key, moves, owner_id, page=0, compare_row=None, compare_char_key=None, menu_locked=True):
+        super().__init__(owner_id=owner_id, menu_locked=menu_locked, timeout=None)
         self.game = game
         self.char_key = char_key
         self.moves = moves
@@ -962,6 +1182,7 @@ class MoveSelectView(OwnedView):
                 page=new_page,
                 compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
+                menu_locked=self.menu_locked,
             ),
             attachments=[],
         )
@@ -985,6 +1206,7 @@ class MoveSelectView(OwnedView):
                 page=new_page,
                 compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
+                menu_locked=self.menu_locked,
             ),
             attachments=[],
         )
@@ -998,6 +1220,7 @@ class MoveSelectView(OwnedView):
                 self.owner_id,
                 compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
+                menu_locked=self.menu_locked,
             )
         )
 
@@ -1018,19 +1241,21 @@ class MoveSelectView(OwnedView):
                 page=0,
                 compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
+                menu_locked=self.menu_locked,
             ),
             attachments=[],
         )
 
 
 class MoveSearchModal(discord.ui.Modal):
-    def __init__(self, game, char_key, owner_id, compare_row=None, compare_char_key=None):
+    def __init__(self, game, char_key, owner_id, compare_row=None, compare_char_key=None, menu_locked=True):
         super().__init__(title="Search Moves")
         self.game = game
         self.char_key = char_key
         self.owner_id = owner_id
         self.compare_row = compare_row
         self.compare_char_key = compare_char_key
+        self.menu_locked = menu_locked
         self.query = discord.ui.TextInput(
             label="Move search",
             placeholder="Example: 5hp, fireball, volcanic viper",
@@ -1040,7 +1265,7 @@ class MoveSearchModal(discord.ui.Modal):
         self.add_item(self.query)
 
     async def on_submit(self, interaction: discord.Interaction):
-        if interaction.user.id != self.owner_id:
+        if self.menu_locked and interaction.user.id != self.owner_id:
             await interaction.response.send_message("Only the person who opened this menu can search it.", ephemeral=True)
             return
         moves = _move_list(self.game, self.char_key)
@@ -1065,6 +1290,7 @@ class MoveSearchModal(discord.ui.Modal):
                 page=0,
                 compare_row=self.compare_row,
                 compare_char_key=self.compare_char_key,
+                menu_locked=self.menu_locked,
             ),
             attachments=[],
         )
@@ -1106,65 +1332,127 @@ class MoveSelect(discord.ui.Select):
                 self.view.owner_id,
             )
             return
-        view = FrameResultView(self.game, self.char_key, row, self.view.owner_id)
-        files = view.initial_files()
-        if self.game == "cotw":
-            from bubbot.frame_data.cotw_frame_data import build_image_attachment
-            file, attachment_url = await build_image_attachment(row)
-            if file and attachment_url:
-                view.image_url_override = attachment_url
-                view.cotw_image_bytes = file.fp.getvalue()
-                view.cotw_image_filename = file.filename
-                files = [file]
-        await interaction.response.edit_message(embed=view.build_embed(), view=view, attachments=files)
+        view = build_frame_result_view(self.game, row, self.view.owner_id, self.char_key, menu_locked=True)
+        await prepare_cotw_frame_view(view)
+        await interaction.response.edit_message(embed=view.build_embed(), view=view, attachments=view.initial_files())
 
 
 async def _send_frame_result_message(channel, game, char_key, row, owner_id):
-    view = FrameResultView(game, char_key, row, owner_id)
-    files = view.initial_files()
-    if game == "cotw":
-        from bubbot.frame_data.cotw_frame_data import build_image_attachment
-        file, attachment_url = await build_image_attachment(row)
-        if file and attachment_url:
-            view.image_url_override = attachment_url
-            view.cotw_image_bytes = file.fp.getvalue()
-            view.cotw_image_filename = file.filename
-            files = [file]
+    view = build_frame_result_view(game, row, owner_id, char_key, menu_locked=True)
+    await prepare_cotw_frame_view(view)
     embed = view.build_embed()
-    sent = await channel.send(embed=embed, view=view, files=files)
+    sent = await channel.send(embed=embed, view=view, files=view.initial_files())
     return sent
 
 
 async def _edit_frame_result_message(message, game, char_key, row, owner_id):
-    view = FrameResultView(game, char_key, row, owner_id)
-    files = view.initial_files()
-    if game == "cotw":
-        from bubbot.frame_data.cotw_frame_data import build_image_attachment
-        file, attachment_url = await build_image_attachment(row)
-        if file and attachment_url:
-            view.image_url_override = attachment_url
-            view.cotw_image_bytes = file.fp.getvalue()
-            view.cotw_image_filename = file.filename
-            files = [file]
-    await message.edit(embed=view.build_embed(), view=view, attachments=files)
+    view = build_frame_result_view(game, row, owner_id, char_key, menu_locked=True)
+    await prepare_cotw_frame_view(view)
+    await message.edit(embed=view.build_embed(), view=view, attachments=view.initial_files())
+
+
+class StatsShowFramedataButton(discord.ui.Button):
+    def __init__(self, char_key, owner_id):
+        super().__init__(label="Show Framedata", style=discord.ButtonStyle.primary)
+        self.char_key = char_key
+        self.owner_id = owner_id
+
+    async def callback(self, interaction: discord.Interaction):
+        if getattr(self.view, "menu_locked", False) and interaction.user.id != getattr(self.view, "owner_id", None):
+            await interaction.response.send_message(
+                "Only the person who opened this menu can control it.",
+                ephemeral=True,
+            )
+            return
+        moves = _move_list("sf6", self.char_key)
+        if not moves:
+            await interaction.response.send_message("No moves found for this character.", ephemeral=True)
+            return
+        display = _character_display_name("sf6", self.char_key)
+        await interaction.response.edit_message(
+            embed=_move_select_embed(
+                display,
+                page=0,
+                total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT)),
+            ),
+            view=MoveSelectView(
+                "sf6",
+                self.char_key,
+                moves,
+                getattr(self.view, "owner_id", self.owner_id),
+                page=0,
+                menu_locked=getattr(self.view, "menu_locked", True),
+            ),
+            attachments=[],
+        )
+
+
+class StatsResultView(OwnedView):
+    def __init__(self, char_key, owner_id, stat_keys=None, compare_char_key=None, *, menu_locked=False):
+        super().__init__(owner_id=owner_id, menu_locked=menu_locked, timeout=None)
+        self.char_key = char_key
+        self.stat_keys = tuple(stat_keys) if stat_keys else None
+        self.compare_char_key = compare_char_key
+        self.add_item(StatsCompareButton(char_key, owner_id, stat_keys=self.stat_keys))
+        self.add_item(StatsShowFramedataButton(char_key, owner_id))
+        self.add_item(FrameReturnMenuButton())
+        if menu_locked:
+            self.add_item(StatsBackToCharactersButton(char_key, owner_id))
+
+
+class StatsBackToCharactersButton(discord.ui.Button):
+    def __init__(self, char_key, owner_id):
+        super().__init__(label="Back to Characters", style=discord.ButtonStyle.danger, custom_id="stats_back_characters", row=1)
+        self.char_key = char_key
+        self.owner_id = owner_id
+
+    async def callback(self, interaction: discord.Interaction):
+        chars = _sf6_stats_character_list()
+        if not chars:
+            await interaction.response.send_message("No character stats loaded.", ephemeral=True)
+            return
+        await interaction.response.edit_message(
+            embed=_character_select_embed(
+                "sf6",
+                page=0,
+                total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT)),
+                stats_mode=True,
+            ),
+            view=CharacterSelectView("sf6", chars, self.owner_id, page=0, stats_mode=True, menu_locked=True),
+            attachments=[],
+        )
 
 
 class FrameResultView(OwnedView):
-    def __init__(self, game, char_key, row, owner_id):
-        super().__init__(owner_id=owner_id, timeout=300)
+    def __init__(
+        self,
+        game,
+        char_key,
+        row,
+        owner_id,
+        *,
+        menu_locked=False,
+        show_back_to_moves=False,
+        show_return_menu=True,
+    ):
+        super().__init__(owner_id=owner_id, menu_locked=menu_locked, timeout=None)
         self.game = game
         self.char_key = char_key
         self.row = row
         self.show_notes = False
+        self.show_stats = False
         if game == "sf6":
-            from bubbot.frame_data.frame_output import FrameDataGifButton, SF6NotesButton
+            from bubbot.frame_data.frame_output import FrameDataGifButton, SF6NotesButton, SF6ShowStatsButton
             from bubbot.frame_data.gif_lookup import get_existing_local_gif_asset_paths, get_frame_row_gif_links
             self.gif_links = list(get_frame_row_gif_links(row) or [])
             asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=1) if self.gif_links else []
             self.default_gif_asset_path = asset_paths[0] if asset_paths else None
+            self.character_stats = FRAME_STATS.get(char_key) or {}
             self.gif_button = FrameDataGifButton(row, self.gif_links, showing_gif=bool(self.default_gif_asset_path))
+            self.stats_button = SF6ShowStatsButton(disabled=not self.character_stats)
             self.notes_button = SF6NotesButton(row)
             self.add_item(self.gif_button)
+            self.add_item(self.stats_button)
             self.add_item(self.notes_button)
         elif game == "ggst":
             from bubbot.frame_data.ggst_frame_data import GGSTAllHitboxImagesButton, GGSTHitboxButton, GGSTNotesButton
@@ -1216,9 +1504,17 @@ class FrameResultView(OwnedView):
             self.notes_button = COTWNotesButton(row)
             self.add_item(self.notes_button)
         attach_compare_button(self, game, row, owner_id=owner_id, char_key=char_key)
+        if show_return_menu:
+            self.add_item(FrameReturnMenuButton())
+        if show_back_to_moves:
+            self.add_item(FrameBackToMovesButton(game, char_key))
 
     def build_embed(self):
         if self.game == "sf6":
+            if getattr(self, "show_stats", False) and getattr(self, "character_stats", None):
+                from bubbot.frame_data.sf6_character_stats import build_character_stats_embed
+
+                return build_character_stats_embed(self.char_key, self.character_stats)
             if getattr(self, "default_gif_asset_path", None) and getattr(self, "gif_button", None) and self.gif_button.showing_gif:
                 filename = os.path.basename(self.default_gif_asset_path)
                 return build_sf6_frame_embed(
@@ -1269,28 +1565,10 @@ class FrameResultView(OwnedView):
         filename = os.path.basename(self.default_gif_asset_path)
         return [discord.File(self.default_gif_asset_path, filename=filename)]
 
-    @discord.ui.button(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="frame_return_menu")
-    async def return_menu_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_main_menu_embed(),
-            view=MainMenuView(self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="Back to Moves", style=discord.ButtonStyle.danger, custom_id="frame_back_moves")
-    async def back_moves_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        moves = _move_list(self.game, self.char_key)
-        display = _character_display_name(self.game, self.char_key)
-        await interaction.response.edit_message(
-            embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
-            view=MoveSelectView(self.game, self.char_key, moves, self.owner_id, page=0),
-            attachments=[],
-        )
-
 
 class QuizDifficultyView(OwnedView):
     def __init__(self, game, owner_id):
-        super().__init__(owner_id=owner_id, timeout=300)
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
         self.game = game
 
     @discord.ui.button(label="Easy", style=discord.ButtonStyle.success, custom_id="quiz_easy")
@@ -1335,7 +1613,7 @@ class QuizDifficultyView(OwnedView):
 
 class BackToGameMenuView(OwnedView):
     def __init__(self, game, owner_id):
-        super().__init__(owner_id=owner_id, timeout=300)
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
         self.game = game
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="combos_back")
@@ -1351,7 +1629,7 @@ class BackToGameMenuView(OwnedView):
 
 class ComboCharacterSelectView(OwnedView):
     def __init__(self, chars, owner_id, page=0):
-        super().__init__(owner_id=owner_id, timeout=300)
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
         self.chars = chars
         self.page = page
         self._add_select()
@@ -1517,14 +1795,29 @@ def _row_move_label(row):
     return move_name or num_cmd or "selected move"
 
 
-def _character_select_embed(game, page=None, total_pages=None, search_query=None, compare_row=None, stats_mode=False):
+def _character_select_embed(
+    game,
+    page=None,
+    total_pages=None,
+    search_query=None,
+    compare_row=None,
+    stats_mode=False,
+    compare_char_key=None,
+    compare_stat_label=None,
+):
     label = _game_label(game)
     page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
     search_text = f"\nSearch: `{search_query}`" if search_query else ""
     compare_text = f"\nComparing against: `{_row_move_label(compare_row)}`" if compare_row else ""
+    if stats_mode and compare_char_key and compare_stat_label:
+        compare_text = f"\nComparing stats against: `{compare_stat_label}`"
     if stats_mode:
-        title = f"{label} - Character Stats"
-        description = "Select a character to view their stats sheet."
+        title = f"{label} - {'Compare Stats' if compare_char_key else 'Character Stats'}"
+        description = (
+            "Select another character to compare stats."
+            if compare_char_key
+            else "Select a character to view their stats sheet."
+        )
     elif compare_row:
         title = f"{label} - Compare"
         description = "Select a character from the dropdown below."
@@ -1582,6 +1875,6 @@ async def send_character_moves_menu(destination, game, char_key, owner_id=None):
     display = chars.get(char_key, str(char_key).title())
     await destination.send(
         embed=_move_select_embed(display, page=0, total_pages=max(1, math.ceil(len(moves) / MENU_SELECT_LIMIT))),
-        view=MoveSelectView(game, char_key, moves, owner_id, page=0),
+        view=MoveSelectView(game, char_key, moves, owner_id, page=0, menu_locked=True),
     )
     return True

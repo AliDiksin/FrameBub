@@ -383,12 +383,21 @@ class MissingHitboxGifShowFramedataButton(discord.ui.Button):
 
 
 class MissingHitboxGifView(discord.ui.View):
-    def __init__(self, rows, owner_id=None, on_frame_sent=None):
-        super().__init__(timeout=300)
+    def __init__(self, rows, owner_id=None, on_frame_sent=None, source_message=None, failure_reason="missing_hitbox_gif"):
+        super().__init__(timeout=None)
         self.rows = list(rows or [])
         self.owner_id = owner_id
         self.on_frame_sent = on_frame_sent
         self.add_item(MissingHitboxGifShowFramedataButton())
+        if source_message is not None:
+            from bubbot.features.failed_prompt_report import attach_failed_prompt_report_button
+
+            attach_failed_prompt_report_button(
+                self,
+                source_message,
+                bub_response_text=MISSING_HITBOX_GIF_TEXT,
+                failure_reason=failure_reason,
+            )
 
 
 async def send_missing_hitbox_gif_reply(
@@ -407,9 +416,10 @@ async def send_missing_hitbox_gif_reply(
             unique_rows,
             owner_id=getattr(message.author, "id", None),
             on_frame_sent=on_frame_sent,
+            source_message=message,
         )
     if reply_and_log_response:
-        return await reply_and_log_response(message, MISSING_HITBOX_GIF_TEXT, "missing_scrolls", view=view)
+        return await reply_and_log_response(message, MISSING_HITBOX_GIF_TEXT, "missing_hitbox_gif", view=view)
     return await message.reply(MISSING_HITBOX_GIF_TEXT, view=view)
 
 
@@ -428,7 +438,10 @@ class FrameDataGifButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         move_name = str((self.frame_row or {}).get("moveName", "This move")).strip() or "This move"
         if not self.gif_links:
-            view = MissingHitboxGifView([self.frame_row], owner_id=getattr(interaction.user, "id", None))
+            view = MissingHitboxGifView(
+                [self.frame_row],
+                owner_id=getattr(interaction.user, "id", None),
+            )
             await interaction.response.send_message(
                 f"I have frame data for {move_name} but no hitbox gif link yet. "
                 f"{FRAME_DATA_ERROR_CONTACT_TEXT}",
@@ -579,73 +592,9 @@ class SF6NotesButton(SF6PanelToggleButton):
         return []
 
 
-class ReturnToMenuButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="frame_return_menu", row=0)
-
-    async def callback(self, interaction: discord.Interaction):
-        from bubbot.features import menu_system
-        await interaction.response.send_message(
-            embed=menu_system._main_menu_embed(),
-            view=menu_system.MainMenuView(interaction.user.id),
-        )
-
-
-class FrameDataGifView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
-        super().__init__(timeout=3600)
-        self.row = row
-        self.show_notes = False
-        self.show_stats = False
-        self.char_key = char_key
-        if not self.char_key:
-            self.char_key = character_key_from_row(row, normalize_char_name)
-        self.character_stats = (FRAME_STATS or {}).get(self.char_key or "", {})
-        self.gif_links = list(get_frame_row_gif_links(row) or [])
-        self.default_gif_asset_path = self._default_gif_asset_path()
-        self.gif_button = FrameDataGifButton(row, self.gif_links, showing_gif=bool(self.default_gif_asset_path))
-        self.stats_button = SF6ShowStatsButton(disabled=not self.character_stats)
-        self.notes_button = SF6NotesButton(row)
-        self.add_item(self.gif_button)
-        self.add_item(self.stats_button)
-        self.add_item(self.notes_button)
-        from bubbot.features import menu_system
-        menu_system.attach_compare_button(self, "sf6", row, owner_id=owner_id, char_key=char_key)
-        if include_menu_button:
-            self.add_item(ReturnToMenuButton())
-
-    def _default_gif_asset_path(self):
-        if not self.gif_links:
-            return None
-        asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=1)
-        return asset_paths[0] if asset_paths else None
-
-    def build_embed(self):
-        if self.show_stats and self.character_stats:
-            return build_character_stats_embed(self.char_key, self.character_stats)
-        if self.default_gif_asset_path and self.gif_button.showing_gif:
-            filename = os.path.basename(self.default_gif_asset_path)
-            return build_frame_embed(
-                self.row,
-                image_url_override=f"attachment://{filename}",
-                show_notes=self.show_notes,
-            )
-        return build_frame_embed(self.row, show_notes=self.show_notes)
-
-    def initial_files(self):
-        return self.active_files()
-
-    def active_files(self):
-        if not self.default_gif_asset_path:
-            return []
-        if not self.gif_button.showing_gif:
-            return []
-        filename = os.path.basename(self.default_gif_asset_path)
-        return [discord.File(self.default_gif_asset_path, filename=filename)]
-
-
 async def send_character_stats_response(message, char_keys, stat_keys=None):
     channel = getattr(message, "channel", message)
+    owner_id = getattr(getattr(message, "author", None), "id", None)
     unique_keys = []
     for char_key in char_keys or []:
         if char_key and char_key not in unique_keys:
@@ -656,28 +605,52 @@ async def send_character_stats_response(message, char_keys, stat_keys=None):
         if not stats:
             continue
         embed = build_character_stats_embed(char_key, stats, stat_keys)
-        sent = await channel.send(embed=embed)
+        view = None
+        if owner_id:
+            from bubbot.features.menu_system import StatsResultView
+
+            view = StatsResultView(char_key, owner_id, stat_keys=stat_keys, menu_locked=False)
+        sent = await channel.send(embed=embed, view=view)
         sent_ids.append(sent.id)
     return sent_ids
 
 
 async def send_frame_embeds_with_views(channel, rows, embeds=None, owner_id=None):
+    from bubbot.features.menu_system import build_frame_result_view
+
     unique_rows = iter_unique_frame_rows(rows or [])
-    embed_list = list(embeds or build_frame_embeds(unique_rows))
-    if not embed_list:
+    if not unique_rows:
         return []
 
+    if embeds is not None:
+        embed_list = list(embeds)
+        sent_ids = []
+        for index, embed in enumerate(embed_list):
+            if index >= len(unique_rows):
+                sent = await channel.send(embed=embed)
+                sent_ids.append(sent.id)
+                continue
+            view = build_frame_result_view("sf6", unique_rows[index], owner_id=owner_id, menu_locked=False)
+            files = []
+            if view.default_gif_asset_path:
+                filename = os.path.basename(view.default_gif_asset_path)
+                embed.set_image(url=f"attachment://{filename}")
+                files = view.initial_files()
+            sent = await channel.send(embed=embed, view=view, files=files)
+            sent_ids.append(sent.id)
+        return sent_ids
+
+    return await _send_sf6_frame_result_messages(channel, unique_rows, owner_id=owner_id)
+
+
+async def _send_sf6_frame_result_messages(channel, rows, *, owner_id=None):
+    from bubbot.features.menu_system import build_frame_result_view
+
     sent_ids = []
-    for index, embed in enumerate(embed_list):
-        view = FrameDataGifView(unique_rows[index], owner_id=owner_id) if index < len(unique_rows) else None
-        files = []
-        if view and view.default_gif_asset_path:
-            filename = os.path.basename(view.default_gif_asset_path)
-            embed.set_image(url=f"attachment://{filename}")
-            files = view.initial_files()
-        elif view and not embeds:
-            embed = view.build_embed()
-        sent = await channel.send(embed=embed, view=view, files=files)
+    for row in rows:
+        view = build_frame_result_view("sf6", row, owner_id=owner_id, menu_locked=False)
+        embed = view.build_embed()
+        sent = await channel.send(embed=embed, view=view, files=view.initial_files())
         sent_ids.append(sent.id)
     return sent_ids
 

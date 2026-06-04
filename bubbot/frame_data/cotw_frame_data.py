@@ -416,58 +416,16 @@ class COTWNotesButton(discord.ui.Button):
         await interaction.response.edit_message(**kwargs)
 
 
-class ReturnToMenuButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Return to Menu", style=discord.ButtonStyle.primary, custom_id="cotw_frame_return_menu", row=0)
-
-    async def callback(self, interaction: discord.Interaction):
-        from bubbot.features import menu_system
-        await interaction.response.send_message(embed=menu_system._main_menu_embed(), view=menu_system.MainMenuView(interaction.user.id))
-
-
-class COTWFrameDataView(discord.ui.View):
-    def __init__(self, row, include_menu_button=True, owner_id=None, char_key=None):
-        super().__init__(timeout=3600)
-        self.row = row
-        self.show_notes = False
-        self.image_url_override = ""
-        self.cotw_image_bytes = None
-        self.cotw_image_filename = None
-        self.notes_button = COTWNotesButton(row)
-        self.add_item(self.notes_button)
-        from bubbot.features import menu_system
-        menu_system.attach_compare_button(self, "cotw", row, owner_id=owner_id, char_key=char_key)
-        if include_menu_button:
-            self.add_item(ReturnToMenuButton())
-
-    def build_embed(self):
-        embed = build_frame_embed(self.row, show_notes=self.show_notes)
-        if self.image_url_override:
-            embed.set_image(url=self.image_url_override)
-        return embed
-
-    def active_files(self):
-        if self.cotw_image_bytes and self.cotw_image_filename:
-            return [discord.File(io.BytesIO(self.cotw_image_bytes), filename=self.cotw_image_filename)]
-        return []
-
-
 async def send_frame_response(message, rows):
-    if not rows:
-        return []
-    sent_ids = []
-    for row in rows:
-        view = COTWFrameDataView(row, owner_id=getattr(message.author, "id", None))
-        file, attachment_url = await build_image_attachment(row)
-        if file and attachment_url:
-            view.image_url_override = attachment_url
-            view.cotw_image_bytes = file.fp.getvalue()
-            view.cotw_image_filename = file.filename
-        embed = view.build_embed()
-        files = view.active_files()
-        sent = await message.channel.send(embed=embed, view=view, files=files)
-        sent_ids.append(sent.id)
-    return sent_ids
+    from bubbot.features.menu_system import send_frame_result_messages
+
+    return await send_frame_result_messages(
+        message.channel,
+        "cotw",
+        rows,
+        owner_id=getattr(message.author, "id", None),
+        menu_locked=False,
+    )
 
 
 async def send_image_response(message, rows):
