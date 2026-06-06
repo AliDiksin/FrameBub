@@ -18,11 +18,13 @@ async def handle_ready(deps):
     cotw_module = deps["cotw_module"]
     third_strike_module = deps["third_strike_module"]
     mk1_module = deps["mk1_module"]
+    combo_data_module = deps["combo_data_module"]
 
     print(f"Logged in as {client.user}")
     try:
-        await tree.sync()
-        print("[menu] Global slash commands synced.", flush=True)
+        from bubbot.runtime.slash_commands import sync_public_slash_commands
+
+        await sync_public_slash_commands(client, tree)
     except Exception as error:
         print(f"[menu] Global slash command sync error: {error}", flush=True)
 
@@ -45,6 +47,7 @@ async def handle_ready(deps):
         third_strike_module.load_frame_data()
         mk1_module.load_frame_data()
         configure_extracted_modules()
+        combo_data_module.load_combo_data()
 
     loop = _asyncio.get_running_loop()
     await loop.run_in_executor(None, _load_all_game_data)
@@ -185,7 +188,6 @@ async def handle_ready(deps):
         third_strike_character_aliases=third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
         mk1_frame_data=mk1_module.MK1_FRAME_DATA,
         mk1_character_aliases=mk1_module.MK1_CHARACTER_ALIASES,
-        mk1_combo_data=mk1_module.MK1_COMBO_DATA,
         quiz_module_ref=quiz_module,
         build_sf6_frame_embed_fn=build_frame_embed,
         build_ggst_frame_embed_fn=ggst_module.build_frame_embed,

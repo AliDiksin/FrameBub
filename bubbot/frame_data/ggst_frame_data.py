@@ -659,7 +659,7 @@ def find_followup_rows(character, move_input):
 def build_disambiguation_prompt(char_key, rows):
     char_name = display_char_name(char_key)
     lines = [f"Multiple GGST moves match {char_name}. Reply with the option number:"]
-    for index, row in enumerate(rows[:12], start=1):
+    for index, row in enumerate(rows, start=1):
         state_label = clean_value(row.get("state_label"))
         state_text = f" [{state_label}]" if state_label else ""
         move_name = clean_value(row.get("moveName"), "Unknown")
@@ -672,7 +672,7 @@ def build_followup_prompt(char_key, rows):
     char_name = display_char_name(char_key)
     lines = [f"**GGST Follow-up Options ({char_name})**"]
     lines.append("Follow-ups:")
-    for index, row in enumerate(rows[:12], start=1):
+    for index, row in enumerate(rows, start=1):
         move_name = clean_value(row.get("moveName"), "Unknown")
         num_cmd = clean_value(row.get("numCmd"), "?")
         lines.append(f"{index}. {move_name}: `{num_cmd}`")

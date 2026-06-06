@@ -27,7 +27,6 @@ THIRD_STRIKE_FRAME_DATA = {}
 THIRD_STRIKE_CHARACTER_ALIASES = {}
 MK1_FRAME_DATA = {}
 MK1_CHARACTER_ALIASES = {}
-MK1_COMBO_DATA = {}
 
 quiz_module = None
 build_sf6_frame_embed = None
@@ -61,7 +60,6 @@ def configure(
     third_strike_character_aliases=None,
     mk1_frame_data=None,
     mk1_character_aliases=None,
-    mk1_combo_data=None,
     quiz_module_ref=None,
     build_sf6_frame_embed_fn=None,
     build_ggst_frame_embed_fn=None,
@@ -72,7 +70,7 @@ def configure(
     build_third_strike_frame_embed_fn=None,
     send_frame_embeds_with_views_fn=None,
 ):
-    global FRAME_DATA, FRAME_STATS, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES, MK1_COMBO_DATA
+    global FRAME_DATA, FRAME_STATS, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES
     global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_sfv_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, send_frame_embeds_with_views
     FRAME_DATA = frame_data or {}
     FRAME_STATS = frame_stats or {}
@@ -94,7 +92,6 @@ def configure(
     THIRD_STRIKE_CHARACTER_ALIASES = third_strike_character_aliases or {}
     MK1_FRAME_DATA = mk1_frame_data or {}
     MK1_CHARACTER_ALIASES = mk1_character_aliases or {}
-    MK1_COMBO_DATA = mk1_combo_data or {}
     quiz_module = quiz_module_ref
     build_sf6_frame_embed = build_sf6_frame_embed_fn
     build_ggst_frame_embed = build_ggst_frame_embed_fn
@@ -150,6 +147,14 @@ def _game_menu_view(game, owner_id):
     return GameMenuView(game, owner_id)
 
 
+async def _edit_to_game_menu(interaction, game, owner_id):
+    await interaction.response.edit_message(
+        embed=_game_menu_embed(_game_label(game), _game_colour(game)),
+        view=_game_menu_view(game, owner_id),
+        attachments=[],
+    )
+
+
 async def _open_framedata_character_select(interaction, game, owner_id, *, compare_row=None, compare_char_key=None):
     chars = _character_list(game)
     if not chars:
@@ -196,6 +201,55 @@ async def _open_quiz_difficulty(interaction, game, owner_id):
     await interaction.response.edit_message(
         embed=_quiz_difficulty_embed(game_label),
         view=QuizDifficultyView(game, owner_id),
+        attachments=[],
+    )
+
+
+async def _open_combo_character_select(interaction, game, owner_id):
+    from bubbot.frame_data import combo_data
+
+    chars = combo_data.combo_character_list(game)
+    if not chars:
+        await interaction.response.send_message(f"No {combo_data.game_label(game)} combo data loaded.", ephemeral=True)
+        return
+    total_pages = max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))
+    await interaction.response.edit_message(
+        embed=_combo_character_select_embed(game, page=0, total_pages=total_pages),
+        view=ComboCharacterSelectView(game, chars, owner_id, page=0),
+        attachments=[],
+    )
+
+
+async def _open_game_combos_menu(interaction, game, owner_id):
+    from bubbot.frame_data import combo_data
+
+    game_key = str(game or "").strip().lower()
+    if game_key not in combo_data.COMBO_GAMES:
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title=f"{_game_label(game_key)} - Combos",
+                description="Combos will be added to the scrolls soon.",
+                colour=_game_colour(game_key),
+            ),
+            view=BackToGameMenuView(game_key, owner_id),
+            attachments=[],
+        )
+        return
+    combo_data.ensure_combo_data_loaded(game_key)
+    if combo_data.has_combos(game_key):
+        await _open_combo_character_select(interaction, game_key, owner_id)
+        return
+    missing_file = combo_data.SF6_COMBOS_FILE if game_key == "sf6" else combo_data.MK1_COMBOS_FILE
+    await interaction.response.edit_message(
+        embed=discord.Embed(
+            title=f"{combo_data.game_label(game_key)} - Combos",
+            description=(
+                f"Combo data did not load. Deploy `{missing_file}` next to `bot.py` on the server "
+                f"and restart the `bub` service."
+            ),
+            colour=0xFF4444,
+        ),
+        view=BackToGameMenuView(game_key, owner_id),
         attachments=[],
     )
 
@@ -269,8 +323,30 @@ def _mk1_character_list():
     return character_choices(MK1_FRAME_DATA, display_fn=display_fn)
 
 
-def _mk1_combo_character_list():
-    return character_choices(MK1_COMBO_DATA)
+_GAME_ONLY_MENTION_PATTERNS = (
+    ("sf6", re.compile(r"^(?:sf6|street\s*fighter\s*6)$", re.IGNORECASE)),
+    ("sfv", re.compile(r"^(?:sfv|sf5|street\s*fighter\s*(?:v|5))$", re.IGNORECASE)),
+    ("ggst", re.compile(r"^(?:ggst|guilty\s*gear(?:\s*strive)?|strive)$", re.IGNORECASE)),
+    ("tuco", re.compile(r"^(?:2xko|tuco)$", re.IGNORECASE)),
+    ("bbcf", re.compile(r"^(?:bbcf|blazblue|central\s*fiction)$", re.IGNORECASE)),
+    ("cotw", re.compile(r"^(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)$", re.IGNORECASE)),
+    (
+        "third_strike",
+        re.compile(r"^(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)$", re.IGNORECASE),
+    ),
+    ("mk1", re.compile(r"^(?:mk1|mortal\s+kombat(?:\s*(?:1|one))?)$", re.IGNORECASE)),
+)
+
+
+def parse_game_only_mention(text):
+    """Return game key when message is only a game tag (e.g. '@bub sf6')."""
+    normalized = re.sub(r"\s+", " ", str(text or "").strip())
+    if not normalized:
+        return None
+    for game_key, pattern in _GAME_ONLY_MENTION_PATTERNS:
+        if pattern.fullmatch(normalized):
+            return game_key
+    return None
 
 
 def _game_label(game):
@@ -740,32 +816,13 @@ class GameMenuView(OwnedView):
     async def framedata_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _open_framedata_character_select(interaction, self.game, self.owner_id)
 
+    @discord.ui.button(label="Combos", style=discord.ButtonStyle.primary, custom_id="game_combos", row=0)
+    async def combos_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _open_game_combos_menu(interaction, self.game, self.owner_id)
+
     @discord.ui.button(label="Quiz", style=discord.ButtonStyle.success, custom_id="game_quiz", row=0)
     async def quiz_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _open_quiz_difficulty(interaction, self.game, self.owner_id)
-
-    @discord.ui.button(label="Combos", style=discord.ButtonStyle.primary, custom_id="game_combos", row=0)
-    async def combos_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.game == "mk1":
-            chars = _mk1_combo_character_list()
-            if not chars:
-                await interaction.response.send_message("No MK1 combo data loaded.", ephemeral=True)
-                return
-            await interaction.response.edit_message(
-                embed=_combo_character_select_embed(page=0, total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT))),
-                view=ComboCharacterSelectView(chars, self.owner_id, page=0),
-                attachments=[],
-            )
-            return
-        await interaction.response.edit_message(
-            embed=discord.Embed(
-                title="Combos",
-                description="Combos will be added to the scrolls soon.",
-                colour=0xAAAAAA,
-            ),
-            view=BackToGameMenuView(self.game, self.owner_id),
-            attachments=[],
-        )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="game_back", row=0)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -789,21 +846,13 @@ class SF6GameMenuView(OwnedView):
     async def stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _open_sf6_stats_character_select(interaction, self.owner_id)
 
+    @discord.ui.button(label="Combos", style=discord.ButtonStyle.primary, custom_id="sf6_game_combos", row=0)
+    async def combos_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _open_game_combos_menu(interaction, self.game, self.owner_id)
+
     @discord.ui.button(label="Quiz", style=discord.ButtonStyle.success, custom_id="sf6_game_quiz", row=0)
     async def quiz_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _open_quiz_difficulty(interaction, self.game, self.owner_id)
-
-    @discord.ui.button(label="Combos", style=discord.ButtonStyle.primary, custom_id="sf6_game_combos", row=0)
-    async def combos_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=discord.Embed(
-                title="Combos",
-                description="Combos will be added to the scrolls soon.",
-                colour=0xAAAAAA,
-            ),
-            view=BackToGameMenuView(self.game, self.owner_id),
-            attachments=[],
-        )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="sf6_game_back", row=0)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1628,8 +1677,9 @@ class BackToGameMenuView(OwnedView):
 
 
 class ComboCharacterSelectView(OwnedView):
-    def __init__(self, chars, owner_id, page=0):
+    def __init__(self, game, chars, owner_id, page=0):
         super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
+        self.game = game
         self.chars = chars
         self.page = page
         self._add_select()
@@ -1647,16 +1697,19 @@ class ComboCharacterSelectView(OwnedView):
 
     def _add_select(self):
         start = self.page * MENU_SELECT_LIMIT
-        options = [discord.SelectOption(label=display, value=char_key) for char_key, display in self.chars[start : start + MENU_SELECT_LIMIT]]
-        self.add_item(ComboCharacterSelect(self.chars, self.page, options))
+        options = [
+            discord.SelectOption(label=display[:100], value=char_key)
+            for char_key, display in self.chars[start : start + MENU_SELECT_LIMIT]
+        ]
+        self.add_item(ComboCharacterSelect(self.game, self.chars, self.page, options))
 
     @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary, row=4)
     async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
         new_page = self.page - 1 if self.page > 0 else max_page
         await interaction.response.edit_message(
-            embed=_combo_character_select_embed(page=new_page, total_pages=max_page + 1),
-            view=ComboCharacterSelectView(self.chars, self.owner_id, page=new_page),
+            embed=_combo_character_select_embed(self.game, page=new_page, total_pages=max_page + 1),
+            view=ComboCharacterSelectView(self.game, self.chars, self.owner_id, page=new_page),
             attachments=[],
         )
 
@@ -1665,33 +1718,308 @@ class ComboCharacterSelectView(OwnedView):
         max_page = max(0, math.ceil(len(self.chars) / MENU_SELECT_LIMIT) - 1)
         new_page = self.page + 1 if self.page < max_page else 0
         await interaction.response.edit_message(
-            embed=_combo_character_select_embed(page=new_page, total_pages=max_page + 1),
-            view=ComboCharacterSelectView(self.chars, self.owner_id, page=new_page),
+            embed=_combo_character_select_embed(self.game, page=new_page, total_pages=max_page + 1),
+            view=ComboCharacterSelectView(self.game, self.chars, self.owner_id, page=new_page),
             attachments=[],
         )
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
-            embed=_game_menu_embed("Mortal Kombat 1", 0x7E1616),
-            view=GameMenuView("mk1", self.owner_id),
+            embed=_game_menu_embed(_game_label(self.game), _game_colour(self.game)),
+            view=_game_menu_view(self.game, self.owner_id),
             attachments=[],
         )
 
 
 class ComboCharacterSelect(discord.ui.Select):
-    def __init__(self, chars, page, options):
+    def __init__(self, game, chars, page, options):
+        self.game = game
         self.chars = chars
         self.page = page
-        super().__init__(placeholder="Select a character", options=options, custom_id=f"mk1_combo_char_select:{page}")
+        super().__init__(placeholder="Select a character", options=options, custom_id=f"combo_char_select:{game}:{page}")
 
     async def callback(self, interaction: discord.Interaction):
-        from bubbot.frame_data.mk1_frame_data import build_combo_embed
+        from bubbot.frame_data import combo_data
+
         char_key = self.values[0]
-        rows = MK1_COMBO_DATA.get(char_key, [])[:8]
+        sections = combo_data.combo_sections(self.game, char_key)
+        if not sections:
+            await interaction.response.send_message("No combos found for that character.", ephemeral=True)
+            return
         await interaction.response.edit_message(
-            embed=build_combo_embed(char_key, rows),
-            view=BackToGameMenuView("mk1", self.view.owner_id),
+            embed=_combo_section_select_embed(self.game, char_key, page=0, total_pages=ComboSectionView.page_count(sections)),
+            view=ComboSectionView(self.game, char_key, sections, self.view.owner_id, page=0),
+            attachments=[],
+        )
+
+
+class ComboSectionView(OwnedView):
+    """Buttons (one per SuperCombo page heading) that open that heading's combo list."""
+
+    SECTIONS_PER_PAGE = 20
+
+    def __init__(self, game, char_key, sections, owner_id, page=0, back_to="character_select"):
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
+        self.game = game
+        self.char_key = char_key
+        self.sections = list(sections or [])
+        self.page = page
+        self.back_to = back_to
+        self._build()
+
+    @classmethod
+    def page_count(cls, sections):
+        return max(1, math.ceil(len(sections) / cls.SECTIONS_PER_PAGE))
+
+    def _build(self):
+        page_count = self.page_count(self.sections)
+        start = self.page * self.SECTIONS_PER_PAGE
+        page_sections = self.sections[start : start + self.SECTIONS_PER_PAGE]
+        for offset, (section_label, count) in enumerate(page_sections):
+            label = f"{section_label} ({count})"
+            self.add_item(
+                ComboSectionButton(
+                    section_label,
+                    label[:80],
+                    row=offset // 5,
+                )
+            )
+        if page_count > 1:
+            self.add_item(ComboSectionPageButton(self.game, self.char_key, self.sections, "prev", self.page))
+            self.add_item(ComboSectionPageButton(self.game, self.char_key, self.sections, "next", self.page))
+        self.add_item(ComboSectionBackButton())
+
+
+class ComboSectionButton(discord.ui.Button):
+    def __init__(self, section_label, label, row):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, row=row)
+        self.section_label = section_label
+
+    async def callback(self, interaction: discord.Interaction):
+        from bubbot.frame_data import combo_data
+
+        view = self.view
+        if combo_data.section_needs_subsection_menu(view.game, view.char_key, self.section_label):
+            subsections = combo_data.combo_subsections(view.game, view.char_key, self.section_label)
+            await interaction.response.edit_message(
+                embed=_combo_subsection_select_embed(view.game, view.char_key, self.section_label),
+                view=ComboSubsectionView(
+                    view.game,
+                    view.char_key,
+                    self.section_label,
+                    subsections,
+                    view.owner_id,
+                    page=0,
+                    back_to=view.back_to,
+                ),
+                attachments=[],
+            )
+            return
+        rows = combo_data.rows_for_section(view.game, view.char_key, self.section_label)
+        pages = combo_data.build_combo_pages(view.game, view.char_key, rows, section=self.section_label)
+        list_view = combo_data.ComboListView(
+            view.game,
+            view.char_key,
+            pages,
+            view.owner_id,
+            menu_locked=True,
+            section=self.section_label,
+            back_to=view.back_to,
+        )
+        await interaction.response.edit_message(embed=pages[0], view=list_view, attachments=[])
+
+
+class ComboSectionPageButton(discord.ui.Button):
+    def __init__(self, game, char_key, sections, direction, page):
+        page_count = ComboSectionView.page_count(sections)
+        if direction == "prev":
+            target = page - 1 if page > 0 else page_count - 1
+            label = f"Previous ({target + 1}/{page_count})"
+        else:
+            target = page + 1 if page < page_count - 1 else 0
+            label = f"Next ({target + 1}/{page_count})"
+        super().__init__(label=label, style=discord.ButtonStyle.primary, row=4)
+        self.game = game
+        self.char_key = char_key
+        self.sections = sections
+        self.target = target
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(
+            embed=_combo_section_select_embed(
+                self.game,
+                self.char_key,
+                page=self.target,
+                total_pages=ComboSectionView.page_count(self.sections),
+            ),
+            view=ComboSectionView(
+                self.game,
+                self.char_key,
+                self.sections,
+                self.view.owner_id,
+                page=self.target,
+                back_to=self.view.back_to,
+            ),
+            attachments=[],
+        )
+
+
+class ComboSectionBackButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Back", style=discord.ButtonStyle.danger, row=4)
+
+    async def callback(self, interaction: discord.Interaction):
+        from bubbot.frame_data import combo_data
+
+        view = self.view
+        if view.back_to == "game_menu":
+            await _edit_to_game_menu(interaction, view.game, view.owner_id)
+            return
+        chars = combo_data.combo_character_list(view.game)
+        await interaction.response.edit_message(
+            embed=_combo_character_select_embed(
+                view.game,
+                page=0,
+                total_pages=max(1, math.ceil(len(chars) / MENU_SELECT_LIMIT)),
+            ),
+            view=ComboCharacterSelectView(view.game, chars, view.owner_id, page=0),
+            attachments=[],
+        )
+
+
+class ComboSubsectionView(OwnedView):
+    """Sub-heading buttons when a section has more than 10 combos."""
+
+    SUBSECTIONS_PER_PAGE = 20
+
+    def __init__(self, game, char_key, section_label, subsections, owner_id, page=0, back_to="character_select"):
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
+        self.game = game
+        self.char_key = char_key
+        self.section_label = section_label
+        self.subsections = list(subsections or [])
+        self.page = page
+        self.back_to = back_to
+        self._build()
+
+    @classmethod
+    def page_count(cls, subsections):
+        return max(1, math.ceil(len(subsections) / cls.SUBSECTIONS_PER_PAGE))
+
+    def _build(self):
+        page_count = self.page_count(self.subsections)
+        start = self.page * self.SUBSECTIONS_PER_PAGE
+        page_subsections = self.subsections[start : start + self.SUBSECTIONS_PER_PAGE]
+        for offset, (subsection_label, count) in enumerate(page_subsections):
+            label = f"{subsection_label} ({count})"
+            self.add_item(
+                ComboSubsectionButton(
+                    self.section_label,
+                    subsection_label,
+                    label[:80],
+                    row=offset // 5,
+                )
+            )
+        if page_count > 1:
+            self.add_item(
+                ComboSubsectionPageButton(
+                    self.game,
+                    self.char_key,
+                    self.section_label,
+                    self.subsections,
+                    "prev",
+                    self.page,
+                )
+            )
+            self.add_item(
+                ComboSubsectionPageButton(
+                    self.game,
+                    self.char_key,
+                    self.section_label,
+                    self.subsections,
+                    "next",
+                    self.page,
+                )
+            )
+        self.add_item(ComboSubsectionBackButton())
+
+
+class ComboSubsectionButton(discord.ui.Button):
+    def __init__(self, section_label, subsection_label, label, row):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, row=row)
+        self.section_label = section_label
+        self.subsection_label = subsection_label
+
+    async def callback(self, interaction: discord.Interaction):
+        from bubbot.frame_data import combo_data
+
+        view = self.view
+        rows = combo_data.rows_for_subsection(view.game, view.char_key, self.section_label, self.subsection_label)
+        pages = combo_data.build_combo_pages(
+            view.game,
+            view.char_key,
+            rows,
+            section=self.section_label,
+            subsection=self.subsection_label,
+        )
+        list_view = combo_data.ComboListView(
+            view.game,
+            view.char_key,
+            pages,
+            view.owner_id,
+            menu_locked=True,
+            section=self.section_label,
+            subsection=self.subsection_label,
+            back_to=view.back_to,
+        )
+        await interaction.response.edit_message(embed=pages[0], view=list_view, attachments=[])
+
+
+class ComboSubsectionPageButton(discord.ui.Button):
+    def __init__(self, game, char_key, section_label, subsections, direction, page):
+        page_count = ComboSubsectionView.page_count(subsections)
+        if direction == "prev":
+            target = page - 1 if page > 0 else page_count - 1
+            label = f"Previous ({target + 1}/{page_count})"
+        else:
+            target = page + 1 if page < page_count - 1 else 0
+            label = f"Next ({target + 1}/{page_count})"
+        super().__init__(label=label, style=discord.ButtonStyle.primary, row=4)
+        self.game = game
+        self.char_key = char_key
+        self.section_label = section_label
+        self.subsections = subsections
+        self.target = target
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(
+            embed=_combo_subsection_select_embed(self.game, self.char_key, self.section_label),
+            view=ComboSubsectionView(
+                self.game,
+                self.char_key,
+                self.section_label,
+                self.subsections,
+                self.view.owner_id,
+                page=self.target,
+                back_to=self.view.back_to,
+            ),
+            attachments=[],
+        )
+
+
+class ComboSubsectionBackButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Back", style=discord.ButtonStyle.danger, row=4)
+
+    async def callback(self, interaction: discord.Interaction):
+        from bubbot.frame_data import combo_data
+
+        view = self.view
+        sections = combo_data.combo_sections(view.game, view.char_key)
+        await interaction.response.edit_message(
+            embed=_combo_section_select_embed(view.game, view.char_key, page=0, total_pages=ComboSectionView.page_count(sections)),
+            view=ComboSectionView(view.game, view.char_key, sections, view.owner_id, page=0, back_to=view.back_to),
             attachments=[],
         )
 
@@ -1757,15 +2085,16 @@ def build_readme_embed():
     embed.add_field(
         name="4. Menus And Slash Commands",
         value=(
-            "Use `/bub` for the guided menu, or direct commands like `/sf6`, `/sf6-stats` (SF6 stats), `/ggst`, `/bbcf`, "
-            "`/cotw`, `/third-strike`, `/mk1`, and `/mk1-combos`. Menus are locked to the user who opened them."
+            "Use `/bub` for the guided menu, `@bub` alone for the main menu, or `@bub` plus a game tag only (e.g. `@bub sf6`) to open that game's menu. "
+            "Slash commands include `/sf6`, `/sf6-stats` (SF6 stats), `/sf6-combos`, `/ggst`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1`, and `/mk1-combos`. "
+            "Menus are locked to the user who opened them."
         ),
         inline=False,
     )
     embed.add_field(
         name="5. Quiz And Compare",
         value=(
-            "Each game menu has Quiz. The SF6 menu also has Stats between Frame Data and Quiz for character stat sheets. "
+            "Each game menu has Combos (SF6/MK1) and Quiz. The SF6 menu also has Stats between Frame Data and Combos for character stat sheets. "
             "Frame-data results can include a Compare button that lets you choose another move from the same game "
             "and place the results side by side."
         ),
@@ -1850,12 +2179,36 @@ def _quiz_difficulty_embed(game_label):
     )
 
 
-def _combo_character_select_embed(page=None, total_pages=None):
+def _combo_character_select_embed(game, page=None, total_pages=None):
+    from bubbot.frame_data import combo_data
+
     page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages else ""
     return discord.Embed(
-        title="Mortal Kombat 1 - Combos",
+        title=f"{combo_data.game_label(game)} - Combos",
         description=f"Select a character to see available combo routes.{page_text}",
-        colour=0x7E1616,
+        colour=combo_data.game_colour(game),
+    )
+
+
+def _combo_section_select_embed(game, char_key, page=None, total_pages=None):
+    from bubbot.frame_data import combo_data
+
+    page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages and total_pages > 1 else ""
+    return discord.Embed(
+        title=f"{combo_data.game_label(game)} - {combo_data.display_char_name(game, char_key)}",
+        description=f"Pick a combo section (headings from the SuperCombo page).{page_text}",
+        colour=combo_data.game_colour(game),
+    )
+
+
+def _combo_subsection_select_embed(game, char_key, section_label, page=None, total_pages=None):
+    from bubbot.frame_data import combo_data
+
+    page_text = f"\nPage {page + 1}/{total_pages}" if page is not None and total_pages and total_pages > 1 else ""
+    return discord.Embed(
+        title=f"{combo_data.game_label(game)} - {combo_data.display_char_name(game, char_key)}",
+        description=f"**{section_label}** — pick a sub-section.{page_text}",
+        colour=combo_data.game_colour(game),
     )
 
 
@@ -1863,6 +2216,14 @@ async def send_main_menu(destination, owner_id=None):
     await destination.send(
         embed=_main_menu_embed(),
         view=MainMenuView(owner_id),
+    )
+
+
+async def send_game_menu(destination, game, owner_id=None):
+    game_key = str(game or "").strip().lower()
+    await destination.send(
+        embed=_game_menu_embed(_game_label(game_key), _game_colour(game_key)),
+        view=_game_menu_view(game_key, owner_id),
     )
 
 

@@ -20,6 +20,7 @@ from bubbot.frame_data.sf6_character_stats import (
 )
 from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT, MISSING_HITBOX_GIF_TEXT
 from bubbot.utils.text_utils import compact_key
+from bubbot.frame_data.gif_lookup import DISCORD_ATTACHMENT_LIMIT
 
 FRAME_STATS = {}
 normalize_char_name = None
@@ -450,7 +451,7 @@ class FrameDataGifButton(discord.ui.Button):
             )
             return
 
-        asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=4)
+        asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=DISCORD_ATTACHMENT_LIMIT)
         if asset_paths:
             if interaction.message and interaction.message.embeds:
                 embed = discord.Embed.from_dict(interaction.message.embeds[0].to_dict())

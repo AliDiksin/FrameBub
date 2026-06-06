@@ -21,9 +21,7 @@ from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suff
 
 MK1_MOVE_LIST_FILE = os.path.join("mk1", "move_list.json")
 MK1_KAMEO_MOVE_LIST_FILE = os.path.join("mk1", "move_list_kameo.json")
-MK1_COMBOS_FILE = os.path.join("mk1", "combos.json")
 MK1_FRAME_DATA = {}
-MK1_COMBO_DATA = {}
 
 
 def normalize_key(value):
@@ -111,34 +109,11 @@ def _register_character_aliases(char_key, display_name, source="character"):
             MK1_CHARACTER_ALIASES.setdefault(alias, char_key)
 
 
-def _mk1_combo_row(raw_row):
-    char_name = str(raw_row.get("char_name") or "").strip()
-    if not char_name:
-        return None
-    return {
-        "char_key": normalize_key(char_name),
-        "char_name": char_name,
-        "kameo_name": str(raw_row.get("kameo_name") or "").strip(),
-        "category": str(raw_row.get("category") or "").strip(),
-        "subcategory": str(raw_row.get("subcategory") or "").strip(),
-        "combo": str(raw_row.get("combo") or "").strip(),
-        "damage": str(raw_row.get("damage") or "").strip(),
-        "difficulty": str(raw_row.get("difficulty") or "").strip(),
-        "meter": str(raw_row.get("meter") or "").strip(),
-        "kameo_meter": str(raw_row.get("kameo_meter") or "").strip(),
-        "tags": str(raw_row.get("tags") or "").strip(),
-        "url": str(raw_row.get("url") or "").strip(),
-        "notes": str(raw_row.get("notes") or "").strip(),
-    }
-
-
-def load_frame_data(move_file=None, kameo_file=None, combo_file=None):
-    global MK1_FRAME_DATA, MK1_COMBO_DATA
+def load_frame_data(move_file=None, kameo_file=None):
+    global MK1_FRAME_DATA
     MK1_FRAME_DATA = {}
-    MK1_COMBO_DATA = {}
     move_file = move_file or MK1_MOVE_LIST_FILE
     kameo_file = kameo_file or MK1_KAMEO_MOVE_LIST_FILE
-    combo_file = combo_file or MK1_COMBOS_FILE
 
     for raw_row in _extract_export_rows(move_file):
         row = _mk1_row(raw_row, source="character")
@@ -154,17 +129,9 @@ def load_frame_data(move_file=None, kameo_file=None, combo_file=None):
         MK1_FRAME_DATA.setdefault(row["char_key"], []).append(row)
         _register_character_aliases(row["char_key"], row["char_name"], source="kameo")
 
-    for raw_row in _extract_export_rows(combo_file):
-        row = _mk1_combo_row(raw_row)
-        if not row:
-            continue
-        MK1_COMBO_DATA.setdefault(row["char_key"], []).append(row)
-        _register_character_aliases(row["char_key"], row["char_name"], source="character")
-
     print(
         f"[mk1] Total fighters loaded: {sum(1 for key in MK1_FRAME_DATA if not key.startswith('kameo_'))}; "
-        f"kameos loaded: {sum(1 for key in MK1_FRAME_DATA if key.startswith('kameo_'))}; "
-        f"combo characters loaded: {len(MK1_COMBO_DATA)}",
+        f"kameos loaded: {sum(1 for key in MK1_FRAME_DATA if key.startswith('kameo_'))}",
         flush=True,
     )
     return bool(MK1_FRAME_DATA)
@@ -345,82 +312,19 @@ def find_matching_rows(char_key, move_text):
 
 def build_disambiguation_prompt(char_key, rows):
     lines = [f"Multiple MK1 moves match {display_char_name(char_key)}. Reply with the option number:"]
-    for index, row in enumerate(rows[:12], start=1):
+    for index, row in enumerate(rows, start=1):
         move_name = clean_value(row.get("moveName"), "Unknown")
         num_cmd = clean_value(row.get("numCmd"), "?")
         lines.append(f"{index}. {move_name}: `{num_cmd}`")
     return "\n".join(lines)
 
 
-def _combo_query_terms(text):
-    lowered = str(text or "").lower()
-    return {
-        "corner": bool(re.search(r"\bcorner\b", lowered)),
-        "midscreen": bool(re.search(r"\bmid\s*screen|\bmidscreen\b", lowered)),
-        "easy": bool(re.search(r"\beasy\b", lowered)),
-        "medium": bool(re.search(r"\bmedium\b", lowered)),
-        "hard": bool(re.search(r"\bhard\b", lowered)),
-        "meterless": bool(re.search(r"\bmeterless|no\s+meter\b", lowered)),
-    }
-
-
-def find_combo_rows_in_text(text, limit=8):
-    lowered = str(text or "").lower()
-    if not re.search(r"\b(?:combo|combos|bnb|bnbs|route|routes)\b", lowered):
-        return []
-    char_matches = find_alias_positions_in_text(lowered, MK1_CHARACTER_ALIASES, MK1_COMBO_DATA.keys())
-    char_key = None
-    for candidate, _start, _end, _alias in char_matches:
-        if not str(candidate).startswith("kameo_"):
-            char_key = candidate
-            break
-    if not char_key:
-        return []
-    rows = list(MK1_COMBO_DATA.get(char_key, []) or [])
-    terms = _combo_query_terms(lowered)
-    kameo_filter = None
-    for row in rows:
-        kameo_name = str(row.get("kameo_name") or "").strip().lower()
-        if kameo_name and re.search(rf"\b{re.escape(kameo_name)}\b", lowered):
-            kameo_filter = kameo_name
-            break
-    if kameo_filter:
-        rows = [row for row in rows if str(row.get("kameo_name") or "").strip().lower() == kameo_filter]
-    if terms["corner"]:
-        rows = [row for row in rows if "corner" in str(row.get("category") or "").lower()]
-    if terms["midscreen"]:
-        rows = [row for row in rows if "mid" in str(row.get("category") or "").lower()]
-    for difficulty in ("easy", "medium", "hard"):
-        if terms[difficulty]:
-            rows = [row for row in rows if str(row.get("difficulty") or "").lower() == difficulty]
-            break
-    if terms["meterless"]:
-        rows = [row for row in rows if str(row.get("meter") or "").strip() in {"", "0"}]
-    return rows[:limit]
-
-
 def find_moves_in_text(text):
     lowered = str(text or "").lower()
-    combo_query = bool(re.search(r"\b(?:combo|combos|bnb|bnbs|route|routes)\b", lowered))
     gif_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     notes_query = bool(re.search(r"\bnotes?\b", lowered))
     game_query = bool(re.search(r"\b(?:mk1|mortal\s+kombat\s+1|mortal\s+kombat\s+one|mortal\s+kombat)\b", lowered))
-    if combo_query:
-        combo_rows = find_combo_rows_in_text(lowered)
-        return {
-            "mode": "combo" if combo_rows else "none",
-            "rows": [],
-            "combo_rows": combo_rows,
-            "data": format_combo_rows(combo_rows),
-            "combo_query": True,
-            "frame_query": frame_query,
-            "gif_query": gif_query,
-            "notes_query": notes_query,
-            "game_query": game_query,
-            "char_found": bool(combo_rows),
-            "explicit_move_attempt": bool(game_query),
-        }
     char_matches = find_characters_in_text(lowered)
     rows = []
     matched_char_key = char_matches[0][0] if char_matches else None
@@ -568,62 +472,6 @@ def build_frame_embed(row, show_notes=False):
     return embed
 
 
-def format_combo_rows(rows):
-    if not rows:
-        return ""
-    blocks = []
-    for row in rows[:8]:
-        heading = f"{row.get('category') or 'Combo'}"
-        if row.get("subcategory"):
-            heading += f" - {row.get('subcategory')}"
-        if row.get("kameo_name"):
-            heading += f" with {row.get('kameo_name')}"
-        details = [
-            f"Combo: {row.get('combo')}",
-            f"Damage: {clean_value(row.get('damage'), '-')} | Difficulty: {clean_value(row.get('difficulty'), '-')} | Meter: {clean_value(row.get('meter'), '0')} | Kameo: {clean_value(row.get('kameo_meter'), '0')}",
-        ]
-        if row.get("tags"):
-            details.append(f"Tags: {row.get('tags')}")
-        if row.get("notes"):
-            details.append(f"Notes: {row.get('notes')}")
-        if row.get("url"):
-            details.append(f"URL: {row.get('url')}")
-        blocks.append(f"**{heading}**\n" + "\n".join(details))
-    return "\n\n".join(blocks)
-
-
-def build_combo_embed(char_key, rows):
-    embed = discord.Embed(
-        title=truncate_value(f"MK1 Combos - {display_char_name(char_key)}", 256),
-        colour=0x7E1616,
-    )
-    if not rows:
-        embed.description = "No combos found for that filter."
-        return embed
-    for row in rows[:8]:
-        title = f"{row.get('category') or 'Combo'}"
-        if row.get("subcategory"):
-            title += f" - {row.get('subcategory')}"
-        if row.get("kameo_name"):
-            title += f" with {row.get('kameo_name')}"
-        value = (
-            f"`{row.get('combo')}`\n"
-            f"Damage: **{clean_value(row.get('damage'), '-')}** | Difficulty: **{clean_value(row.get('difficulty'), '-')}** | "
-            f"Meter: **{clean_value(row.get('meter'), '0')}** | Kameo: **{clean_value(row.get('kameo_meter'), '0')}**"
-        )
-        extras = []
-        if row.get("tags"):
-            extras.append(f"Tags: {row.get('tags')}")
-        if row.get("notes"):
-            extras.append(f"Notes: {row.get('notes')}")
-        if row.get("url"):
-            extras.append(str(row.get("url")))
-        if extras:
-            value += "\n" + "\n".join(extras)
-        add_long_embed_field(embed, truncate_value(title, 256), value, inline=False)
-    return embed
-
-
 class MK1NotesButton(discord.ui.Button):
     def __init__(self, row):
         self.frame_row = row
@@ -661,10 +509,3 @@ async def send_hitbox_response(message, rows):
     sent = await message.reply(response_text)
     return [sent.id]
 
-
-async def send_combo_response(message, rows):
-    if not rows:
-        return []
-    char_key = rows[0].get("char_key")
-    sent = await message.channel.send(embed=build_combo_embed(char_key, rows))
-    return [sent.id]

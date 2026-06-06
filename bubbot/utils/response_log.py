@@ -54,7 +54,7 @@ def summarize_embed(embed) -> str:
     title = str(getattr(embed, "title", "") or "").strip()
     description = str(getattr(embed, "description", "") or "").strip()
     parts = [part for part in (title, description) if part]
-    for field in list(getattr(embed, "fields", None) or [])[:8]:
+    for field in list(getattr(embed, "fields", None) or []):
         name = str(getattr(field, "name", "") or "").strip()
         value = str(getattr(field, "value", "") or "").strip()
         if name or value:

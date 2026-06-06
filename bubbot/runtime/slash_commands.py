@@ -1,3 +1,4 @@
+import os
 import re
 
 import discord
@@ -13,6 +14,9 @@ from bubbot.utils.slash_frame_flow import send_slash_frame_result, send_slash_st
 
 def register_slash_commands(tree, deps):
     """Register public slash commands and autocomplete handlers."""
+    if getattr(tree, "_bub_slash_registered", False):
+        return
+    setattr(tree, "_bub_slash_registered", True)
 
     frame_data = deps["frame_data"]
     frame_stats = deps["frame_stats"]
@@ -27,6 +31,7 @@ def register_slash_commands(tree, deps):
     cotw_module = deps["cotw_module"]
     third_strike_module = deps["third_strike_module"]
     mk1_module = deps["mk1_module"]
+    combo_data_module = deps["combo_data_module"]
     menu_system = deps["menu_system"]
 
     def slash_choices(values):
@@ -160,8 +165,14 @@ def register_slash_commands(tree, deps):
             return []
         return [label for _row, label in move_choices(mk1_module.MK1_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "moveType")) if label]
 
-    def mk1_combo_character_choice_values():
-        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in mk1_module.MK1_COMBO_DATA.items() if rows}))
+    def combo_character_choice_values(game):
+        return sorted(display for _char_key, display in combo_data_module.combo_character_list(game))
+
+    def combo_group_choice_values(game, char_name):
+        char_key = resolve_character_key(char_name) if game == "sf6" else mk1_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [label for label, _count in combo_data_module.combo_groups(game, char_key)]
 
     def ggst_char_state_choice_values(char_name):
         char_key = ggst_module.resolve_character_key(char_name)
@@ -319,15 +330,40 @@ def register_slash_commands(tree, deps):
         query = f"mk1 {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
         await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=mk1_module.find_moves_in_text, embed_fn=mk1_module.build_frame_embed, game="mk1", game_label="MK1", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
-    async def send_mk1_slash_combos(interaction, char_name, difficulty=None, position=None):
-        query_parts = ["mk1", char_name, difficulty or "", position or "", "combos"]
-        payload = mk1_module.find_moves_in_text(" ".join(part for part in query_parts if part).lower())
-        rows = payload.get("combo_rows", []) or []
-        char_key = mk1_module.resolve_character_key(char_name)
-        if not rows or not char_key:
-            await interaction.response.send_message(f"No MK1 combos found for {char_name} with those filters.")
+    async def send_slash_combos(interaction, game, char_name, difficulty=None, position=None, group=None):
+        query_parts = [game, char_name, group or "", difficulty or "", position or "", "combos"]
+        payload = combo_data_module.find_combo_rows_in_text(game, " ".join(part for part in query_parts if part).lower())
+        char_key = payload.get("char_key")
+        if not char_key:
+            char_key = resolve_character_key(char_name) if game == "sf6" else mk1_module.resolve_character_key(char_name)
+        if not char_key:
+            await interaction.response.send_message(
+                f"No {combo_data_module.game_label(game)} combos found for {char_name} with those filters."
+            )
             return
-        await interaction.response.send_message(embed=mk1_module.build_combo_embed(char_key, rows))
+        nav, _details = combo_data_module.combo_entry_nav(
+            game,
+            char_key,
+            group=payload.get("group"),
+            rows=payload.get("rows"),
+        )
+        if nav == "empty":
+            await interaction.response.send_message(
+                f"No {combo_data_module.game_label(game)} combos found for {char_name} with those filters."
+            )
+            return
+        sent_ids = await combo_data_module.send_combo_entry(
+            interaction,
+            game,
+            char_key,
+            payload,
+            owner_id=interaction.user.id,
+            back_to="game_menu",
+        )
+        if not sent_ids:
+            await interaction.response.send_message(
+                f"No {combo_data_module.game_label(game)} combos found for {char_name} with those filters."
+            )
 
     @tree.command(name="bub", description="Open Bub's menu")
     async def bub_slash_command(interaction: discord.Interaction):
@@ -373,9 +409,24 @@ def register_slash_commands(tree, deps):
         return await send_mk1_slash_frame(interaction, char_name, move_name)
 
     @tree.command(name="mk1-combos")
-    @discord.app_commands.describe(char_name="The character name", difficulty="Optional difficulty filter: easy, medium, or hard", position="Optional position filter: midscreen or corner")
-    async def mk1_combos(interaction: discord.Interaction, char_name: str, difficulty: str = None, position: str = None):
-        return await send_mk1_slash_combos(interaction, char_name, difficulty, position)
+    @discord.app_commands.describe(
+        char_name="The character name",
+        group="Optional starter string or section filter",
+        difficulty="Optional difficulty filter: easy, medium, or hard",
+        position="Optional position filter: midscreen or corner",
+    )
+    async def mk1_combos(interaction: discord.Interaction, char_name: str, group: str = None, difficulty: str = None, position: str = None):
+        return await send_slash_combos(interaction, "mk1", char_name, difficulty, position, group)
+
+    @tree.command(name="sf6-combos")
+    @discord.app_commands.describe(
+        char_name="The character name",
+        group="Optional starter or section filter",
+        difficulty="Optional difficulty filter: easy, medium, or hard",
+        position="Optional position filter: midscreen or corner",
+    )
+    async def sf6_combos(interaction: discord.Interaction, char_name: str, group: str = None, difficulty: str = None, position: str = None):
+        return await send_slash_combos(interaction, "sf6", char_name, difficulty, position, group)
 
     @tree.command(name="sf6")
     @discord.app_commands.describe(char_name="The characters name", move_name="The move name", char_state="Optional char specific states like Installs.")
@@ -498,7 +549,31 @@ def register_slash_commands(tree, deps):
 
     @mk1_combos.autocomplete("char_name")
     async def mk1_combo_char_autocomplete(interaction: discord.Interaction, current: str):
-        return slash_choices(autocomplete_values(current, mk1_combo_character_choice_values()))
+        return slash_choices(autocomplete_values(current, combo_character_choice_values("mk1")))
+
+    @mk1_combos.autocomplete("group")
+    async def mk1_combo_group_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, combo_group_choice_values("mk1", interaction.namespace.char_name)))
+
+    @sf6_combos.autocomplete("char_name")
+    async def sf6_combo_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, combo_character_choice_values("sf6")))
+
+    @sf6_combos.autocomplete("group")
+    async def sf6_combo_group_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, combo_group_choice_values("sf6", interaction.namespace.char_name)))
+
+    @sf6_combos.autocomplete("difficulty")
+    async def sf6_combo_difficulty_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, ["easy", "medium", "hard"]))
+
+    @sf6_combos.autocomplete("position")
+    async def sf6_combo_position_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, ["midscreen", "corner"]))
 
     @mk1_combos.autocomplete("difficulty")
     async def mk1_combo_difficulty_autocomplete(interaction: discord.Interaction, current: str):
@@ -507,3 +582,52 @@ def register_slash_commands(tree, deps):
     @mk1_combos.autocomplete("position")
     async def mk1_combo_position_autocomplete(interaction: discord.Interaction, current: str):
         return slash_choices(autocomplete_values(current, ["midscreen", "corner"]))
+
+
+async def sync_public_slash_commands(client, tree):
+    """
+    Sync global slash commands and clear stale guild-scoped copies.
+
+    Duplicate /command entries in Discord usually mean the same commands were
+    synced globally and to a guild during an earlier deploy — not duplicate
+  registrations in our CommandTree.
+    """
+    local_commands = list(tree.get_commands())
+    local_names = [cmd.name for cmd in local_commands]
+    if len(local_names) != len(set(local_names)):
+        print(f"[menu] WARNING: duplicate slash names in local tree: {local_names}", flush=True)
+
+    guild_ids_to_clear = set()
+    channel_id = os.getenv("CHANNEL_ID")
+    if channel_id:
+        try:
+            channel = client.get_channel(int(channel_id))
+            if channel and getattr(channel, "guild", None):
+                guild_ids_to_clear.add(int(channel.guild.id))
+        except (TypeError, ValueError):
+            pass
+    for env_name in ("DISCORD_GUILD_ID", "GUILD_ID"):
+        raw_guild_id = os.getenv(env_name)
+        if not raw_guild_id:
+            continue
+        try:
+            guild_ids_to_clear.add(int(raw_guild_id))
+        except ValueError:
+            print(f"[menu] Ignoring invalid {env_name}={raw_guild_id!r}", flush=True)
+
+    for guild_id in sorted(guild_ids_to_clear):
+        guild_obj = discord.Object(id=guild_id)
+        tree.clear_commands(guild=guild_obj)
+        await tree.sync(guild=guild_obj)
+        print(f"[menu] Cleared guild-scoped slash commands for guild {guild_id}", flush=True)
+
+    synced = await tree.sync()
+    synced_names = sorted(cmd.name for cmd in synced)
+    print(
+        f"[menu] Global slash commands synced ({len(synced_names)}): "
+        + ", ".join(f"/{name}" for name in synced_names),
+        flush=True,
+    )
+    if len(synced_names) != len(set(synced_names)):
+        print("[menu] WARNING: Discord sync returned duplicate command names", flush=True)
+    return synced

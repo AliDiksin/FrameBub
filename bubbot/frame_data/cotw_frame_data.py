@@ -199,7 +199,7 @@ def find_matching_rows(char_key, move_text):
 
 def build_disambiguation_prompt(char_key, rows):
     lines = [f"Multiple COTW moves match {display_char_name(char_key)}. Reply with the option number:"]
-    for index, row in enumerate(rows[:12], start=1):
+    for index, row in enumerate(rows, start=1):
         move_name = str(row.get("moveName") or "Unknown").strip()
         num_cmd = str(row.get("numCmd") or "?").strip()
         lines.append(f"{index}. {move_name}: `{num_cmd}`")
@@ -330,7 +330,7 @@ def add_long_embed_field(embed, name, value, inline=False):
     if not clean:
         return
     chunks = [clean[index : index + 1024] for index in range(0, len(clean), 1024)]
-    for index, chunk in enumerate(chunks[:3]):
+    for index, chunk in enumerate(chunks):
         embed.add_field(name=name if index == 0 else f"{name} cont.", value=chunk, inline=inline)
 
 

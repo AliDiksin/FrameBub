@@ -108,7 +108,10 @@ def load_local_hitbox_gif_data(character_lookup):
     return gif_data
 
 
-def get_existing_local_gif_asset_paths(gif_links, limit=4):
+DISCORD_ATTACHMENT_LIMIT = 10
+
+
+def get_existing_local_gif_asset_paths(gif_links, limit=DISCORD_ATTACHMENT_LIMIT):
     paths = []
     seen = set()
     for move_link in gif_links or []:
@@ -556,7 +559,7 @@ def lookup_hitbox_gif_link(row):
     return None
 
 
-def collect_hitbox_gif_links(rows, limit=3):
+def collect_hitbox_gif_links(rows, limit=DISCORD_ATTACHMENT_LIMIT):
     links = []
     seen = set()
     for row in rows:
@@ -836,7 +839,7 @@ def resolve_hitbox_gif_query_alias(char_key, move_query):
     return jamie_gif_aliases.get(query_raw, query_raw)
 
 
-def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=3):
+def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTACHMENT_LIMIT):
     gif_rows = HITBOX_GIF_DATA.get(char_key, [])
     if not gif_rows:
         return []
@@ -1002,7 +1005,7 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=3):
     return []
 
 
-def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3, prefer_frame_rows=False):
+def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=DISCORD_ATTACHMENT_LIMIT, prefer_frame_rows=False):
     links = []
     seen = set()
     has_frame_rows = bool(frame_rows)
@@ -1148,7 +1151,7 @@ def collect_hitbox_gif_links_from_text(text, frame_rows=None, limit=3, prefer_fr
     add_query_links()
 
 
-def get_frame_row_gif_links(row, limit=4):
+def get_frame_row_gif_links(row, limit=DISCORD_ATTACHMENT_LIMIT):
     if not isinstance(row, dict):
         return []
 

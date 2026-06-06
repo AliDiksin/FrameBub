@@ -31,6 +31,7 @@ import bubbot.frame_data.bbcf_frame_data as bbcf_module
 import bubbot.frame_data.cotw_frame_data as cotw_module
 import bubbot.frame_data.third_strike_frame_data as third_strike_module
 import bubbot.frame_data.mk1_frame_data as mk1_module
+import bubbot.frame_data.combo_data as combo_data_module
 import bubbot.features.menu_system as menu_system
 from bubbot.frame_data.frame_output import (
     send_character_stats_response,
@@ -911,9 +912,6 @@ def normalize_jump_normal_text(text):
 
 FRAME_DATA = {}
 FRAME_STATS = {}
-BNB_DATA = {}
-OKI_DATA = {}
-CHARACTER_INFO = {}
 HITBOX_GIF_DATA = {}
 RANGE_DATA = {}
 
@@ -942,9 +940,6 @@ def load_frame_data():
         {
             "FRAME_DATA": FRAME_DATA,
             "FRAME_STATS": FRAME_STATS,
-            "BNB_DATA": BNB_DATA,
-            "OKI_DATA": OKI_DATA,
-            "CHARACTER_INFO": CHARACTER_INFO,
             "HITBOX_GIF_DATA": HITBOX_GIF_DATA,
             "RANGE_DATA": RANGE_DATA,
             "CHARACTER_ALIASES": CHARACTER_ALIASES,
@@ -968,9 +963,6 @@ def find_moves_in_text(text):
             "CHARACTER_ALIASES": CHARACTER_ALIASES,
             "FRAME_DATA": FRAME_DATA,
             "FRAME_STATS": FRAME_STATS,
-            "BNB_DATA": BNB_DATA,
-            "OKI_DATA": OKI_DATA,
-            "CHARACTER_INFO": CHARACTER_INFO,
             "strip_discord_mentions": strip_discord_mentions,
             "normalize_jump_normal_text": normalize_jump_normal_text,
             "word_tokens": word_tokens,
@@ -1149,6 +1141,12 @@ sanitize_embed_followup_text = frame_output_module.sanitize_embed_followup_text
 
 
 def configure_extracted_modules():
+    combo_data_module.configure(
+        resolve_sf6_character_key=resolve_character_key,
+        resolve_mk1_character_key=mk1_module.resolve_character_key,
+        sf6_character_aliases=CHARACTER_ALIASES,
+        mk1_character_aliases=mk1_module.MK1_CHARACTER_ALIASES,
+    )
     gif_lookup_module.configure(
         CHARACTER_ALIASES=CHARACTER_ALIASES,
         FRAME_DATA=FRAME_DATA,
@@ -1174,6 +1172,66 @@ def configure_extracted_modules():
         FRAME_STATS=FRAME_STATS,
         normalize_char_name=normalize_char_name,
     )
+
+
+async def _try_route_combo_query(
+    message,
+    content_lower,
+    *,
+    frame_command_is_addressed,
+    sf6_exact_character_query,
+    mk1_exact_character_query,
+):
+    """Route NL combo queries before SF6 frame parsing (avoids unrelated parser deps)."""
+    if not frame_command_is_addressed:
+        return False
+    if not re.search(r"\b(?:combo|combos|bnb|bnbs|route|routes)\b", content_lower):
+        return False
+
+    if combo_data_module._query_has_game_tag(content_lower, "mk1"):
+        combo_games = ["mk1"]
+    elif combo_data_module._query_has_game_tag(content_lower, "sf6"):
+        combo_games = ["sf6"]
+    elif mk1_exact_character_query and not sf6_exact_character_query:
+        combo_games = ["mk1"]
+    elif sf6_exact_character_query and not mk1_exact_character_query:
+        combo_games = ["sf6"]
+    else:
+        combo_games = ["sf6", "mk1"]
+
+    for game in combo_games:
+        if not combo_data_module.has_combos(game):
+            continue
+        combo_payload = combo_data_module.find_combo_rows_in_text(game, content_lower)
+        if combo_payload.get("combo_query") and combo_payload.get("char_found"):
+            nav, _details = combo_data_module.combo_entry_nav(
+                game,
+                combo_payload["char_key"],
+                group=combo_payload.get("group"),
+                rows=combo_payload.get("rows"),
+            )
+            if nav != "empty":
+                _record_frame_data_ids(
+                    await combo_data_module.send_combo_entry(
+                        message,
+                        game,
+                        combo_payload["char_key"],
+                        combo_payload,
+                        owner_id=getattr(message.author, "id", None),
+                        back_to="game_menu",
+                    )
+                )
+                return True
+        if combo_payload.get("combo_query") and combo_payload.get("char_found"):
+            char_label = combo_data_module.display_char_name(game, combo_payload["char_key"])
+            await _reply_and_log_response(
+                message,
+                f"No combos found for {char_label} with those filters.",
+                "missing_scrolls",
+            )
+            return True
+    return False
+
 
 def is_deleted_message_reference_error(error):
     if isinstance(error, discord.NotFound):
@@ -1215,6 +1273,7 @@ async def on_ready():
             "cotw_module": cotw_module,
             "third_strike_module": third_strike_module,
             "mk1_module": mk1_module,
+            "combo_data_module": combo_data_module,
             "FRAME_DATA": FRAME_DATA,
             "FRAME_STATS": FRAME_STATS,
             "CHARACTER_ALIASES": CHARACTER_ALIASES,
@@ -1260,6 +1319,24 @@ async def _handle_message(message):
         return
 
     directly_mentions_bot = message_directly_mentions_bot(message)
+
+    game_only = menu_system.parse_game_only_mention(content_no_mentions)
+    if directly_mentions_bot and game_only:
+        await menu_system.send_game_menu(message.channel, game_only, owner_id=message.author.id)
+        try:
+            log_record(
+                build_log_record(
+                    interaction_type=INTERACTION_MENU,
+                    reason="game_mention_menu",
+                    prompt=str(getattr(message, "content", "") or ""),
+                    response_text=f"Opened {menu_system._game_label(game_only)} menu embed.",
+                    response_kind="embed",
+                    source_message=message,
+                )
+            )
+        except Exception as log_error:
+            print(f"Response log error: {log_error}", flush=True)
+        return
 
     quiz_result = await quiz_module.route_message(client, message, content_lower)
     if quiz_result is not False:
@@ -1640,6 +1717,15 @@ async def _handle_message(message):
         or message_replies_to_bot
         or directly_mentions_bot
     )
+    if await _try_route_combo_query(
+        message,
+        content_lower,
+        frame_command_is_addressed=frame_command_is_addressed,
+        sf6_exact_character_query=sf6_exact_character_query,
+        mk1_exact_character_query=mk1_exact_character_query,
+    ):
+        return
+
     fd_context_payload = find_moves_in_text(content_lower)
 
     ggst_payload = ggst_module.find_moves_in_text(content_lower)
@@ -1881,13 +1967,11 @@ async def _handle_message(message):
         return
 
     mk1_rows = mk1_payload.get("rows", [])
-    mk1_combo_rows = mk1_payload.get("combo_rows", []) or []
     mk1_lookup_intent = bool(
         mk1_payload.get("frame_query")
         or mk1_payload.get("gif_query")
         or mk1_payload.get("game_query")
         or mk1_payload.get("notes_query")
-        or mk1_payload.get("combo_query")
         or requested_property_key
         or mk1_module.query_has_mk1_notation(content_lower)
     )
@@ -1900,7 +1984,7 @@ async def _handle_message(message):
         )
         or (
             mk1_exact_character_query
-            and (mk1_rows or mk1_combo_rows)
+            and mk1_rows
             and not sf6_exact_character_query
             and not ggst_exact_character_query
             and not sfv_exact_character_query
@@ -1910,9 +1994,6 @@ async def _handle_message(message):
             and not third_strike_exact_character_query
         )
     )
-    if frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_combo_rows:
-        _record_frame_data_ids(await mk1_module.send_combo_response(message, mk1_combo_rows))
-        return
     if frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_rows:
         if mk1_payload.get("needs_disambiguation"):
             await message.reply(mk1_payload.get("data", "Please specify which MK1 move you mean."))
@@ -2327,9 +2408,9 @@ async def _handle_message(message):
                     if len(comparison_rows) >= 2:
                         gif_frame_rows = comparison_rows
 
-                gif_limit = 3
+                gif_limit = gif_lookup_module.DISCORD_ATTACHMENT_LIMIT
                 if wants_comparison and gif_frame_rows:
-                    gif_limit = max(2, len(gif_frame_rows))
+                    gif_limit = max(gif_limit, len(gif_frame_rows))
 
                 gif_links = collect_hitbox_gif_links_from_text(
                     content_no_mentions,
@@ -2391,9 +2472,9 @@ async def _handle_message(message):
                 if len(comparison_rows) >= 2:
                     gif_frame_rows = comparison_rows
 
-            gif_limit = 3
+            gif_limit = gif_lookup_module.DISCORD_ATTACHMENT_LIMIT
             if wants_comparison and gif_frame_rows:
-                gif_limit = max(2, len(gif_frame_rows))
+                gif_limit = max(gif_limit, len(gif_frame_rows))
 
             gif_links = collect_hitbox_gif_links_from_text(
                 content_no_mentions,
@@ -2693,6 +2774,7 @@ register_slash_commands(
         "cotw_module": cotw_module,
         "third_strike_module": third_strike_module,
         "mk1_module": mk1_module,
+        "combo_data_module": combo_data_module,
         "menu_system": menu_system,
     },
 )

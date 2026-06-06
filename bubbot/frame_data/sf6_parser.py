@@ -29,9 +29,6 @@ def find_moves_in_text(deps, text):
     CHARACTER_ALIASES = deps["CHARACTER_ALIASES"]
     FRAME_DATA = deps["FRAME_DATA"]
     FRAME_STATS = deps["FRAME_STATS"]
-    BNB_DATA = deps["BNB_DATA"]
-    OKI_DATA = deps["OKI_DATA"]
-    CHARACTER_INFO = deps["CHARACTER_INFO"]
     strip_discord_mentions = deps["strip_discord_mentions"]
     normalize_jump_normal_text = deps["normalize_jump_normal_text"]
     word_tokens = deps["word_tokens"]
@@ -81,29 +78,6 @@ def find_moves_in_text(deps, text):
 
     infer_character_mentions_from_terms(text_lower, FRAME_DATA, mentioned_chars)
 
-    # Check for BNB/Combo requests
-    bnb_keywords = ["combo", "combos", "bnb", "bnbs", "bread and butter", "route", "routes"]
-    oki_keywords = ["oki", "okizeme", "setup", "setups", "meaty", "meaties"]
-    info_keywords = [
-        "playstyle",
-        "gameplan",
-        "archetype",
-        "overview",
-        "tell me about",
-        "who is",
-        "strengths",
-        "weaknesses",
-        "moveset",
-        "toolkit",
-        "role",
-        "how to play",
-        "character synopsis",
-        "summary",
-        "anti air",
-        "anti-air",
-        "neutral",
-        "win condition",
-    ]
     frame_keywords = [
         "frame data",
         "framedata",
@@ -191,9 +165,6 @@ def find_moves_in_text(deps, text):
     punish_keywords = ["punish", "punishable", "can i punish", "is it punishable"]
     target_combo_query = bool(re.search(r"\b(tc|target\s+combo|targetcombo)\b", text_lower))
     special_grab_query = bool(re.search(r"\b(command\s+grab|spd|piledriver|typhoon)\b", text_lower))
-    wants_bnb = any(kw in text_lower for kw in bnb_keywords) and not target_combo_query
-    wants_oki = any(kw in text_lower for kw in oki_keywords)
-    wants_info = any(kw in text_lower for kw in info_keywords)
     wants_comparison = (
         any(kw in text_lower for kw in comparison_keywords)
         or re.search(r"\bvs\b", text_lower)
@@ -211,14 +182,6 @@ def find_moves_in_text(deps, text):
         or target_combo_query
         or gif_query
     )
-    bnb_context = ""
-    info_blocks = []
-    if wants_bnb or wants_oki:
-        for char in mentioned_chars:
-            if wants_bnb and char in BNB_DATA:
-                bnb_context += f"\n\n**{char.capitalize()} Combos:**\n{BNB_DATA[char]}"
-            if (wants_bnb or wants_oki) and char in OKI_DATA:
-                bnb_context += f"\n\n**{char.capitalize()} Oki/Setups:**\n{OKI_DATA[char]}"
     results = []
     tc_selected_combos = set()
     tc_base_tokens = set()
@@ -1608,17 +1571,6 @@ def find_moves_in_text(deps, text):
     ):
         missing_scrolls_query = True
 
-    has_results = bool(results)
-
-    if not wants_frame_data and (
-        wants_info or (mentioned_chars and not has_results and not wants_bnb and not wants_stats)
-    ):
-        for char in mentioned_chars:
-            if char in CHARACTER_INFO:
-                info_blocks.append(
-                    f"**{char.capitalize()} Overview:**\n{CHARACTER_INFO[char]}"
-                )
-
     for move_data in results:
         def clean(val):
             return str(val).replace('*', ',')
@@ -1684,10 +1636,6 @@ def find_moves_in_text(deps, text):
     sections = []
     if formatted_blocks:
         sections.append("\n\n".join(formatted_blocks))
-    if info_blocks:
-        sections.append("\n\n".join(info_blocks))
-    if bnb_context:
-        sections.append(bnb_context.strip())
 
     output = "\n\n---\n".join(sections)
 
@@ -1700,17 +1648,11 @@ def find_moves_in_text(deps, text):
             output = punish_verdict
 
     has_frame_blocks = bool(formatted_blocks)
-    has_combo_blocks = bool(bnb_context)
-    has_overview_blocks = bool(info_blocks)
     has_stats_blocks = bool(wants_stats and stats_char_keys)
-    if stats_only and has_stats_blocks and not results and not has_combo_blocks and not has_overview_blocks:
+    if stats_only and has_stats_blocks and not results:
         mode = "stats"
     elif has_frame_blocks:
         mode = "frame"
-    elif has_combo_blocks:
-        mode = "combo"
-    elif has_overview_blocks:
-        mode = "overview"
     else:
         mode = "none"
 

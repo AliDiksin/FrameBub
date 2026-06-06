@@ -727,8 +727,14 @@ async def build_quiz_question_message(channel, round_num, total_rounds, row, mod
     return prompt_text, quiz_embed, quiz_view
 
 
-async def _quiz_send_thinking_message(message, text="Thinking..."):
-    """Send an immediate quiz placeholder reply while longer work runs."""
+async def _quiz_send_thinking_message(message, text="Thinking...", *, reply_to_user=True):
+    """Send an immediate quiz placeholder while longer work runs."""
+    if not reply_to_user:
+        try:
+            return await message.channel.send(text)
+        except Exception as send_error:
+            print(f"[quiz] thinking send error: {send_error}", flush=True)
+            return None
     try:
         return await message.reply(text)
     except Exception as e:
@@ -1440,6 +1446,8 @@ async def start_quiz(
     session_round=1,
     session_owner_user_id=None,
     session_message_ids=None,
+    *,
+    reply_to_user=True,
 ):
     """Initialize and send one quiz question in the channel."""
     mode_key = _quiz_normalize_mode(mode)
@@ -1547,7 +1555,7 @@ async def start_quiz(
         _quiz_cancel_pending_another_timeout(channel_id)
         QUIZ_PENDING_MODE.pop(channel_id, None)
 
-        thinking_message = await _quiz_send_thinking_message(message)
+        thinking_message = await _quiz_send_thinking_message(message, reply_to_user=reply_to_user)
 
         question_text, question_embed, question_view = await build_quiz_question_message(
             message.channel,
@@ -1751,6 +1759,7 @@ async def _quiz_start_next_question(message, quiz, result_message_id=None):
         session_round=next_round,
         session_owner_user_id=(quiz or {}).get("owner_user_id"),
         session_message_ids=_quiz_build_message_history(quiz, result_message_id),
+        reply_to_user=False,
     )
 
 
@@ -2074,7 +2083,7 @@ def _quiz_is_leaderboard_request(text):
     return bool(QUIZ_LEADERBOARD_REQUEST_RE.search(str(text or "")))
 
 
-def _quiz_format_global_leaderboard_reply(limit=10):
+def _quiz_format_global_leaderboard_reply(limit=None):
     scores = dict(QUIZ_GLOBAL_LEADERBOARD)
     names = dict(QUIZ_GLOBAL_LEADERBOARD_NAMES)
     if not scores:
@@ -2087,13 +2096,14 @@ def _quiz_format_global_leaderboard_reply(limit=10):
             _quiz_clean_display_name(names.get(item[0], f"User {item[0]}")).lower(),
         ),
     )
-    top_items = sorted_items[: max(1, int(limit))]
+    top_items = sorted_items if limit is None else sorted_items[: max(1, int(limit))]
     top_scores = {uid: pts for uid, pts in top_items}
     score_block = _format_quiz_scores(top_scores, names)
     top_uid, top_points = top_items[0]
     top_name = _quiz_clean_display_name(names.get(top_uid, f"User {top_uid}"))
+    heading = "Global Quiz Leaderboard" if limit is None else f"Global Quiz Leaderboard (Top {len(top_items)})"
     return (
-        f"Global Quiz Leaderboard (Top {len(top_items)}):\n"
+        f"{heading}:\n"
         f"{score_block}\n"
         f"Top scorer right now: {top_name} with {top_points} point{'s' if int(top_points) != 1 else ''}."
     )
@@ -2238,7 +2248,6 @@ async def handle_quiz_answer(message):
     score_text = _format_quiz_scores(dict(scores), dict(score_names))
     result_lines = [correct_reply, score_text]
     result_lines.append(f"The answer was **{char_display}'s {move_name} ({num_cmd})**.")
-    result_lines.append("Starting the next question.")
     result_text = "\n".join(result_lines)
     sent = await _quiz_publish_from_placeholder(
         message.channel,

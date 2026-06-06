@@ -4,26 +4,6 @@ import re
 import pandas as pd
 
 
-def format_sheet_text(df: pd.DataFrame) -> str:
-    """Convert DataFrame rows to pipe-separated text lines."""
-    df = df.fillna("")
-    lines = []
-    for _, row in df.iterrows():
-        values = []
-        for val in row.tolist():
-            text = str(val).strip()
-            if text.lower() == "nan":
-                text = ""
-            values.append(text)
-        while values and values[0] == "":
-            values.pop(0)
-        while values and values[-1] == "":
-            values.pop()
-        if values:
-            lines.append(" | ".join(values))
-    return "\n".join(lines)
-
-
 def normalize_loader_move_key(move_name, num_cmd):
     normalized_name = re.sub(r"[^a-z0-9]+", "", str(move_name or "").lower())
     normalized_num_cmd = re.sub(r"\([^)]*\)", "", str(num_cmd or "").lower())
@@ -159,9 +139,6 @@ def hydrate_range_data(xls, frame_data, range_data, character_lookup, normalize_
 def load_frame_data(deps):
     frame_data = deps["FRAME_DATA"]
     frame_stats = deps["FRAME_STATS"]
-    bnb_data = deps["BNB_DATA"]
-    oki_data = deps["OKI_DATA"]
-    character_info = deps["CHARACTER_INFO"]
     hitbox_gif_data = deps["HITBOX_GIF_DATA"]
     range_data = deps["RANGE_DATA"]
     character_aliases = deps["CHARACTER_ALIASES"]
@@ -187,9 +164,6 @@ def load_frame_data(deps):
 
         frame_data.clear()
         frame_stats.clear()
-        bnb_data.clear()
-        oki_data.clear()
-        character_info.clear()
         hitbox_gif_data.clear()
         range_data.clear()
 
@@ -232,53 +206,6 @@ def load_frame_data(deps):
         hitbox_gif_data.update(load_local_hitbox_gif_data(character_lookup))
         configure_extracted_modules()
 
-        combo_sheets = [name for name in xls.sheet_names if name.lower().endswith(" combos")]
-        oki_sheets = [
-            name for name in xls.sheet_names
-            if name.lower().endswith(" okisetups") or name.lower().endswith(" setupsoki")
-        ]
-
-        for sheet_name in combo_sheets:
-            char_label = sheet_name[:-len(" combos")]
-            char_key = normalized_chars.get(normalize_char_name(char_label))
-            if not char_key:
-                continue
-            df = pd.read_excel(xls, sheet_name=sheet_name, header=None, dtype=str)
-            combo_text = format_sheet_text(df)
-            if combo_text:
-                bnb_data[char_key] = combo_text
-
-        for sheet_name in oki_sheets:
-            suffix = " okisetups" if sheet_name.lower().endswith(" okisetups") else " setupsoki"
-            char_label = sheet_name[:-len(suffix)]
-            char_key = normalized_chars.get(normalize_char_name(char_label))
-            if not char_key:
-                continue
-            df = pd.read_excel(xls, sheet_name=sheet_name, header=None, dtype=str)
-            oki_text = format_sheet_text(df)
-            if oki_text:
-                oki_data[char_key] = oki_text
-
-        for sheet_name in xls.sheet_names:
-            lower_name = sheet_name.lower()
-            if lower_name.endswith(" combos"):
-                continue
-            if lower_name.endswith(" okisetups") or lower_name.endswith(" setupsoki"):
-                continue
-            if lower_name.endswith(" frame data"):
-                continue
-            normalized_name = normalize_char_name(sheet_name)
-            char_key = normalized_chars.get(normalized_name)
-            if not char_key:
-                continue
-            df = pd.read_excel(xls, sheet_name=sheet_name, header=None, dtype=str)
-            info_text = format_sheet_text(df)
-            if info_text:
-                character_info[char_key] = info_text
-
-        print(f"Total combo sheets loaded: {len(bnb_data)} characters")
-        print(f"Total oki sheets loaded: {len(oki_data)} characters")
-        print(f"Total character info sheets loaded: {len(character_info)} characters")
         print(f"Total hitbox gif links loaded: {sum(len(entries) for entries in hitbox_gif_data.values())}")
         print(f"Total range inputs loaded: {sum(len(entries) for entries in range_data.values())}")
 

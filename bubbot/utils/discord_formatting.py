@@ -67,6 +67,6 @@ def add_long_embed_field(embed, name, value, *, inline=False, chunk_limit=1024):
             split_at = chunk_limit
         chunks.append(remaining[:split_at].strip())
         remaining = remaining[split_at:].strip()
-    for index, chunk in enumerate(chunks[:3]):
+    for index, chunk in enumerate(chunks):
         field_name = name if index == 0 else f"{name} (cont.)"
         add_embed_field(embed, field_name, chunk, inline=inline)

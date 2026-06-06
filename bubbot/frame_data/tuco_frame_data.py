@@ -187,7 +187,7 @@ def find_matching_rows(char_key, move_text):
 
 def build_disambiguation_prompt(char_key, rows):
     lines = [f"Multiple 2XKO moves match {display_char_name(char_key)}. Reply with the option number:"]
-    for index, row in enumerate(rows[:12], start=1):
+    for index, row in enumerate(rows, start=1):
         move_name = clean_value(row.get("moveName"), "Unknown")
         num_cmd = clean_value(row.get("numCmd"), "?")
         lines.append(f"{index}. {move_name}: `{num_cmd}`")
