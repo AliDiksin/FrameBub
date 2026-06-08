@@ -44,6 +44,7 @@ def normalize_move_token(value):
     text = text.replace("jumping", "j")
     text = re.sub(r"\b(?:jump|air)\s*\.?,?", "j.", text)
     text = text.replace("[", "hold")
+    text = text.replace("hs", "h")
     return re.sub(r"[^a-z0-9]+", "", text)
 
 
@@ -222,6 +223,8 @@ def normalize_move_query(query):
         text,
     )
     text = _normalize_ggacr_notation_spacing(text)
+    text = re.sub(r"\bhs\b", "h", text)
+    text = re.sub(r"\bheavy\s+slash\b", "h", text)
     if not query_has_ggacr_notation(text):
         text = strip_noise_words(text)
     compact = normalize_move_token(text)
