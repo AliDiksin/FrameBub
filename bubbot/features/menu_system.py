@@ -23,6 +23,8 @@ TUCO_FRAME_DATA = {}
 TUCO_CHARACTER_ALIASES = {}
 BBCF_FRAME_DATA = {}
 BBCF_CHARACTER_ALIASES = {}
+GGACR_FRAME_DATA = {}
+GGACR_CHARACTER_ALIASES = {}
 COTW_FRAME_DATA = {}
 COTW_CHARACTER_ALIASES = {}
 THIRD_STRIKE_FRAME_DATA = {}
@@ -36,6 +38,7 @@ build_ggst_frame_embed = None
 build_sfv_frame_embed = None
 build_tuco_frame_embed = None
 build_bbcf_frame_embed = None
+build_ggacr_frame_embed = None
 build_cotw_frame_embed = None
 build_third_strike_frame_embed = None
 send_frame_embeds_with_views = None
@@ -57,6 +60,8 @@ def configure(
     tuco_character_aliases=None,
     bbcf_frame_data=None,
     bbcf_character_aliases=None,
+    ggacr_frame_data=None,
+    ggacr_character_aliases=None,
     cotw_frame_data=None,
     cotw_character_aliases=None,
     third_strike_frame_data=None,
@@ -69,12 +74,13 @@ def configure(
     build_sfv_frame_embed_fn=None,
     build_tuco_frame_embed_fn=None,
     build_bbcf_frame_embed_fn=None,
+    build_ggacr_frame_embed_fn=None,
     build_cotw_frame_embed_fn=None,
     build_third_strike_frame_embed_fn=None,
     send_frame_embeds_with_views_fn=None,
 ):
-    global FRAME_DATA, FRAME_STATS, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES
-    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_sfv_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, send_frame_embeds_with_views
+    global FRAME_DATA, FRAME_STATS, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, GGACR_FRAME_DATA, GGACR_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES
+    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_sfv_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_ggacr_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, send_frame_embeds_with_views
     FRAME_DATA = frame_data or {}
     FRAME_STATS = frame_stats or {}
     CHARACTER_ALIASES = character_aliases or {}
@@ -89,6 +95,8 @@ def configure(
     TUCO_CHARACTER_ALIASES = tuco_character_aliases or {}
     BBCF_FRAME_DATA = bbcf_frame_data or {}
     BBCF_CHARACTER_ALIASES = bbcf_character_aliases or {}
+    GGACR_FRAME_DATA = ggacr_frame_data or {}
+    GGACR_CHARACTER_ALIASES = ggacr_character_aliases or {}
     COTW_FRAME_DATA = cotw_frame_data or {}
     COTW_CHARACTER_ALIASES = cotw_character_aliases or {}
     THIRD_STRIKE_FRAME_DATA = third_strike_frame_data or {}
@@ -101,12 +109,28 @@ def configure(
     build_sfv_frame_embed = build_sfv_frame_embed_fn
     build_tuco_frame_embed = build_tuco_frame_embed_fn
     build_bbcf_frame_embed = build_bbcf_frame_embed_fn
+    build_ggacr_frame_embed = build_ggacr_frame_embed_fn
     build_cotw_frame_embed = build_cotw_frame_embed_fn
     build_third_strike_frame_embed = build_third_strike_frame_embed_fn
     send_frame_embeds_with_views = send_frame_embeds_with_views_fn
 
 
 MENU_SELECT_LIMIT = 25
+
+# Full display names for menu dropdown and embed titles (no abbreviations)
+MENU_GAMES = (
+    ("tuco", "2XKO", 0xD63C2F),
+    ("bbcf", "BlazBlue Central Fiction", 0x1B5FA7),
+    ("cotw", "Fatal Fury: City of the Wolves", 0xD8A234),
+    ("ggacr", "Guilty Gear Accent Core Plus R", 0x5C1F8A),
+    ("ggst", "Guilty Gear Strive", 0x7A2BFF),
+    ("mk1", "Mortal Kombat 1", 0x7E1616),
+    ("sf6", "Street Fighter 6", 0x3998C6),
+    ("third_strike", "Street Fighter III: 3rd Strike", 0xC0392B),
+    ("sfv", "Street Fighter V", 0xD0342C),
+)
+_MENU_GAME_LABELS = {key: label for key, label, _colour in MENU_GAMES}
+_MENU_GAME_COLOURS = {key: colour for key, label, colour in MENU_GAMES}
 
 
 # Base view: owner lock for public /bub menu
@@ -307,6 +331,10 @@ def _bbcf_character_list():
     return character_choices(BBCF_FRAME_DATA)
 
 
+def _ggacr_character_list():
+    return character_choices(GGACR_FRAME_DATA)
+
+
 def _cotw_character_list():
     return character_choices(COTW_FRAME_DATA)
 
@@ -331,7 +359,9 @@ def _mk1_character_list():
 _GAME_ONLY_MENTION_PATTERNS = (
     ("sf6", re.compile(r"^(?:sf6|street\s*fighter\s*6)$", re.IGNORECASE)),
     ("sfv", re.compile(r"^(?:sfv|sf5|street\s*fighter\s*(?:v|5))$", re.IGNORECASE)),
-    ("ggst", re.compile(r"^(?:ggst|guilty\s*gear(?:\s*strive)?|strive)$", re.IGNORECASE)),
+    # Guilty Gear defaults to Strive unless +R / Accent Core is explicit
+    ("ggacr", None),  # resolved via match_ggacr_game_only()
+    ("ggst", re.compile(r"^(?:ggst|guilty\s*gear(?:\s*strive)?|strive|guilty\s*gear)$", re.IGNORECASE)),
     ("tuco", re.compile(r"^(?:2xko|tuco)$", re.IGNORECASE)),
     ("bbcf", re.compile(r"^(?:bbcf|blazblue|central\s*fiction)$", re.IGNORECASE)),
     ("cotw", re.compile(r"^(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)$", re.IGNORECASE)),
@@ -345,53 +375,25 @@ _GAME_ONLY_MENTION_PATTERNS = (
 
 def parse_game_only_mention(text):
     """Return game key when message is only a game tag (e.g. '@bub sf6')."""
+    from bubbot.data.ggacr_aliases import match_ggacr_game_only
+
     normalized = re.sub(r"\s+", " ", str(text or "").strip())
     if not normalized:
         return None
+    if match_ggacr_game_only(normalized):
+        return "ggacr"
     for game_key, pattern in _GAME_ONLY_MENTION_PATTERNS:
-        if pattern.fullmatch(normalized):
+        if pattern is not None and pattern.fullmatch(normalized):
             return game_key
     return None
 
 
 def _game_label(game):
-    if game == "sf6":
-        return "Street Fighter 6"
-    if game == "ggst":
-        return "Guilty Gear Strive"
-    if game == "sfv":
-        return "Street Fighter V"
-    if game == "tuco":
-        return "2XKO"
-    if game == "bbcf":
-        return "BlazBlue Central Fiction"
-    if game == "cotw":
-        return "City of the Wolves"
-    if game == "third_strike":
-        return "Third Strike"
-    if game == "mk1":
-        return "Mortal Kombat 1"
-    return str(game).upper()
+    return _MENU_GAME_LABELS.get(str(game or "").strip().lower(), str(game or "").replace("_", " ").title())
 
 
 def _game_colour(game):
-    if game == "sf6":
-        return 0x3998C6
-    if game == "ggst":
-        return 0x7A2BFF
-    if game == "sfv":
-        return 0xD0342C
-    if game == "tuco":
-        return 0xD63C2F
-    if game == "bbcf":
-        return 0x1B5FA7
-    if game == "cotw":
-        return 0xD8A234
-    if game == "third_strike":
-        return 0xC0392B
-    if game == "mk1":
-        return 0x7E1616
-    return 0xAAAAAA
+    return _MENU_GAME_COLOURS.get(str(game or "").strip().lower(), 0xAAAAAA)
 
 
 def _character_list(game):
@@ -405,6 +407,8 @@ def _character_list(game):
         return _tuco_character_list()
     if game == "bbcf":
         return _bbcf_character_list()
+    if game == "ggacr":
+        return _ggacr_character_list()
     if game == "cotw":
         return _cotw_character_list()
     if game == "third_strike":
@@ -471,6 +475,10 @@ def _bbcf_move_list(char_key):
     return move_choices(BBCF_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "moveType"))
 
 
+def _ggacr_move_list(char_key):
+    return move_choices(GGACR_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "moveType"))
+
+
 def _cotw_move_list(char_key):
     return move_choices(COTW_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "moveType"))
 
@@ -494,6 +502,8 @@ def _move_list(game, char_key):
         return _tuco_move_list(char_key)
     if game == "bbcf":
         return _bbcf_move_list(char_key)
+    if game == "ggacr":
+        return _ggacr_move_list(char_key)
     if game == "cotw":
         return _cotw_move_list(char_key)
     if game == "third_strike":
@@ -751,75 +761,39 @@ def attach_compare_button(view, game, row, owner_id=None, char_key=None):
 
 
 # Main menu and per-game submenus
+class MainGameSelect(discord.ui.Select):
+    def __init__(self, owner_id):
+        options = [
+            discord.SelectOption(label=label, value=game_key)
+            for game_key, label, _colour in MENU_GAMES
+        ]
+        super().__init__(
+            placeholder="Choose a game...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="menu_game_select",
+        )
+        self.owner_id = owner_id
+
+    async def callback(self, interaction: discord.Interaction):
+        game = self.values[0]
+        label = _game_label(game)
+        colour = _game_colour(game)
+        view = SF6GameMenuView(self.owner_id) if game == "sf6" else GameMenuView(game, self.owner_id)
+        await interaction.response.edit_message(
+            embed=_game_menu_embed(label, colour),
+            view=view,
+            attachments=[],
+        )
+
+
 class MainMenuView(OwnedView):
     def __init__(self, owner_id):
         super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
+        self.add_item(MainGameSelect(owner_id))
 
-    @discord.ui.button(label="Street Fighter 6", style=discord.ButtonStyle.primary, custom_id="menu_sf6", row=0)
-    async def sf6_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_game_menu_embed("Street Fighter 6", 0x3998C6),
-            view=SF6GameMenuView(self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="Guilty Gear Strive", style=discord.ButtonStyle.danger, custom_id="menu_ggst", row=0)
-    async def ggst_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_game_menu_embed("Guilty Gear Strive", 0x7A2BFF),
-            view=GameMenuView("ggst", self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="COTW", style=discord.ButtonStyle.primary, custom_id="menu_cotw", row=0)
-    async def cotw_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_game_menu_embed("City of the Wolves", 0xD8A234),
-            view=GameMenuView("cotw", self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="BBCF", style=discord.ButtonStyle.primary, custom_id="menu_bbcf", row=1)
-    async def bbcf_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_game_menu_embed("BlazBlue Central Fiction", 0x1B5FA7),
-            view=GameMenuView("bbcf", self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="2XKO", style=discord.ButtonStyle.success, custom_id="menu_tuco", row=1)
-    async def tuco_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_game_menu_embed("2XKO", 0xD63C2F),
-            view=GameMenuView("tuco", self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="Third Strike", style=discord.ButtonStyle.danger, custom_id="menu_third_strike", row=1)
-    async def third_strike_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_game_menu_embed("Third Strike", 0xC0392B),
-            view=GameMenuView("third_strike", self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="MK1", style=discord.ButtonStyle.danger, custom_id="menu_mk1", row=2)
-    async def mk1_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_game_menu_embed("Mortal Kombat 1", 0x7E1616),
-            view=GameMenuView("mk1", self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="SFV", style=discord.ButtonStyle.primary, custom_id="menu_sfv", row=2)
-    async def sfv_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=_game_menu_embed("Street Fighter V", 0xD0342C),
-            view=GameMenuView("sfv", self.owner_id),
-            attachments=[],
-        )
-
-    @discord.ui.button(label="Readme", style=discord.ButtonStyle.success, custom_id="menu_readme", row=2)
+    @discord.ui.button(label="Readme", style=discord.ButtonStyle.success, custom_id="menu_readme", row=1)
     async def readme_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
             embed=build_readme_embed(),
@@ -1540,6 +1514,11 @@ def _preferred_frame_image_url(game, row):
 
         links = get_hitbox_links(row)
         return links[0] if links else ""
+    if game_key == "ggacr":
+        from bubbot.frame_data.ggacr_frame_data import get_hitbox_links
+
+        links = get_hitbox_links(row)
+        return links[0] if links else ""
     if game_key == "third_strike":
         from bubbot.frame_data.third_strike_frame_data import get_hitbox_links
 
@@ -1603,6 +1582,13 @@ class FrameResultView(OwnedView):
             if len(self.all_hitbox_images_button.hitbox_links) > 1:
                 self.add_item(self.all_hitbox_images_button)
             self.notes_button = BBCFNotesButton(row)
+            self.add_item(self.notes_button)
+        elif game == "ggacr":
+            from bubbot.frame_data.ggacr_frame_data import GGACRAllHitboxImagesButton, GGACRNotesButton
+            self.all_hitbox_images_button = GGACRAllHitboxImagesButton(row)
+            if len(self.all_hitbox_images_button.hitbox_links) > 1:
+                self.add_item(self.all_hitbox_images_button)
+            self.notes_button = GGACRNotesButton(row)
             self.add_item(self.notes_button)
         elif game == "third_strike":
             from bubbot.frame_data.third_strike_frame_data import ThirdStrikeAllHitboxImagesButton, ThirdStrikeNotesButton
@@ -1669,6 +1655,8 @@ class FrameResultView(OwnedView):
             from bubbot.frame_data.tuco_frame_data import build_frame_embed
         elif self.game == "bbcf":
             from bubbot.frame_data.bbcf_frame_data import build_frame_embed
+        elif self.game == "ggacr":
+            from bubbot.frame_data.ggacr_frame_data import build_frame_embed
         elif self.game == "third_strike":
             from bubbot.frame_data.third_strike_frame_data import build_frame_embed
         elif self.game == "mk1":
@@ -2128,7 +2116,7 @@ class QuizFakeMessage:
 def _main_menu_embed():
     return discord.Embed(
         title="Bub Menu",
-        description="Select a game to get started, or open Readme for a quick tutorial.",
+        description="Choose a game from the dropdown below, or open Readme for a quick tutorial.",
         colour=0xFFD700,
     )
 
@@ -2153,8 +2141,10 @@ def build_readme_embed():
     embed.add_field(
         name="2. Use Game Tags When Needed",
         value=(
-            "Shared names can be ambiguous. Add tags like `sfv`, `3s`, `ggst`, `bbcf`, `cotw`, "
-            "`2xko`, or `mk1` when Bub needs context. Example: `@Bub 3s ken hadouken`."
+            "Shared names can be ambiguous. Add tags like `sfv`, `3s`, `ggst`, `ggacr`, `bbcf`, `cotw`, "
+            "`2xko`, or `mk1` when Bub needs context. Bare `guilty gear` defaults to Strive; "
+            "use `+r`, `plus r`, `gg +r`, `accent core`, `acpr`, or `guilty gear accent core` for Guilty Gear Accent Core Plus R. "
+            "Example: `@Bub 3s ken hadouken`."
         ),
         inline=False,
     )
@@ -2170,8 +2160,9 @@ def build_readme_embed():
     embed.add_field(
         name="4. Menus And Slash Commands",
         value=(
-            "Use `/bub` for the guided menu, `@bub` alone for the main menu, or `@bub` plus a game tag only (e.g. `@bub sf6`) to open that game's menu. "
-            "Slash commands include `/sf6`, `/sf6-stats` (SF6 stats), `/sf6-combos`, `/ggst`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1`, and `/mk1-combos`. "
+            "Use `/bub` for the guided menu (game picker dropdown), `@bub` alone for the main menu, "
+            "or `@bub` plus a game tag only (e.g. `@bub sf6`) to open that game's menu. "
+            "Slash commands include `/sf6`, `/sf6-stats` (SF6 stats), `/sf6-combos`, `/ggst`, `/ggacr`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1`, and `/mk1-combos`. "
             "Menus are locked to the user who opened them."
         ),
         inline=False,

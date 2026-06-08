@@ -63,6 +63,7 @@ FRAME_DATA_SOURCE_KEYS: dict[str, str] = {
     "sf6": "fat",
     "sfv": "fat",
     "ggst": "dustloop",
+    "ggacr": "dustloop",
     "tuco": "2xko",
     "mk1": "kombat_akademy",
     "cotw": "dreamcancel",

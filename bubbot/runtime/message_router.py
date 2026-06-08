@@ -32,6 +32,7 @@ import bubbot.frame_data.ggst_frame_data as ggst_module
 import bubbot.frame_data.sfv_frame_data as sfv_module
 import bubbot.frame_data.tuco_frame_data as tuco_module
 import bubbot.frame_data.bbcf_frame_data as bbcf_module
+import bubbot.frame_data.ggacr_frame_data as ggacr_module
 import bubbot.frame_data.cotw_frame_data as cotw_module
 import bubbot.frame_data.third_strike_frame_data as third_strike_module
 import bubbot.frame_data.mk1_frame_data as mk1_module
@@ -187,7 +188,7 @@ def _is_frame_data_embed(embed):
     if "input" in field_names and "startup" in field_names and {"on hit", "on block"} & field_names:
         return True
     title = str(getattr(embed, "title", "") or "").strip().lower()
-    if title.startswith(("ggst - ", "2xko - ", "bbcf - ", "cotw - ", "third strike - ", "mk1 - ")):
+    if title.startswith(("ggst - ", "ggacr - ", "2xko - ", "bbcf - ", "cotw - ", "third strike - ", "mk1 - ")):
         return bool(field_names & {"startup", "input", "on hit", "on block"})
     return False
 
@@ -345,6 +346,12 @@ DISAMBIGUATION_GAME_CONFIGS = [
         "prefix": "ggst",
         "module": ggst_module,
         "prompt_re": re.compile(r"Multiple GGST moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
+    },
+    {
+        "label": "GGACR",
+        "prefix": "ggacr",
+        "module": ggacr_module,
+        "prompt_re": re.compile(r"Multiple GGACR moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
     {
         "label": "2XKO",
@@ -609,6 +616,8 @@ def _game_key_for_frame_module(module):
         return "tuco"
     if module is bbcf_module:
         return "bbcf"
+    if module is ggacr_module:
+        return "ggacr"
     if module is cotw_module:
         return "cotw"
     if module is third_strike_module:
@@ -1372,6 +1381,7 @@ async def on_ready():
             "sfv_module": sfv_module,
             "tuco_module": tuco_module,
             "bbcf_module": bbcf_module,
+            "ggacr_module": ggacr_module,
             "cotw_module": cotw_module,
             "third_strike_module": third_strike_module,
             "mk1_module": mk1_module,
@@ -1490,6 +1500,11 @@ async def _handle_message(message):
             bbcf_module.BBCF_CHARACTER_ALIASES,
             bbcf_module.BBCF_FRAME_DATA.keys(),
         )
+        ggacr_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            ggacr_module.GGACR_CHARACTER_ALIASES,
+            ggacr_module.GGACR_FRAME_DATA.keys(),
+        )
         cotw_char_key = resolve_character_from_aliases_in_text(
             content_lower,
             cotw_module.COTW_CHARACTER_ALIASES,
@@ -1500,7 +1515,11 @@ async def _handle_message(message):
             third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
             third_strike_module.THIRD_STRIKE_FRAME_DATA.keys(),
         )
-        explicit_ggst_moves_query = bool(re.search(r"\b(?:ggst|strive|guilty\s+gear|guilty)\b", content_lower))
+        explicit_ggacr_moves_query = ggacr_module.query_has_explicit_ggacr_tag(content_lower)
+        explicit_ggst_moves_query = bool(
+            re.search(r"\b(?:ggst|strive|guilty\s+gear|guilty)\b", content_lower)
+            and not explicit_ggacr_moves_query
+        )
         explicit_sfv_moves_query = bool(re.search(r"\b(?:sfv|sf5|street\s*fighter\s*(?:v|5))\b", content_lower))
         explicit_tuco_moves_query = bool(re.search(r"\b(?:2xko|tuco)\b", content_lower))
         explicit_bbcf_moves_query = bool(re.search(r"\b(?:bbcf|blazblue|central\s*fiction)\b", content_lower))
@@ -1515,6 +1534,9 @@ async def _handle_message(message):
         if explicit_bbcf_moves_query and bbcf_char_key:
             await menu_system.send_character_moves_menu(message.channel, "bbcf", bbcf_char_key, owner_id=message.author.id)
             return
+        if explicit_ggacr_moves_query and ggacr_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "ggacr", ggacr_char_key, owner_id=message.author.id)
+            return
         if explicit_tuco_moves_query and tuco_char_key:
             await menu_system.send_character_moves_menu(message.channel, "tuco", tuco_char_key, owner_id=message.author.id)
             return
@@ -1526,6 +1548,9 @@ async def _handle_message(message):
             return
         if sf6_char_key:
             await menu_system.send_character_moves_menu(message.channel, "sf6", sf6_char_key, owner_id=message.author.id)
+            return
+        if ggacr_char_key and ggacr_module.is_exclusive_character(ggacr_char_key):
+            await menu_system.send_character_moves_menu(message.channel, "ggacr", ggacr_char_key, owner_id=message.author.id)
             return
         if ggst_char_key:
             await menu_system.send_character_moves_menu(message.channel, "ggst", ggst_char_key, owner_id=message.author.id)
@@ -1797,6 +1822,22 @@ async def _handle_message(message):
         bbcf_module.BBCF_CHARACTER_ALIASES,
         bbcf_module.BBCF_FRAME_DATA.keys(),
     )
+    ggacr_exact_character_query = text_mentions_character_from_aliases(
+        content_lower,
+        ggacr_module.GGACR_CHARACTER_ALIASES,
+        ggacr_module.GGACR_FRAME_DATA.keys(),
+    )
+    explicit_ggacr_query = ggacr_module.query_has_explicit_ggacr_tag(content_lower)
+    ggacr_exclusive_character_query = bool(
+        ggacr_exact_character_query
+        and ggacr_module.is_exclusive_character(
+            resolve_character_from_aliases_in_text(
+                content_lower,
+                ggacr_module.GGACR_CHARACTER_ALIASES,
+                ggacr_module.GGACR_FRAME_DATA.keys(),
+            )
+        )
+    )
     cotw_exact_character_query = text_mentions_character_from_aliases(
         content_lower,
         cotw_module.COTW_CHARACTER_ALIASES,
@@ -1843,6 +1884,7 @@ async def _handle_message(message):
 
     fd_context_payload = find_moves_in_text(content_lower)
 
+    ggacr_payload = ggacr_module.find_moves_in_text(content_lower)
     ggst_payload = ggst_module.find_moves_in_text(content_lower)
     sfv_payload = sfv_module.find_moves_in_text(content_lower)
     tuco_payload = tuco_module.find_moves_in_text(content_lower)
@@ -1861,8 +1903,54 @@ async def _handle_message(message):
     explicit_ggst_query = bool(ggst_payload.get("game_query"))
     ggst_route_allowed = bool(
         explicit_ggst_query
-        or (ggst_exact_character_query and not sf6_exact_character_query)
+        and not explicit_ggacr_query
+        or (
+            ggst_exact_character_query
+            and not sf6_exact_character_query
+            and not explicit_ggacr_query
+            and not ggacr_exclusive_character_query
+        )
     )
+    ggacr_rows = ggacr_payload.get("rows", [])
+    ggacr_lookup_intent = bool(
+        ggacr_payload.get("frame_query")
+        or ggacr_payload.get("gif_query")
+        or ggacr_payload.get("game_query")
+        or ggacr_payload.get("notes_query")
+        or requested_property_key
+    )
+    ggacr_route_allowed = bool(
+        ggacr_payload.get("game_query")
+        or ggacr_exclusive_character_query
+        or (
+            ggacr_exact_character_query
+            and explicit_ggacr_query
+            and ggacr_module.query_has_ggacr_notation(content_lower)
+        )
+        or (
+            ggacr_exact_character_query
+            and ggacr_rows
+            and explicit_ggacr_query
+            and not sf6_exact_character_query
+            and not ggst_exact_character_query
+            and not sfv_exact_character_query
+            and not tuco_exact_character_query
+            and not bbcf_exact_character_query
+            and not cotw_exact_character_query
+            and not third_strike_exact_character_query
+            and not mk1_exact_character_query
+        )
+    )
+    if frame_command_is_addressed and ggacr_route_allowed and ggacr_lookup_intent and ggacr_rows:
+        if ggacr_payload.get("needs_disambiguation"):
+            await message.reply(ggacr_payload.get("data", "Please specify which GGACR move you mean."))
+        else:
+            await _send_cross_game_lookup_response(message, ggacr_module, ggacr_rows, ggacr_payload, content_lower)
+        return
+    elif frame_command_is_addressed and ggacr_route_allowed and ggacr_lookup_intent and ggacr_payload.get("needs_disambiguation"):
+        await message.reply(ggacr_payload.get("data", "Please specify which GGACR move you mean."))
+        return
+
     if frame_command_is_addressed and ggst_route_allowed and ggst_lookup_intent and not ggst_rows:
         rewritten_ggst_query = await buenavista_extension.rewrite_ggst_lookup_query(
             content_no_mentions,
@@ -2190,6 +2278,19 @@ async def _handle_message(message):
             await message.reply(bbcf_payload.get("data", "Please specify which BBCF move you mean."))
         else:
             _record_frame_data_ids(await bbcf_module.send_frame_response(message, bbcf_rows))
+        return
+
+    if (
+        frame_command_is_addressed
+        and ggacr_route_allowed
+        and not ggacr_lookup_intent
+        and allow_implied_frame_routing
+        and (ggacr_rows or ggacr_payload.get("needs_disambiguation"))
+    ):
+        if ggacr_payload.get("needs_disambiguation"):
+            await message.reply(ggacr_payload.get("data", "Please specify which GGACR move you mean."))
+        else:
+            _record_frame_data_ids(await ggacr_module.send_frame_response(message, ggacr_rows))
         return
 
     if (
@@ -2854,6 +2955,7 @@ register_slash_commands(
         "sfv_module": sfv_module,
         "tuco_module": tuco_module,
         "bbcf_module": bbcf_module,
+        "ggacr_module": ggacr_module,
         "cotw_module": cotw_module,
         "third_strike_module": third_strike_module,
         "mk1_module": mk1_module,

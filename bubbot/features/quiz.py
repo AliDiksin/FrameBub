@@ -164,6 +164,12 @@ def _quiz_game_key(game=None):
         "2xko": "tuco",
         "gg": "ggst",
         "guilty_gear": "ggst",
+        "ggacr": "ggacr",
+        "ggacpr": "ggacr",
+        "acpr": "ggacr",
+        "plus_r": "ggacr",
+        "accent_core": "ggacr",
+        "accent_core_plus_r": "ggacr",
         "sfv": "sfv",
         "sf5": "sfv",
         "street_fighter_v": "sfv",
@@ -210,15 +216,19 @@ def _quiz_game_resolve_character(game, text):
 
 
 def _quiz_extract_game_from_text(text, default="sf6"):
+    from bubbot.data.ggacr_aliases import query_has_ggacr_game_tag
+
     lowered = str(text or "").lower()
+    if query_has_ggacr_game_tag(lowered):
+        return "ggacr"
     game_patterns = [
         ("third_strike", r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b"),
         ("sfv", r"\b(?:sfv|sf5|street\s*fighter\s*(?:v|5))\b"),
-        ("mk1", r"\b(?:mk1|mortal\s+kombat\s*(?:1|one)?|kombat)\b"),
+        ("mk1", r"\b(?:mk1|mortal\s*kombat\s*(?:1|one)?|kombat)\b"),
         ("tuco", r"\b(?:2xko|tuco)\b"),
         ("bbcf", r"\b(?:bbcf|blazblue|central\s*fiction)\b"),
         ("cotw", r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b"),
-        ("ggst", r"\b(?:ggst|guilty\s+gear|strive)\b"),
+        ("ggst", r"\b(?:ggst|guilty\s+gear(?!\s*(?:\+?\s*r|accent\s+core|plus\s*r|acpr))|strive)\b"),
         ("sf6", r"\b(?:sf6|street\s*fighter\s*6)\b"),
     ]
     for game, pattern in game_patterns:

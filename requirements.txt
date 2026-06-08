@@ -5,3 +5,4 @@ pandas
 odfpy
 openpyxl
 beautifulsoup4
+Pillow

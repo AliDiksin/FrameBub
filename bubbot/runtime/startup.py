@@ -19,10 +19,12 @@ async def handle_ready(deps):
     sfv_module = deps["sfv_module"]
     tuco_module = deps["tuco_module"]
     bbcf_module = deps["bbcf_module"]
+    ggacr_module = deps["ggacr_module"]
     cotw_module = deps["cotw_module"]
     third_strike_module = deps["third_strike_module"]
     mk1_module = deps["mk1_module"]
     combo_data_module = deps["combo_data_module"]
+    from bubbot.data.ggacr_aliases import GGACR_GAME_TERMS
 
     print(f"Logged in as {client.user}")
     try:
@@ -53,6 +55,7 @@ async def handle_ready(deps):
         ggst_module.load_frame_data()
         tuco_module.load_frame_data()
         bbcf_module.load_frame_data()
+        ggacr_module.load_frame_data()
         cotw_module.load_frame_data()
         third_strike_module.load_frame_data()
         mk1_module.load_frame_data()
@@ -133,6 +136,16 @@ async def handle_ready(deps):
                 "get_notes_text": bbcf_module.get_notes_text,
                 "game_terms": ("bbcf", "blazblue central fiction"),
             },
+            "ggacr": {
+                "label": "Guilty Gear Accent Core Plus R",
+                "data": ggacr_module.GGACR_FRAME_DATA,
+                "aliases": ggacr_module.GGACR_CHARACTER_ALIASES,
+                "resolve_character_key": ggacr_module.resolve_character_key,
+                "find_moves_in_text": ggacr_module.find_moves_in_text,
+                "build_frame_embed": ggacr_module.build_frame_embed,
+                "get_notes_text": ggacr_module.get_notes_text,
+                "game_terms": GGACR_GAME_TERMS,
+            },
             "cotw": {
                 "label": "City of the Wolves",
                 "data": cotw_module.COTW_FRAME_DATA,
@@ -192,6 +205,8 @@ async def handle_ready(deps):
         tuco_character_aliases=tuco_module.TUCO_CHARACTER_ALIASES,
         bbcf_frame_data=bbcf_module.BBCF_FRAME_DATA,
         bbcf_character_aliases=bbcf_module.BBCF_CHARACTER_ALIASES,
+        ggacr_frame_data=ggacr_module.GGACR_FRAME_DATA,
+        ggacr_character_aliases=ggacr_module.GGACR_CHARACTER_ALIASES,
         cotw_frame_data=cotw_module.COTW_FRAME_DATA,
         cotw_character_aliases=cotw_module.COTW_CHARACTER_ALIASES,
         third_strike_frame_data=third_strike_module.THIRD_STRIKE_FRAME_DATA,
@@ -204,6 +219,7 @@ async def handle_ready(deps):
         build_sfv_frame_embed_fn=sfv_module.build_frame_embed,
         build_tuco_frame_embed_fn=tuco_module.build_frame_embed,
         build_bbcf_frame_embed_fn=bbcf_module.build_frame_embed,
+        build_ggacr_frame_embed_fn=ggacr_module.build_frame_embed,
         build_cotw_frame_embed_fn=cotw_module.build_frame_embed,
         build_third_strike_frame_embed_fn=third_strike_module.build_frame_embed,
         send_frame_embeds_with_views_fn=send_frame_embeds_with_views,

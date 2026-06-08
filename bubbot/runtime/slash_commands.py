@@ -31,6 +31,7 @@ def register_slash_commands(tree, deps):
     sfv_module = deps["sfv_module"]
     tuco_module = deps["tuco_module"]
     bbcf_module = deps["bbcf_module"]
+    ggacr_module = deps["ggacr_module"]
     cotw_module = deps["cotw_module"]
     third_strike_module = deps["third_strike_module"]
     mk1_module = deps["mk1_module"]
@@ -70,6 +71,9 @@ def register_slash_commands(tree, deps):
 
     def bbcf_character_choice_values():
         return sorted(display for _char_key, display in character_choices({key: rows for key, rows in bbcf_module.BBCF_FRAME_DATA.items() if rows}))
+
+    def ggacr_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in ggacr_module.GGACR_FRAME_DATA.items() if rows}))
 
     def cotw_character_choice_values():
         return sorted(display for _char_key, display in character_choices({key: rows for key, rows in cotw_module.COTW_FRAME_DATA.items() if rows}))
@@ -149,6 +153,12 @@ def register_slash_commands(tree, deps):
         if not char_key:
             return []
         return [label for _row, label in move_choices(bbcf_module.BBCF_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "moveType")) if label]
+
+    def ggacr_move_choice_values(char_name):
+        char_key = ggacr_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [label for _row, label in move_choices(ggacr_module.GGACR_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "moveType")) if label]
 
     def cotw_move_choice_values(char_name):
         char_key = cotw_module.resolve_character_key(char_name)
@@ -311,6 +321,10 @@ def register_slash_commands(tree, deps):
         query = f"bbcf {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
         await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=bbcf_module.find_moves_in_text, embed_fn=bbcf_module.build_frame_embed, game="bbcf", game_label="BBCF", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
+    async def send_ggacr_slash_frame(interaction, char_name, move_name):
+        query = f"ggacr {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=ggacr_module.find_moves_in_text, embed_fn=ggacr_module.build_frame_embed, game="ggacr", game_label="GGACR", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
     async def send_cotw_slash_frame(interaction, char_name, move_name):
         query = f"cotw {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
         await send_slash_frame_result(
@@ -395,6 +409,11 @@ def register_slash_commands(tree, deps):
     @discord.app_commands.describe(char_name="The character name", move_name="The move name or input")
     async def bbcf(interaction: discord.Interaction, char_name: str, move_name: str):
         return await send_bbcf_slash_frame(interaction, char_name, move_name)
+
+    @tree.command(name="ggacr")
+    @discord.app_commands.describe(char_name="The character name", move_name="The move name or input")
+    async def ggacr(interaction: discord.Interaction, char_name: str, move_name: str):
+        return await send_ggacr_slash_frame(interaction, char_name, move_name)
 
     @tree.command(name="cotw")
     @discord.app_commands.describe(char_name="The character name", move_name="The move name or input")
@@ -519,6 +538,16 @@ def register_slash_commands(tree, deps):
         if not interaction.namespace.char_name:
             return slash_choices([])
         return slash_choices(autocomplete_values(current, bbcf_move_choice_values(interaction.namespace.char_name)))
+
+    @ggacr.autocomplete("char_name")
+    async def ggacr_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, ggacr_character_choice_values()))
+
+    @ggacr.autocomplete("move_name")
+    async def ggacr_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, ggacr_move_choice_values(interaction.namespace.char_name)))
 
     @cotw.autocomplete("char_name")
     async def cotw_char_autocomplete(interaction: discord.Interaction, current: str):
