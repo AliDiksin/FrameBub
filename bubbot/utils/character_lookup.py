@@ -1,3 +1,5 @@
+"""Resolve and discover character aliases inside natural-language text."""
+
 import re
 
 from bubbot.utils.text_utils import compact_key, contains_token_sequence, word_tokens

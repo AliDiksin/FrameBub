@@ -1,4 +1,5 @@
-import difflib
+"""MK1 JSON frame parser and embeds (playable characters and kameos)."""
+
 import json
 import os
 import re
@@ -14,6 +15,12 @@ from bubbot.utils.discord_formatting import (
     add_long_embed_field as shared_add_long_embed_field,
     clean_value as shared_clean_value,
     truncate_value as shared_truncate_value,
+)
+from bubbot.utils.frame_match_utils import match_rows_by_fuzzy_keys, match_rows_by_name_substring
+from bubbot.utils.notation_match_utils import (
+    exact_row_key_matches,
+    find_rows_by_notation_prefix,
+    looks_like_notation_query,
 )
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
@@ -107,6 +114,9 @@ def _register_character_aliases(char_key, display_name, source="character"):
     if source == "kameo":
         for alias in {f"kameo {normalized_name}", f"{normalized_name} kameo", f"assist {normalized_name}", f"{normalized_name} assist"}:
             MK1_CHARACTER_ALIASES.setdefault(alias, char_key)
+
+
+# JSON load (playable + kameo move lists)
 
 
 def load_frame_data(move_file=None, kameo_file=None):
@@ -206,6 +216,10 @@ def row_match_keys(row):
     return {key for key in keys if key}
 
 
+def _mk1_notation_query(query_key):
+    return looks_like_notation_query(query_key, "mk1")
+
+
 def find_matching_rows(char_key, move_text):
     raw_move_text = str(move_text or "").lower()
     query_requests_enhanced = bool(re.search(r"\b(?:ex|enhanced|meter\s*burn|meterburn)\b", raw_move_text))
@@ -266,45 +280,54 @@ def find_matching_rows(char_key, move_text):
     base_query = re.sub(r"\b(?:ex|enhanced|meter\s*burn|meterburn)\b", " ", query, flags=re.IGNORECASE)
     base_query = re.sub(r"\s+", " ", base_query).strip()
     base_query_key = normalize_move_token(base_query)
+    for lookup_key in (query_key, base_query_key):
+        if not lookup_key:
+            continue
+        notation_matches = find_rows_by_notation_prefix(
+            rows,
+            lookup_key,
+            normalize_fn=normalize_move_token,
+            looks_like_fn=_mk1_notation_query,
+        )
+        if notation_matches:
+            return prefer_enhanced(notation_matches, base_query_key or query_key)
 
-    exact = [row for row in rows if query_key in row_match_keys(row)]
+    exact = exact_row_key_matches(rows, query_key, row_match_keys)
     if exact:
         return prefer_enhanced(exact, base_query_key or query_key)
 
     if query_requests_enhanced and base_query_key and base_query_key != query_key:
-        base_exact = [row for row in rows if base_query_key in row_match_keys(row)]
+        base_exact = exact_row_key_matches(rows, base_query_key, row_match_keys)
         if base_exact:
             return prefer_enhanced(base_exact, base_query_key)
 
-    name_matches = []
-    normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
-    normalized_base_query_words = re.sub(r"[^a-z0-9]+", " ", base_query.lower()).strip()
-    for row in rows:
-        move_name = re.sub(r"[^a-z0-9]+", " ", str(row.get("moveName", "")).lower()).strip()
-        num_cmd = re.sub(r"[^a-z0-9]+", " ", str(row.get("numCmd", "")).lower()).strip()
-        if normalized_query_words and (normalized_query_words in move_name or normalized_query_words in num_cmd):
-            name_matches.append(row)
+    name_matches = match_rows_by_name_substring(
+        rows,
+        query,
+        query_key=query_key,
+        looks_like_fn=_mk1_notation_query,
+    )
     if name_matches:
         return prefer_enhanced(name_matches, base_query_key or query_key)
 
-    if query_requests_enhanced and normalized_base_query_words and normalized_base_query_words != normalized_query_words:
-        base_name_matches = []
-        for row in rows:
-            move_name = re.sub(r"[^a-z0-9]+", " ", str(row.get("moveName", "")).lower()).strip()
-            num_cmd = re.sub(r"[^a-z0-9]+", " ", str(row.get("numCmd", "")).lower()).strip()
-            if normalized_base_query_words in move_name or normalized_base_query_words in num_cmd:
-                base_name_matches.append(row)
+    if query_requests_enhanced and base_query_key and base_query_key != query_key:
+        base_name_matches = match_rows_by_name_substring(
+            rows,
+            base_query,
+            query_key=base_query_key,
+            looks_like_fn=_mk1_notation_query,
+        )
         if base_name_matches:
             return prefer_enhanced(base_name_matches, base_query_key)
 
-    candidates = []
-    for row in rows:
-        for value in (row.get("moveName"), row.get("numCmd")):
-            key = normalize_move_token(value)
-            if key:
-                candidates.append((key, row))
-    close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.84)
-    fuzzy_matches = [row for key, row in candidates if key in close_keys]
+    fuzzy_matches = match_rows_by_fuzzy_keys(
+        rows,
+        query_key,
+        value_fields=("moveName", "numCmd"),
+        normalize_fn=normalize_move_token,
+        cutoff=0.84,
+        n=4,
+    )
     if fuzzy_matches:
         return prefer_enhanced(fuzzy_matches, base_query_key or query_key)
     return []
@@ -317,6 +340,9 @@ def build_disambiguation_prompt(char_key, rows):
         num_cmd = clean_value(row.get("numCmd"), "?")
         lines.append(f"{index}. {move_name}: `{num_cmd}`")
     return "\n".join(lines)
+
+
+# Natural-language query entry
 
 
 def find_moves_in_text(text):
@@ -405,7 +431,10 @@ def find_moves_in_text(text):
         "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_matches and (frame_query or gif_query or notes_query or game_query or query_has_mk1_notation(lowered))),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or gif_query or notes_query or game_query)),
-    }
+        }
+
+
+# Discord embed output
 
 
 def clean_value(value, default=""):
@@ -467,8 +496,9 @@ def build_frame_embed(row, show_notes=False):
         add_long_embed_field(embed, "Notes", get_notes_text(row), inline=False)
     category = clean_value(row.get("category"))
     move_type = clean_value(row.get("moveType"))
-    if category or move_type:
-        embed.set_footer(text=truncate_value(" / ".join(part for part in (category, move_type) if part), 2048))
+    meta = " / ".join(part for part in (category, move_type) if part)
+    if meta:
+        add_embed_field(embed, "Type", meta, inline=False)
     return embed
 
 
@@ -484,7 +514,7 @@ class MK1NotesButton(discord.ui.Button):
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
         self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
-        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
+        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view, attachments=self.view.initial_files())
 
 
 async def send_frame_response(message, rows):
@@ -496,6 +526,8 @@ async def send_frame_response(message, rows):
         rows,
         owner_id=getattr(message.author, "id", None),
         menu_locked=False,
+        source_message=message,
+        prompt=str(getattr(message, "content", "") or ""),
     )
 
 

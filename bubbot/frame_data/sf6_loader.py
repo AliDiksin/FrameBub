@@ -1,3 +1,5 @@
+"""Load SF6 ODS frame data: Jamie drink sheets, attack ranges, local GIF index refresh."""
+
 import os
 import re
 
@@ -10,6 +12,9 @@ def normalize_loader_move_key(move_name, num_cmd):
     normalized_num_cmd = re.sub(r"\s+", "", normalized_num_cmd)
     normalized_num_cmd = re.sub(r"[^a-z0-9>]", "", normalized_num_cmd)
     return normalized_name, normalized_num_cmd
+
+
+# Jamie drink-level sheet merge
 
 
 def merge_jamie_drink_level_sheets(xls, frame_data):
@@ -40,6 +45,9 @@ def merge_jamie_drink_level_sheets(xls, frame_data):
             row["char_name"] = "Jamie"
             frame_data["jamie"].append(row)
             existing_jamie_keys.add(row_key)
+
+
+# Attack range token normalization
 
 
 def normalize_range_cmd_token(value):
@@ -85,6 +93,9 @@ def build_range_cmd_tokens(value):
             if token_without_five and token_without_five not in tokens:
                 tokens.append(token_without_five)
     return tokens
+
+
+# Backfill atkRange from RangeData sheet
 
 
 def hydrate_range_data(xls, frame_data, range_data, character_lookup, normalize_char_name, is_missing_attack_range_value, build_num_cmd_candidates_for_gif):
@@ -134,6 +145,9 @@ def hydrate_range_data(xls, frame_data, range_data, character_lookup, normalize_
                 if selected_range:
                     break
             row["atkRange"] = selected_range
+
+
+# Main ODS load: normals, stats, ranges, gif refresh
 
 
 def load_frame_data(deps):

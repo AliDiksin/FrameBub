@@ -1,3 +1,5 @@
+"""Street Fighter III: Third Strike character and move alias maps for parsers and quiz."""
+
 THIRD_STRIKE_CHARACTER_ALIASES = {
     "3s akuma": "akuma",
     "akuma": "akuma",

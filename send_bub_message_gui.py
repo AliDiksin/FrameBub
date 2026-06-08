@@ -1,3 +1,6 @@
+"""Small Tk GUI to post a message to a Discord channel via the bot token.
+Dev/ops helper, not part of the production bot runtime."""
+
 import json
 import os
 import threading

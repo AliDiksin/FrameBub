@@ -1,4 +1,4 @@
-"""Append-only JSONL log for Bub prompts, failures, slash/menu actions, and user reports."""
+"""Append-only JSONL interaction logging plus owner DM/channel notifications."""
 
 from __future__ import annotations
 
@@ -211,8 +211,12 @@ def log_from_interaction(
     return log_record(record, base_dir=base_dir)
 
 
+# Owner notifications: DM first, then BUB_OWNER_NOTIFY_CHANNEL_ID / BUB_LOG_CHANNEL_ID.
+_DEFAULT_OWNER_USER_ID = 427263312217243668
+
+
 def get_owner_notify_channel_id() -> Optional[int]:
-    for env_name in ("BUB_OWNER_NOTIFY_CHANNEL_ID", "BUB_LOG_CHANNEL_ID", "CHANNEL_ID"):
+    for env_name in ("BUB_OWNER_NOTIFY_CHANNEL_ID", "BUB_LOG_CHANNEL_ID"):
         raw = str(os.getenv(env_name, "") or "").strip()
         if raw.isdigit():
             return int(raw)
@@ -220,10 +224,11 @@ def get_owner_notify_channel_id() -> Optional[int]:
 
 
 def get_owner_notify_user_id() -> Optional[int]:
-    raw = str(os.getenv("BUB_OWNER_USER_ID", "") or "").strip()
-    if raw.isdigit():
-        return int(raw)
-    return None
+    for env_name in ("BUB_OWNER_USER_ID", "BUB_RESPONSE_LOG_DM_USER_ID"):
+        raw = str(os.getenv(env_name, "") or "").strip()
+        if raw.isdigit():
+            return int(raw)
+    return _DEFAULT_OWNER_USER_ID
 
 
 def format_owner_notification(record: dict[str, Any]) -> str:
@@ -257,6 +262,16 @@ async def notify_owner(client, record: dict[str, Any]) -> bool:
     content = format_owner_notification(record)
     if len(content) > 1900:
         content = content[:1900] + "…"
+    owner_id = get_owner_notify_user_id()
+    if owner_id:
+        try:
+            user = client.get_user(owner_id)
+            if user is None:
+                user = await client.fetch_user(owner_id)
+            await user.send(content)
+            return True
+        except Exception as exc:
+            print(f"Owner notify DM error: {exc}", flush=True)
     channel_id = get_owner_notify_channel_id()
     if channel_id:
         try:
@@ -267,14 +282,6 @@ async def notify_owner(client, record: dict[str, Any]) -> bool:
             return True
         except Exception as exc:
             print(f"Owner notify channel error: {exc}", flush=True)
-    owner_id = get_owner_notify_user_id()
-    if owner_id:
-        try:
-            user = await client.fetch_user(owner_id)
-            await user.send(content)
-            return True
-        except Exception as exc:
-            print(f"Owner notify DM error: {exc}", flush=True)
     return False
 
 

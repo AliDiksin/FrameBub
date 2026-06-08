@@ -1,3 +1,7 @@
+"""Discord on_ready bootstrap: static assets, slash sync, schedulers, data load, module configure.
+Called from message_router once the bot connects; deps dict carries injected callables and state.
+Returns the reminder loop task handle when created or reused."""
+
 async def handle_ready(deps):
     import asyncio as _asyncio
     import functools as _functools
@@ -21,6 +25,12 @@ async def handle_ready(deps):
     combo_data_module = deps["combo_data_module"]
 
     print(f"Logged in as {client.user}")
+    try:
+        from bubbot.runtime.static_assets import start_static_asset_server
+
+        await start_static_asset_server()
+    except Exception as error:
+        print(f"[static-assets] startup error: {error}", flush=True)
     try:
         from bubbot.runtime.slash_commands import sync_public_slash_commands
 

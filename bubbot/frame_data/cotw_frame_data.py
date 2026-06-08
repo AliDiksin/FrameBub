@@ -1,4 +1,5 @@
-import difflib
+"""City of the Wolves frame parser, embeds, regular image/notes helpers."""
+
 import io
 import os
 import re
@@ -12,6 +13,8 @@ from bubbot.data.cotw_aliases import COTW_CHARACTER_ALIASES, COTW_MOVE_ALIASES
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.frame_match_utils import find_matching_rows_standard
+from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
@@ -81,6 +84,9 @@ def display_char_name(char_key):
     if rows:
         return str(rows[0].get("char_name") or char_key).strip()
     return str(char_key or "Unknown").replace("_", " ").title()
+
+
+# ODS load
 
 
 def load_frame_data(filename=None):
@@ -154,47 +160,41 @@ def row_match_keys(row):
     return {key for key in keys if key}
 
 
+def _cotw_notation_query(query_key):
+    return looks_like_notation_query(query_key, "digit_button")
+
+
+def _cotw_filter_version_matches(matches, query_key):
+    button_match = re.search(r"([a-d]+)$", query_key)
+    requested_button = button_match.group(1) if button_match else ""
+    if not requested_button:
+        return matches
+    version_filtered = []
+    for row in matches:
+        version_key = normalize_move_token(row.get("version", ""))
+        if version_key and len(version_key) % 2 == 0 and version_key[: len(version_key) // 2] == version_key[len(version_key) // 2 :]:
+            version_key = version_key[: len(version_key) // 2]
+        if version_key and requested_button == version_key:
+            version_filtered.append(row)
+    return version_filtered or matches
+
+
 def find_matching_rows(char_key, move_text):
     query = normalize_move_query(move_text)
     query_key = normalize_move_token(query)
-    if not query_key:
-        return []
     rows = COTW_FRAME_DATA.get(char_key, []) or []
-    exact = [row for row in rows if query_key in row_match_keys(row)]
-    if exact:
-        version_filtered = []
-        button_match = re.search(r"([a-d]+)$", query_key)
-        requested_button = button_match.group(1) if button_match else ""
-        if requested_button:
-            for row in exact:
-                version_key = normalize_move_token(row.get("version", ""))
-                if version_key and len(version_key) % 2 == 0 and version_key[: len(version_key) // 2] == version_key[len(version_key) // 2 :]:
-                    version_key = version_key[: len(version_key) // 2]
-                if version_key and requested_button == version_key:
-                    version_filtered.append(row)
-        if version_filtered:
-            return unique_rows(version_filtered)
-        return unique_rows(exact)
-
-    normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
-    name_matches = []
-    notation_query = bool(re.fullmatch(r"(?:j)?[1-9]?[0-9]*[a-d]+", query_key))
-    for row in rows:
-        move_name = re.sub(r"[^a-z0-9]+", " ", str(row.get("moveName", "")).lower()).strip()
-        num_cmd = re.sub(r"[^a-z0-9]+", " ", str(row.get("numCmd", "")).lower()).strip()
-        if normalized_query_words and (normalized_query_words in move_name or (not notation_query and normalized_query_words in num_cmd)):
-            name_matches.append(row)
-    if name_matches:
-        return unique_rows(name_matches)
-
-    candidates = []
-    for row in rows:
-        for value in (row.get("moveName"), row.get("numCmd")):
-            key = normalize_move_token(value)
-            if key:
-                candidates.append((key, row))
-    close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.84)
-    return unique_rows([row for key, row in candidates if key in close_keys])
+    version_filter = lambda matches: _cotw_filter_version_matches(matches, query_key)
+    return find_matching_rows_standard(
+        rows,
+        query,
+        query_key,
+        normalize_fn=normalize_move_token,
+        looks_like_fn=_cotw_notation_query,
+        row_keys_fn=row_match_keys,
+        dedupe_fn=unique_rows,
+        post_notation=version_filter,
+        post_exact=version_filter,
+    )
 
 
 def build_disambiguation_prompt(char_key, rows):
@@ -204,6 +204,9 @@ def build_disambiguation_prompt(char_key, rows):
         num_cmd = str(row.get("numCmd") or "?").strip()
         lines.append(f"{index}. {move_name}: `{num_cmd}`")
     return "\n".join(lines)
+
+
+# Natural-language query entry
 
 
 def find_moves_in_text(text):
@@ -292,7 +295,10 @@ def find_moves_in_text(text):
         "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_matches and (frame_query or image_query or game_query or query_has_cotw_notation(lowered))),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or image_query or game_query)),
-    }
+        }
+
+
+# Discord embed output
 
 
 def get_notes_text(row):
@@ -425,6 +431,8 @@ async def send_frame_response(message, rows):
         rows,
         owner_id=getattr(message.author, "id", None),
         menu_locked=False,
+        source_message=message,
+        prompt=str(getattr(message, "content", "") or ""),
     )
 
 

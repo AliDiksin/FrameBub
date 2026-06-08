@@ -1,3 +1,5 @@
+"""2XKO champion and input alias maps for parsers and quiz."""
+
 TUCO_CHARACTER_ALIASES = {
     "ahri": "ahri",
     "akali": "akali",

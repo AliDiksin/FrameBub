@@ -1,3 +1,5 @@
+"""Discord /bub menu: game/char/move selectors, frame results, combos, quiz launch."""
+
 import io
 import math
 import os
@@ -39,6 +41,7 @@ build_third_strike_frame_embed = None
 send_frame_embeds_with_views = None
 
 
+# Runtime injection from bot startup
 def configure(
     frame_data=None,
     frame_stats=None,
@@ -106,6 +109,7 @@ def configure(
 MENU_SELECT_LIMIT = 25
 
 
+# Base view: owner lock for public /bub menu
 class OwnedView(discord.ui.View):
     def __init__(self, owner_id, *, menu_locked=False, timeout=None):
         super().__init__(timeout=timeout)
@@ -130,6 +134,7 @@ def _menu_locked_owner_id(view):
     return None
 
 
+# Game rosters, colours, move lists, search filters
 def _sf6_character_list():
     return character_choices(FRAME_DATA, display_fn=lambda char_key, _rows: str(char_key).title())
 
@@ -550,6 +555,7 @@ def _row_character_key(game, row, fallback=None):
     return None
 
 
+# Frame result helpers and compare buttons
 class StatsCompareButton(discord.ui.Button):
     def __init__(self, char_key, owner_id, stat_keys=None):
         super().__init__(label="Compare", style=discord.ButtonStyle.success)
@@ -668,7 +674,17 @@ class FrameBackToMovesButton(discord.ui.Button):
         )
 
 
-def build_frame_result_view(game, row, owner_id=None, char_key=None, *, menu_locked=False, show_back_to_moves=None):
+def build_frame_result_view(
+    game,
+    row,
+    owner_id=None,
+    char_key=None,
+    *,
+    menu_locked=False,
+    show_back_to_moves=None,
+    source_message=None,
+    prompt="",
+):
     resolved_char_key = char_key or _row_character_key(game, row)
     if show_back_to_moves is None:
         show_back_to_moves = menu_locked
@@ -680,6 +696,8 @@ def build_frame_result_view(game, row, owner_id=None, char_key=None, *, menu_loc
         menu_locked=menu_locked,
         show_back_to_moves=show_back_to_moves,
         show_return_menu=True,
+        source_message=source_message,
+        prompt=prompt,
     )
 
 
@@ -695,7 +713,19 @@ async def prepare_cotw_frame_view(view):
         view.cotw_image_filename = file.filename
 
 
-async def send_frame_result_messages(channel, game, rows, *, owner_id=None, menu_locked=False):
+async def send_frame_result_messages(
+    channel,
+    game,
+    rows,
+    *,
+    owner_id=None,
+    menu_locked=False,
+    source_message=None,
+    prompt="",
+    client=None,
+):
+    from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
+
     sent_ids = []
     for row in rows or []:
         view = build_frame_result_view(
@@ -703,9 +733,12 @@ async def send_frame_result_messages(channel, game, rows, *, owner_id=None, menu
             row,
             owner_id=owner_id,
             menu_locked=menu_locked,
+            source_message=source_message,
+            prompt=prompt,
         )
         await prepare_cotw_frame_view(view)
         sent = await channel.send(embed=view.build_embed(), view=view, files=view.initial_files())
+        stamp_report_context_on_sent(view, sent, client=client)
         sent_ids.append(sent.id)
     return sent_ids
 
@@ -717,6 +750,7 @@ def attach_compare_button(view, game, row, owner_id=None, char_key=None):
     view.add_item(CompareFrameButton(game, row, owner_id, char_key=resolved_char_key))
 
 
+# Main menu and per-game submenus
 class MainMenuView(OwnedView):
     def __init__(self, owner_id):
         super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
@@ -863,6 +897,7 @@ class SF6GameMenuView(OwnedView):
         )
 
 
+# Character and move select views (paginated Discord selects)
 class CharacterSelectView(OwnedView):
     def __init__(
         self,
@@ -1400,6 +1435,7 @@ async def _edit_frame_result_message(message, game, char_key, row, owner_id):
     await message.edit(embed=view.build_embed(), view=view, attachments=view.initial_files())
 
 
+# SF6 stats compare flow
 class StatsShowFramedataButton(discord.ui.Button):
     def __init__(self, char_key, owner_id):
         super().__init__(label="Show Framedata", style=discord.ButtonStyle.primary)
@@ -1437,7 +1473,17 @@ class StatsShowFramedataButton(discord.ui.Button):
 
 
 class StatsResultView(OwnedView):
-    def __init__(self, char_key, owner_id, stat_keys=None, compare_char_key=None, *, menu_locked=False):
+    def __init__(
+        self,
+        char_key,
+        owner_id,
+        stat_keys=None,
+        compare_char_key=None,
+        *,
+        menu_locked=False,
+        source_message=None,
+        prompt="",
+    ):
         super().__init__(owner_id=owner_id, menu_locked=menu_locked, timeout=None)
         self.char_key = char_key
         self.stat_keys = tuple(stat_keys) if stat_keys else None
@@ -1447,6 +1493,16 @@ class StatsResultView(OwnedView):
         self.add_item(FrameReturnMenuButton())
         if menu_locked:
             self.add_item(StatsBackToCharactersButton(char_key, owner_id))
+        from bubbot.features.failed_prompt_report import attach_frame_report_button
+
+        attach_frame_report_button(
+            self,
+            game="sf6",
+            row={"char_key": char_key, "char_name": char_key, "moveName": "Character Stats"},
+            source_message=source_message,
+            prompt=prompt,
+            failure_reason="stats_response",
+        )
 
 
 class StatsBackToCharactersButton(discord.ui.Button):
@@ -1472,6 +1528,27 @@ class StatsBackToCharactersButton(discord.ui.Button):
         )
 
 
+def _preferred_frame_image_url(game, row):
+    game_key = str(game or "").strip().lower()
+    if game_key == "ggst":
+        from bubbot.frame_data.ggst_frame_data import get_hitbox_links
+
+        links = get_hitbox_links(row)
+        return links[0] if links else ""
+    if game_key == "bbcf":
+        from bubbot.frame_data.bbcf_frame_data import get_hitbox_links
+
+        links = get_hitbox_links(row)
+        return links[0] if links else ""
+    if game_key == "third_strike":
+        from bubbot.frame_data.third_strike_frame_data import get_hitbox_links
+
+        links = get_hitbox_links(row)
+        return links[0] if links else ""
+    return ""
+
+
+# FrameResultView: per-game notes, hitbox, gif buttons
 class FrameResultView(OwnedView):
     def __init__(
         self,
@@ -1483,34 +1560,33 @@ class FrameResultView(OwnedView):
         menu_locked=False,
         show_back_to_moves=False,
         show_return_menu=True,
+        source_message=None,
+        prompt="",
     ):
         super().__init__(owner_id=owner_id, menu_locked=menu_locked, timeout=None)
         self.game = game
         self.char_key = char_key
         self.row = row
+        self.source_message = source_message
+        self.prompt = prompt
         self.show_notes = False
         self.show_stats = False
         if game == "sf6":
-            from bubbot.frame_data.frame_output import FrameDataGifButton, SF6NotesButton, SF6ShowStatsButton
+            from bubbot.frame_data.frame_output import SF6NotesButton, SF6ShowStatsButton
             from bubbot.frame_data.gif_lookup import get_existing_local_gif_asset_paths, get_frame_row_gif_links
             self.gif_links = list(get_frame_row_gif_links(row) or [])
             asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=1) if self.gif_links else []
             self.default_gif_asset_path = asset_paths[0] if asset_paths else None
             self.character_stats = FRAME_STATS.get(char_key) or {}
-            self.gif_button = FrameDataGifButton(row, self.gif_links, showing_gif=bool(self.default_gif_asset_path))
             self.stats_button = SF6ShowStatsButton(disabled=not self.character_stats)
             self.notes_button = SF6NotesButton(row)
-            self.add_item(self.gif_button)
             self.add_item(self.stats_button)
             self.add_item(self.notes_button)
         elif game == "ggst":
-            from bubbot.frame_data.ggst_frame_data import GGSTAllHitboxImagesButton, GGSTHitboxButton, GGSTNotesButton
+            from bubbot.frame_data.ggst_frame_data import GGSTAllHitboxImagesButton, GGSTNotesButton
             self.all_hitbox_images_button = GGSTAllHitboxImagesButton(row)
             if len(self.all_hitbox_images_button.hitbox_links) > 1:
                 self.add_item(self.all_hitbox_images_button)
-            else:
-                self.hitbox_button = GGSTHitboxButton(row, showing_hitbox=True)
-                self.add_item(self.hitbox_button)
             self.notes_button = GGSTNotesButton(row)
             self.add_item(self.notes_button)
         elif game == "sfv":
@@ -1522,23 +1598,17 @@ class FrameResultView(OwnedView):
             self.notes_button = TUCONotesButton(row)
             self.add_item(self.notes_button)
         elif game == "bbcf":
-            from bubbot.frame_data.bbcf_frame_data import BBCFAllHitboxImagesButton, BBCFHitboxButton, BBCFNotesButton
+            from bubbot.frame_data.bbcf_frame_data import BBCFAllHitboxImagesButton, BBCFNotesButton
             self.all_hitbox_images_button = BBCFAllHitboxImagesButton(row)
             if len(self.all_hitbox_images_button.hitbox_links) > 1:
                 self.add_item(self.all_hitbox_images_button)
-            else:
-                self.hitbox_button = BBCFHitboxButton(row, showing_hitbox=True)
-                self.add_item(self.hitbox_button)
             self.notes_button = BBCFNotesButton(row)
             self.add_item(self.notes_button)
         elif game == "third_strike":
-            from bubbot.frame_data.third_strike_frame_data import ThirdStrikeAllHitboxImagesButton, ThirdStrikeHitboxButton, ThirdStrikeNotesButton
+            from bubbot.frame_data.third_strike_frame_data import ThirdStrikeAllHitboxImagesButton, ThirdStrikeNotesButton
             self.all_hitbox_images_button = ThirdStrikeAllHitboxImagesButton(row)
             if len(self.all_hitbox_images_button.hitbox_links) > 1:
                 self.add_item(self.all_hitbox_images_button)
-            else:
-                self.hitbox_button = ThirdStrikeHitboxButton(row, showing_hitbox=True)
-                self.add_item(self.hitbox_button)
             self.notes_button = ThirdStrikeNotesButton(row)
             self.add_item(self.notes_button)
         elif game == "mk1":
@@ -1557,21 +1627,40 @@ class FrameResultView(OwnedView):
             self.add_item(FrameReturnMenuButton())
         if show_back_to_moves:
             self.add_item(FrameBackToMovesButton(game, char_key))
+        from bubbot.features.failed_prompt_report import attach_frame_report_button
+
+        attach_frame_report_button(
+            self,
+            game=game,
+            row=row,
+            source_message=source_message,
+            prompt=prompt,
+        )
 
     def build_embed(self):
+        from bubbot.utils.embed_source_utils import apply_game_source_footer
         if self.game == "sf6":
             if getattr(self, "show_stats", False) and getattr(self, "character_stats", None):
                 from bubbot.frame_data.sf6_character_stats import build_character_stats_embed
 
-                return build_character_stats_embed(self.char_key, self.character_stats)
-            if getattr(self, "default_gif_asset_path", None) and getattr(self, "gif_button", None) and self.gif_button.showing_gif:
-                filename = os.path.basename(self.default_gif_asset_path)
-                return build_sf6_frame_embed(
-                    self.row,
-                    image_url_override=f"attachment://{filename}",
-                    show_notes=getattr(self, "show_notes", False),
+                return apply_game_source_footer(
+                    build_character_stats_embed(self.char_key, self.character_stats),
+                    self.game,
                 )
-            return build_sf6_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
+            if getattr(self, "default_gif_asset_path", None):
+                filename = os.path.basename(self.default_gif_asset_path)
+                return apply_game_source_footer(
+                    build_sf6_frame_embed(
+                        self.row,
+                        image_url_override=f"attachment://{filename}",
+                        show_notes=getattr(self, "show_notes", False),
+                    ),
+                    self.game,
+                )
+            return apply_game_source_footer(
+                build_sf6_frame_embed(self.row, show_notes=getattr(self, "show_notes", False)),
+                self.game,
+            )
         if self.game == "ggst":
             from bubbot.frame_data.ggst_frame_data import build_frame_embed
         elif self.game == "sfv":
@@ -1587,34 +1676,30 @@ class FrameResultView(OwnedView):
         else:
             from bubbot.frame_data.cotw_frame_data import build_frame_embed
         embed = build_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
-        all_hitbox_button = getattr(self, "all_hitbox_images_button", None)
-        all_hitbox_links = getattr(all_hitbox_button, "hitbox_links", None)
-        if all_hitbox_button and len(all_hitbox_links or []) > 1:
-            embed.set_image(url=all_hitbox_links[0])
-            return embed
-        hitbox_button = getattr(self, "hitbox_button", None)
-        hitbox_links = getattr(hitbox_button, "hitbox_links", None)
-        if hitbox_button and getattr(hitbox_button, "showing_hitbox", False) and hitbox_links:
-            embed.set_image(url=hitbox_links[0])
+        preferred_image_url = _preferred_frame_image_url(self.game, self.row)
+        if preferred_image_url:
+            embed.set_image(url=preferred_image_url)
         if self.game == "cotw" and getattr(self, "image_url_override", ""):
             embed.set_image(url=self.image_url_override)
-        return embed
+        return apply_game_source_footer(embed, self.game)
 
     def initial_files(self):
         return self.active_files()
 
     def active_files(self):
+        from bubbot.utils.embed_source_utils import source_icon_files
+
+        files = source_icon_files(self.game, kind="frame")
         if self.game == "cotw" and getattr(self, "cotw_image_bytes", None) and getattr(self, "cotw_image_filename", None):
-            return [discord.File(io.BytesIO(self.cotw_image_bytes), filename=self.cotw_image_filename)]
-        if self.game != "sf6" or not getattr(self, "default_gif_asset_path", None):
-            return []
-        gif_button = getattr(self, "gif_button", None)
-        if not gif_button or not gif_button.showing_gif:
-            return []
-        filename = os.path.basename(self.default_gif_asset_path)
-        return [discord.File(self.default_gif_asset_path, filename=filename)]
+            files.append(discord.File(io.BytesIO(self.cotw_image_bytes), filename=self.cotw_image_filename))
+            return files
+        if self.game == "sf6" and getattr(self, "default_gif_asset_path", None):
+            filename = os.path.basename(self.default_gif_asset_path)
+            files.append(discord.File(self.default_gif_asset_path, filename=filename))
+        return files
 
 
+# Quiz difficulty picker (launches quiz_module.start_quiz)
 class QuizDifficultyView(OwnedView):
     def __init__(self, game, owner_id):
         super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
@@ -1676,6 +1761,7 @@ class BackToGameMenuView(OwnedView):
         )
 
 
+# Combo section and subsection navigation
 class ComboCharacterSelectView(OwnedView):
     def __init__(self, game, chars, owner_id, page=0):
         super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
@@ -2038,9 +2124,7 @@ class QuizFakeMessage:
         return await self.channel.send(content, **kwargs)
 
 
-
-
-
+# Menu embed builders and public send entrypoints
 def _main_menu_embed():
     return discord.Embed(
         title="Bub Menu",
@@ -2077,8 +2161,9 @@ def build_readme_embed():
     embed.add_field(
         name="3. Images, Notes, And Hitboxes",
         value=(
-            "Ask for `hitbox`, `image`, `gif`, or `notes` when supported. Frame-result buttons can also "
-            "toggle images/notes, and some games expose `Show All Images` for multi-image moves."
+            "Ask for `hitbox`, `image`, `gif`, or `notes` when supported. Frame results show hitbox GIFs/images "
+            "automatically when available, and notes can be toggled with the Show Notes button. Some games "
+            "also expose `Show All Images` for multi-image moves."
         ),
         inline=False,
     )

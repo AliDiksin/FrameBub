@@ -1,3 +1,5 @@
+"""Local SF6 hitbox GIF index and row/query GIF matching."""
+
 import os
 import re
 
@@ -18,6 +20,9 @@ strip_discord_mentions = None
 find_moves_in_text = None
 lookup_frame_data = None
 get_sf6_move_image_url = None
+
+
+# Runtime dependency injection
 
 
 def configure(**deps):
@@ -43,6 +48,9 @@ def extract_button_suffix(num_cmd_token):
 def is_local_gif_num_cmd_part(value):
     token = normalize_num_cmd_token(value)
     return bool(token and re.match(r"^j?\d", token))
+
+
+# Local GIF filename parsing and index load
 
 
 def parse_local_hitbox_gif_filename(filename):
@@ -287,6 +295,9 @@ def get_sf6_move_image_gif_fallback(row):
     if not callable(get_sf6_move_image_url):
         return ""
     return str(get_sf6_move_image_url(row) or "").strip()
+
+
+# Match a frame row to a local GIF link
 
 
 def lookup_hitbox_gif_link(row):
@@ -573,6 +584,9 @@ def collect_hitbox_gif_links(rows, limit=DISCORD_ATTACHMENT_LIMIT):
         if len(links) >= limit:
             break
     return links
+
+
+# Natural-language GIF query resolution
 
 
 def find_characters_in_text(text):

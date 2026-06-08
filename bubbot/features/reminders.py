@@ -1,3 +1,5 @@
+"""Natural-language reminders: timezone parsing, pending follow-ups, and background fire loop."""
+
 import datetime
 import os
 import re
@@ -5,6 +7,7 @@ from datetime import date
 from zoneinfo import ZoneInfo
 
 
+# Timezone aliases and parsing regex
 REMINDER_POLL_SECONDS = int(os.getenv("REMINDER_POLL_SECONDS", "10"))
 REMINDER_PENDING_TTL_SECONDS = int(os.getenv("REMINDER_PENDING_TTL_SECONDS", "600"))
 TZ_ALIASES = {
@@ -53,6 +56,7 @@ def message_directly_mentions_user(user, message):
     return user_id in (getattr(message, "raw_mentions", []) or [])
 
 
+# ReminderManager: parse requests, hold pending tz, poll and fire
 class ReminderManager:
     def __init__(self, client, truncate_message_func, build_reminder_ack_text, build_reminder_fire_text):
         self.client = client
@@ -190,6 +194,7 @@ class ReminderManager:
 
         return task, reminder_dt, reminder_dt.astimezone(datetime.timezone.utc), tz_label, None, None
 
+    # Background poll: send due reminders, drop fired entries
     async def reminder_loop(self):
         print(f"Reminder loop started. Polling every {REMINDER_POLL_SECONDS}s", flush=True)
         last_count = None
@@ -265,6 +270,7 @@ class ReminderManager:
                 self.reminders[:] = [r for r in self.reminders if r not in due]
             await datetime_async_sleep(REMINDER_POLL_SECONDS)
 
+    # Discord message path: new reminder, pending timezone reply, or ignore
     async def handle_message(self, message, content_no_mentions, content_lower):
         pending_key = (message.author.id, message.channel.id)
         if pending_key in self.pending_reminders:

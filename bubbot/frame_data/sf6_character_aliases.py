@@ -1,3 +1,5 @@
+"""SF6 character-specific alias dispatcher, stocked aliases, stance/grab row collectors, Viper filters."""
+
 import re
 
 from bubbot.frame_data.sf6_akuma_followups import apply_akuma_teleport_direction_aliases

@@ -1,4 +1,5 @@
-import difflib
+"""Third Strike frame parser, embeds, hitbox/image/notes helpers."""
+
 import os
 import re
 
@@ -14,6 +15,12 @@ from bubbot.data.third_strike_aliases import (
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.frame_match_utils import match_rows_by_fuzzy_keys, normalized_query_words
+from bubbot.utils.notation_match_utils import (
+    find_rows_by_notation_prefix,
+    looks_like_notation_query,
+    notation_prefix_matches_row_key,
+)
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
@@ -122,6 +129,9 @@ def display_char_name(char_key):
     if rows:
         return str(rows[0].get("char_name") or char_key).strip()
     return str(char_key or "Unknown").replace("_", " ").title()
+
+
+# ODS load
 
 
 def load_frame_data(filename=None):
@@ -327,6 +337,9 @@ def query_requests_air_variant(original_query, normalized_query):
     )
 
 
+# Move variant preference (air/ground, EX, Genei Jin)
+
+
 def prefer_ground_or_air_rows(rows, original_query, normalized_query):
     unique = unique_third_strike_rows(rows)
     if len(unique) <= 1:
@@ -384,50 +397,82 @@ def apply_match_preferences(char_key, rows, original_query, normalized_query):
     return prefer_non_ex_rows(air_rows, original_query, normalized_query)
 
 
+def _third_strike_notation_query(query_key):
+    return looks_like_notation_query(query_key, "third_strike")
+
+
 def find_matching_rows(char_key, move_text):
     query = normalize_move_query(move_text, char_key=char_key)
     query_key = normalize_move_token(query)
     if not query_key:
         return []
     rows = THIRD_STRIKE_FRAME_DATA.get(char_key, []) or []
-    exact = [row for row in rows if query_key in row_match_keys(row) or query_key in row_version_match_keys(row)]
+    notation_query = _third_strike_notation_query(query_key)
+
+    notation_matches = find_rows_by_notation_prefix(
+        rows,
+        query_key,
+        normalize_fn=normalize_move_token,
+        looks_like_fn=_third_strike_notation_query,
+    )
+    if notation_matches:
+        version_filtered = [row for row in notation_matches if _version_matches_query(row, query_key)]
+        return apply_match_preferences(char_key, version_filtered or notation_matches, move_text, query)
+
+    exact = [
+        row
+        for row in rows
+        if query_key in row_match_keys(row) or query_key in row_version_match_keys(row)
+    ]
     if exact:
         return apply_match_preferences(char_key, exact, move_text, query)
 
     base_matches = []
-    for row in rows:
-        row_keys = row_match_keys(row)
-        version_keys = row_version_match_keys(row)
-        if any(key and (key in query_key or (len(query_key) >= 3 and query_key in key)) for key in row_keys):
-            base_matches.append(row)
-        elif any(key and key in query_key for key in version_keys):
-            base_matches.append(row)
+    if notation_query:
+        for row in rows:
+            row_keys = row_match_keys(row)
+            version_keys = row_version_match_keys(row)
+            if any(
+                key and notation_prefix_matches_row_key(query_key, key)
+                for key in row_keys
+            ):
+                base_matches.append(row)
+            elif query_key in version_keys:
+                base_matches.append(row)
+    else:
+        for row in rows:
+            row_keys = row_match_keys(row)
+            version_keys = row_version_match_keys(row)
+            if any(key and (key in query_key or (len(query_key) >= 3 and query_key in key)) for key in row_keys):
+                base_matches.append(row)
+            elif any(key and key in query_key for key in version_keys):
+                base_matches.append(row)
     if base_matches:
         version_filtered = [row for row in base_matches if _version_matches_query(row, query_key)]
         return apply_match_preferences(char_key, version_filtered or base_matches, move_text, query)
 
-    normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
+    query_words = normalized_query_words(query)
     name_matches = []
-    notation_query = bool(re.fullmatch(r"(?:j)?[1-9]?[0-9]*(?:[lmh]?[pk]|sa[123])", query_key))
     for row in rows:
         move_name = re.sub(r"[^a-z0-9]+", " ", str(row.get("moveName", "")).lower()).strip()
         num_cmd = re.sub(r"[^a-z0-9]+", " ", str(row.get("numCmd", "")).lower()).strip()
         version = re.sub(r"[^a-z0-9]+", " ", str(row.get("version", "")).lower()).strip()
         haystack = " ".join(part for part in (move_name, num_cmd if not notation_query else "", version) if part)
-        if normalized_query_words and normalized_query_words in haystack:
+        if query_words and query_words in haystack:
             name_matches.append(row)
     if name_matches:
         version_filtered = [row for row in name_matches if _version_matches_query(row, query_key)]
         return apply_match_preferences(char_key, version_filtered or name_matches, move_text, query)
 
-    candidates = []
-    for row in rows:
-        for value in (row.get("moveName"), row.get("numCmd"), row.get("version")):
-            key = normalize_move_token(value)
-            if key:
-                candidates.append((key, row))
-    close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.84)
-    return apply_match_preferences(char_key, unique_rows([row for key, row in candidates if key in close_keys]), move_text, query)
+    fuzzy = match_rows_by_fuzzy_keys(
+        rows,
+        query_key,
+        value_fields=("moveName", "numCmd", "version"),
+        normalize_fn=normalize_move_token,
+        cutoff=0.84,
+        n=4,
+    )
+    return apply_match_preferences(char_key, unique_rows(fuzzy), move_text, query)
 
 
 def build_disambiguation_prompt(char_key, rows):
@@ -459,6 +504,9 @@ def find_single_character_multi_move_rows(char_key, move_text):
         if matches[0] not in rows:
             rows.append(matches[0])
     return {"rows": rows} if len(rows) >= 2 else None
+
+
+# Natural-language query entry
 
 
 def find_moves_in_text(text):
@@ -575,7 +623,10 @@ def find_moves_in_text(text):
         "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_matches and (frame_query or image_query or game_query or query_has_third_strike_notation(lowered))),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or image_query or game_query)),
-    }
+        }
+
+
+# Discord embed output
 
 
 def get_notes_text(row):
@@ -744,7 +795,7 @@ class ThirdStrikeNotesButton(discord.ui.Button):
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
         self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
-        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
+        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view, attachments=self.view.initial_files())
 
 
 async def send_frame_response(message, rows):
@@ -756,6 +807,8 @@ async def send_frame_response(message, rows):
         rows,
         owner_id=getattr(message.author, "id", None),
         menu_locked=False,
+        source_message=message,
+        prompt=str(getattr(message, "content", "") or ""),
     )
 
 

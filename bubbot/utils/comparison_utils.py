@@ -1,3 +1,5 @@
+"""Cross-game same-button and side-specific vs/comparison query parsing."""
+
 import re
 
 from bubbot.utils.text_utils import query_suffix_candidates

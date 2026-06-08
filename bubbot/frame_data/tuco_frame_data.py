@@ -1,4 +1,5 @@
-import difflib
+"""2XKO frame parser, embeds, hitbox/image helpers."""
+
 import os
 import re
 
@@ -16,6 +17,8 @@ from bubbot.utils.discord_formatting import (
     truncate_value as shared_truncate_value,
 )
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.frame_match_utils import find_matching_rows_standard
+from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
@@ -87,6 +90,9 @@ def display_char_name(char_key):
     return str(char_key or "Unknown").title()
 
 
+# ODS load
+
+
 def load_frame_data(filename=None):
     global TUCO_FRAME_DATA
     TUCO_FRAME_DATA = {}
@@ -152,37 +158,24 @@ def row_match_keys(row):
     return {key for key in keys if key}
 
 
+def _tuco_notation_query(query_key):
+    return looks_like_notation_query(query_key, "digit_button")
+
+
 def find_matching_rows(char_key, move_text):
     query = normalize_move_query(move_text)
     query_key = normalize_move_token(query)
-    if not query_key:
-        return []
     rows = TUCO_FRAME_DATA.get(char_key, []) or []
-    exact = [row for row in rows if query_key in row_match_keys(row)]
-    if exact:
-        return unique_rows(exact)
-
-    name_matches = []
-    normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
-    for row in rows:
-        move_name = str(row.get("moveName", "")).lower()
-        num_cmd = str(row.get("numCmd", "")).lower()
-        if normalized_query_words and normalized_query_words in re.sub(r"[^a-z0-9]+", " ", move_name):
-            name_matches.append(row)
-        elif normalized_query_words and normalized_query_words in re.sub(r"[^a-z0-9]+", " ", num_cmd):
-            name_matches.append(row)
-    if name_matches:
-        return unique_rows(name_matches)
-
-    candidates = []
-    for row in rows:
-        for value in (row.get("moveName"), row.get("numCmd")):
-            key = normalize_move_token(value)
-            if key:
-                candidates.append((key, row))
-    close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.82)
-    fuzzy = [row for key, row in candidates if key in close_keys]
-    return unique_rows(fuzzy)
+    return find_matching_rows_standard(
+        rows,
+        query,
+        query_key,
+        normalize_fn=normalize_move_token,
+        looks_like_fn=_tuco_notation_query,
+        row_keys_fn=row_match_keys,
+        dedupe_fn=unique_rows,
+        fuzzy_cutoff=0.82,
+    )
 
 
 def build_disambiguation_prompt(char_key, rows):
@@ -192,6 +185,9 @@ def build_disambiguation_prompt(char_key, rows):
         num_cmd = clean_value(row.get("numCmd"), "?")
         lines.append(f"{index}. {move_name}: `{num_cmd}`")
     return "\n".join(lines)
+
+
+# Natural-language query entry
 
 
 def find_moves_in_text(text):
@@ -275,7 +271,10 @@ def find_moves_in_text(text):
         "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_matches and (frame_query or gif_query or game_query)),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or gif_query or game_query)),
-    }
+        }
+
+
+# Discord embed output
 
 
 def clean_value(value, default=""):
@@ -402,7 +401,7 @@ class TUCONotesButton(discord.ui.Button):
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
         self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
-        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
+        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view, attachments=self.view.initial_files())
 
 
 async def send_frame_response(message, rows):
@@ -414,6 +413,8 @@ async def send_frame_response(message, rows):
         rows,
         owner_id=getattr(message.author, "id", None),
         menu_locked=False,
+        source_message=message,
+        prompt=str(getattr(message, "content", "") or ""),
     )
 
 

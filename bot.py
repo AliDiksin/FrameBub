@@ -1,3 +1,6 @@
+"""Compatibility launcher. Delegates to bubbot.runtime.bot so systemd and
+regressions can keep using `python bot.py` and `import bot`."""
+
 import sys
 
 from bubbot.runtime import bot as _runtime_bot

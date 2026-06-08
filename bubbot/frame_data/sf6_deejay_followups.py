@@ -1,3 +1,5 @@
+"""Dee Jay Jus Cool / sway alias and result filters."""
+
 import re
 
 from bubbot.frame_data.sf6_parser_helpers import append_unique

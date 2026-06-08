@@ -1,3 +1,5 @@
+"""Street Fighter V character alias maps for parsers and quiz."""
+
 SFV_CHARACTER_ALIASES = {
     "sfv": "sfv",
     "sf5": "sfv",

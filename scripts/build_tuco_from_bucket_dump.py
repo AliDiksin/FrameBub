@@ -1,3 +1,7 @@
+"""2XKO bucket dump fallback builder.
+Uses a saved bucket API dump when raw wiki fetches are blocked.
+"""
+
 from __future__ import annotations
 
 import argparse

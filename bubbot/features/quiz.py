@@ -1,3 +1,5 @@
+"""Cross-game frame-data quiz: state, routing, answer matching, timeouts, leaderboard."""
+
 import asyncio
 import datetime
 import difflib
@@ -9,6 +11,7 @@ import re
 import discord
 
 
+# Persona hooks (default stubs; buenavista may override)
 def sanitize_ascii_line(text):
     return re.sub(r"[^\x00-\x7F]+", "", str(text or "")).strip()
 
@@ -41,6 +44,7 @@ async def classify_quiz_another_question_intent(channel, text):
 async def classify_quiz_post_answer_choice_intent(channel, text):
     return None
 
+# Runtime injection from message_router / bot startup
 FRAME_DATA = {}
 CHARACTER_ALIASES = {}
 GAME_QUIZ_CONFIGS = {}
@@ -64,6 +68,7 @@ def configure(**deps):
     _ensure_quiz_game_configs()
 
 
+# Module state, regex intent patterns, caches
 ACTIVE_QUIZZES = {}
 QUIZ_PENDING_ANOTHER = {}
 QUIZ_PENDING_MODE = {}
@@ -131,8 +136,7 @@ QUIZ_VALID_MODES = {"easy", "medium", "hard"}
 QUIZ_START_LOCK = asyncio.Lock()
 
 
-# ==================== QUIZ FEATURE ====================
-
+# Cross-game config and row helpers
 def _ensure_quiz_game_configs():
     configs = globals().get("GAME_QUIZ_CONFIGS")
     if not isinstance(configs, dict):
@@ -477,6 +481,7 @@ def _quiz_row_has_notes(row, game="sf6"):
     return bool(notes)
 
 
+# Question embeds and quiz UI views
 class QuizNotesButton(discord.ui.Button):
     def __init__(self, row, mode="hard", game="sf6"):
         self.frame_row = row
@@ -589,6 +594,7 @@ class QuizQuestionView(discord.ui.View):
         return build_quiz_frame_embed(self.frame_row, mode=self.mode, show_notes=self.show_notes, game=self.game)
 
 
+# Answer hint censoring (hide char/move names in intro text)
 def _normalize_quiz_words(text):
     return re.sub(r"[^a-z0-9]+", " ", str(text or "").lower()).strip()
 
@@ -782,6 +788,7 @@ class QuizChannelMessage:
         return await self.channel.send(content, **kwargs)
 
 
+# Answer matching: numcmd variants, move names, fuzzy recovery
 def _normalize_quiz_numcmd(text):
     normalized = str(text or "").strip().lower()
     normalized = re.sub(r"[\[\]\(\)\{\}]", " ", normalized)
@@ -1437,6 +1444,7 @@ def pick_quiz_move(asked=None, mode="hard", game="sf6"):
     return None, None
 
 
+# Quiz session lifecycle (start, mode prompt, stop, next question)
 async def start_quiz(
     message,
     mode="hard",
@@ -1787,6 +1795,7 @@ def _is_reply_to_quiz_mode_prompt(message):
     return pending_id is not None and ref.message_id == pending_id
 
 
+# Timeouts: active question TTL, pending-another follow-up
 def _quiz_cancel_pending_another_timeout(channel_id):
     task = QUIZ_PENDING_ANOTHER_TIMEOUT_TASKS.pop(channel_id, None)
     if task and not task.done():
@@ -1984,6 +1993,7 @@ def _quiz_owner_only_end_message(state):
     return f"Only <@{owner_id}> can end this quiz."
 
 
+# Leaderboard persistence and display
 def _quiz_leaderboard_file_path():
     path_text = str(QUIZ_LEADERBOARD_FILE or "quiz_leaderboard.json").strip()
     if os.path.isabs(path_text):
@@ -2129,6 +2139,7 @@ async def _quiz_record_global_win(message, user_id, display_name, points=1):
         save_quiz_leaderboard()
 
 
+# Answer and post-answer follow-up handlers
 async def handle_quiz_post_answer_choice(message):
     """Handle follow-up choice after a wrong guess prompt."""
     channel_id = message.channel.id
@@ -2263,9 +2274,7 @@ async def handle_quiz_answer(message):
     return True
 
 
-# ==================== END QUIZ FEATURE ====================
-
-
+# Message router: activation, cheats, leaderboard, pending flows
 def _quiz_message_directly_mentions_user(user, message):
     user_id = getattr(user, "id", None)
     if user_id is None:

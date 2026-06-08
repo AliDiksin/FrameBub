@@ -1,3 +1,7 @@
+"""Regenerates SF6 Combos.ods from SuperCombo.
+Scrapes character combo pages into the runtime SF6 combo workbook.
+"""
+
 from __future__ import annotations
 
 import argparse

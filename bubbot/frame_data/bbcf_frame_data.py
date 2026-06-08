@@ -1,4 +1,5 @@
-import difflib
+"""BBCF frame parser, embeds, hitbox/image/notes helpers."""
+
 import os
 import re
 
@@ -11,6 +12,8 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
+from bubbot.utils.frame_match_utils import find_matching_rows_standard
+from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
@@ -98,6 +101,9 @@ def display_char_name(char_key):
     if rows:
         return str(rows[0].get("char_name") or char_key).strip()
     return str(char_key or "Unknown").replace("_", " ").title()
+
+
+# ODS load
 
 
 def load_frame_data(filename=None):
@@ -192,34 +198,23 @@ def row_match_keys(row):
     return {key for key in keys if key}
 
 
+def _bbcf_notation_query(query_key):
+    return looks_like_notation_query(query_key, "digit_button")
+
+
 def _find_matching_rows_generic(char_key, move_text):
     query = normalize_move_query(move_text)
     query_key = normalize_move_token(query)
-    if not query_key:
-        return []
     rows = BBCF_FRAME_DATA.get(char_key, []) or []
-    exact = [row for row in rows if query_key in row_match_keys(row)]
-    if exact:
-        return unique_rows(exact)
-
-    normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
-    name_matches = []
-    for row in rows:
-        move_name = re.sub(r"[^a-z0-9]+", " ", str(row.get("moveName", "")).lower()).strip()
-        num_cmd = re.sub(r"[^a-z0-9]+", " ", str(row.get("numCmd", "")).lower()).strip()
-        if normalized_query_words and (normalized_query_words in move_name or normalized_query_words in num_cmd):
-            name_matches.append(row)
-    if name_matches:
-        return unique_rows(name_matches)
-
-    candidates = []
-    for row in rows:
-        for value in (row.get("moveName"), row.get("numCmd")):
-            key = normalize_move_token(value)
-            if key:
-                candidates.append((key, row))
-    close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.84)
-    return unique_rows([row for key, row in candidates if key in close_keys])
+    return find_matching_rows_standard(
+        rows,
+        query,
+        query_key,
+        normalize_fn=normalize_move_token,
+        looks_like_fn=_bbcf_notation_query,
+        row_keys_fn=row_match_keys,
+        dedupe_fn=unique_rows,
+    )
 
 
 def _find_mai_followup_rows(char_key, move_text):
@@ -309,6 +304,9 @@ def build_disambiguation_prompt(char_key, rows):
         num_cmd = str(row.get("numCmd") or "?").strip()
         lines.append(f"{index}. {move_name}: `{num_cmd}`")
     return "\n".join(lines)
+
+
+# Natural-language query entry
 
 
 def find_moves_in_text(text):
@@ -403,7 +401,10 @@ def find_moves_in_text(text):
         "explicit_move_attempt": bool(char_matches and (frame_query or hitbox_query or game_query or query_has_bbcf_notation(lowered))),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or hitbox_query or game_query)),
         "quiz_answer_too_broad": quiz_answer_too_broad,
-    }
+        }
+
+
+# Discord embed output
 
 
 def get_notes_text(row):
@@ -547,7 +548,7 @@ class BBCFNotesButton(discord.ui.Button):
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
         self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
-        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
+        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view, attachments=self.view.initial_files())
 
 
 async def send_frame_response(message, rows):
@@ -559,6 +560,8 @@ async def send_frame_response(message, rows):
         rows,
         owner_id=getattr(message.author, "id", None),
         menu_locked=False,
+        source_message=message,
+        prompt=str(getattr(message, "content", "") or ""),
     )
 
 

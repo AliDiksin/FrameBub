@@ -1,3 +1,7 @@
+"""Main Discord message router. Owns on_message flow: quiz, menus, combos, per-game
+frame/gif routing, SF6 prompt replies, buenavista LLM hook, and invalid-query fallback.
+Also holds SF6 compat wrappers (load_frame_data, find_moves_in_text) for import bot regressions."""
+
 import discord
 import asyncio
 import random
@@ -75,6 +79,7 @@ from bubbot.runtime.startup import handle_ready
 _FRAME_DATA_RESPONSE_IDS = deque(maxlen=500)
 
 
+# Reply helpers: log failed prompts, attach Report Issue, stamp frame-data ids for reports
 async def _reply_and_log_response(message, response_text, reason, **kwargs):
     view = kwargs.pop("view", None)
     if reason in FAILED_PROMPT_REASONS:
@@ -99,7 +104,7 @@ async def _reply_and_log_response(message, response_text, reason, **kwargs):
             report_context["reply_jump_url"] = str(getattr(sent, "jump_url", "") or "")
             report_context["client"] = client
     try:
-        await log_message_and_reply(
+        log_message_and_reply(
             message,
             sent,
             interaction_type=INTERACTION_PROMPT,
@@ -122,7 +127,25 @@ async def _reply_and_log_response(message, response_text, reason, **kwargs):
     return sent
 
 
-def _record_frame_data_ids(ids):
+def _message_prompt_text(message):
+    parts = [str(getattr(message, "content", "") or "")]
+    for embed in getattr(message, "embeds", []) or []:
+        parts.append(str(getattr(embed, "title", "") or ""))
+        parts.append(str(getattr(embed, "description", "") or ""))
+    return "\n".join(part for part in parts if part).strip()
+
+
+def _text_is_numbered_disambiguation_prompt(text):
+    return bool(_NUMBERED_DISAMBIGUATION_PROMPT_RE.search(str(text or "")))
+
+
+def _message_is_numbered_disambiguation_prompt(message):
+    return _text_is_numbered_disambiguation_prompt(_message_prompt_text(message))
+
+
+def _record_frame_data_ids(ids, *, response_text=None):
+    if response_text and _text_is_numbered_disambiguation_prompt(response_text):
+        return
     for mid in (ids or []):
         if mid:
             _FRAME_DATA_RESPONSE_IDS.append(mid)
@@ -205,12 +228,15 @@ def _message_looks_like_frame_data_output(message):
     return False
 
 
+_NUMBERED_DISAMBIGUATION_PROMPT_RE = re.compile(
+    r"(?:Special Strength Options|Target Combo Options|Multiple (?:SFV|GGST|2XKO|BBCF|COTW|Third Strike|MK1) moves match)"
+)
+
+
 async def _is_reply_to_suppressed_bub_message(message):
     if not message.reference:
         return False
     replied_id = message.reference.message_id
-    if replied_id in _FRAME_DATA_RESPONSE_IDS:
-        return True
     try:
         replied_message = await _fetch_referenced_message(message)
     except (discord.NotFound, discord.Forbidden):
@@ -220,6 +246,12 @@ async def _is_reply_to_suppressed_bub_message(message):
         return False
     if not replied_message or getattr(replied_message, "author", None) != client.user:
         return False
+
+    if _message_is_numbered_disambiguation_prompt(replied_message):
+        return False
+
+    if replied_id in _FRAME_DATA_RESPONSE_IDS:
+        return True
 
     if _message_looks_like_quiz_output(replied_message):
         return False
@@ -347,6 +379,7 @@ DISAMBIGUATION_GAME_CONFIGS = [
 ]
 
 
+# Numbered disambiguation reply parsing (GGST/SFV/etc follow-up prompts)
 def _compact_disambiguation_text(text):
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
 
@@ -837,6 +870,73 @@ async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
         await message.reply(replied_content)
     return True
 
+
+def _sf6_prompt_reply_deps():
+    return {
+        "FRAME_DATA": FRAME_DATA,
+        "send_missing_hitbox_gif_reply": send_missing_hitbox_gif_reply,
+        "normalize_char_name": normalize_char_name,
+        "resolve_character_key": resolve_character_key,
+        "lookup_frame_data": lookup_frame_data,
+        "lookup_hitbox_gif_link": lookup_hitbox_gif_link,
+        "collect_hitbox_gif_links_from_text": collect_hitbox_gif_links_from_text,
+        "send_frame_table_response": send_frame_table_response,
+        "send_gif_links_response": send_gif_links_response,
+        "format_frame_data": format_frame_data,
+        "find_moves_in_text": find_moves_in_text,
+        "reply_and_log_response": _reply_and_log_response,
+    }
+
+
+async def _resolve_special_strength_reply_mode(replied_msg):
+    mode = sf6_prompt_replies.get_special_strength_prompt_mode(replied_msg.id)
+    if mode:
+        return mode
+    if not replied_msg.reference or not replied_msg.reference.message_id:
+        return None
+    try:
+        prompt_source = await _fetch_referenced_message(replied_msg)
+    except (discord.NotFound, discord.Forbidden):
+        return None
+    if not prompt_source:
+        return None
+    prompt_source_text = strip_discord_mentions(prompt_source.content or "").lower()
+    if has_explicit_gif_lookup_intent(prompt_source_text):
+        return "gif"
+    return None
+
+
+async def _handle_sf6_prompt_disambiguation_reply(message, content_no_mentions, *, gif_query=False):
+    if not message.reference:
+        return False
+    try:
+        replied_msg = await _fetch_referenced_message(message)
+    except (discord.NotFound, discord.Forbidden):
+        return False
+    if not replied_msg or replied_msg.author != client.user:
+        return False
+
+    replied_content = _message_prompt_text(replied_msg)
+    if not (
+        "Special Strength Options" in replied_content
+        or "Target Combo Options" in replied_content
+    ):
+        return False
+
+    special_strength_reply_mode = None
+    if "Special Strength Options" in replied_content:
+        special_strength_reply_mode = await _resolve_special_strength_reply_mode(replied_msg)
+
+    return await sf6_prompt_replies.handle_sf6_prompt_reply(
+        _sf6_prompt_reply_deps(),
+        message,
+        replied_content,
+        content_no_mentions,
+        gif_query=gif_query,
+        special_strength_reply_mode=special_strength_reply_mode,
+    )
+
+
 buenavista_extension.log_status()
 
 intents = discord.Intents.default()
@@ -934,6 +1034,7 @@ def resolve_character_from_aliases_in_text(text, aliases, valid_keys):
     return matches[0] if matches else None
 
 
+# SF6 loader/parser compat surface (root bot.py and regressions import these names)
 def load_frame_data():
     """Compatibility wrapper for SF6 ODS loading."""
     sf6_loader.load_frame_data(
@@ -1174,6 +1275,7 @@ def configure_extracted_modules():
     )
 
 
+# NL combo routing before SF6 frame parser (SF6 Combos.ods + mk1/combos.json)
 async def _try_route_combo_query(
     message,
     content_lower,
@@ -1314,6 +1416,7 @@ async def _handle_message(message):
     content_no_mentions = strip_discord_mentions(content_raw)
     content_lower = content_no_mentions.lower()
 
+    # Plain @bub or @bub sf6 opens menu without other text
     if is_plain_bot_mention_only(message):
         await _send_main_menu_for_plain_mention(message)
         return
@@ -1338,13 +1441,25 @@ async def _handle_message(message):
             print(f"Response log error: {log_error}", flush=True)
         return
 
+    # Quiz beats frame lookup while a session is active (must be @bub or reply to quiz msg)
     quiz_result = await quiz_module.route_message(client, message, content_lower)
     if quiz_result is not False:
+        return
+
+    if await _handle_cross_game_disambiguation_reply(message, content_no_mentions):
+        return
+
+    if await _handle_sf6_prompt_disambiguation_reply(
+        message,
+        content_no_mentions,
+        gif_query=has_explicit_gif_lookup_intent(content_lower),
+    ):
         return
 
     if await _is_reply_to_suppressed_bub_message(message):
         return
 
+    # @bub menu and @bub {char} moves shortcuts
     if directly_mentions_bot and content_lower.strip() == "menu":
         await menu_system.send_main_menu(message.channel, owner_id=message.author.id)
         return
@@ -1431,10 +1546,8 @@ async def _handle_message(message):
             await menu_system.send_character_moves_menu(message.channel, "third_strike", third_strike_char_key, owner_id=message.author.id)
             return
 
+    # User reminders (public) then BV catchphrase keyword replies
     if await reminder_manager.handle_message(message, content_no_mentions, content_lower):
-        return
-
-    if await _handle_cross_game_disambiguation_reply(message, content_no_mentions):
         return
 
     if await buenavista_extension.maybe_handle_private_message(
@@ -1717,6 +1830,8 @@ async def _handle_message(message):
         or message_replies_to_bot
         or directly_mentions_bot
     )
+
+    # Cross-game frame routing: combos first, then per-game find_moves_in_text blocks below
     if await _try_route_combo_query(
         message,
         content_lower,
@@ -2104,7 +2219,7 @@ async def _handle_message(message):
         return
 
 
-    # logic flags
+    # SF6 frame/gif path: unpack parser payload, optional BV LLM lookup rewrite, then respond
     check_media = False
     replied_context = None  # store bub's original message if replying to bot
     special_strength_reply_mode = None
@@ -2359,7 +2474,7 @@ async def _handle_message(message):
             _record_frame_data_ids(frame_sent_ids)
             if not frame_sent_ids and default_data:
                 sent = await message.reply(default_data)
-                _record_frame_data_ids([sent.id])
+                _record_frame_data_ids([sent.id], response_text=default_data)
             return
 
         if combined_frame_gif_request and frame_command_is_addressed:
@@ -2622,7 +2737,7 @@ async def _handle_message(message):
             if not frame_sent_ids and fd_context_data:
                 try:
                     sent = await message.reply(fd_context_data)
-                    _record_frame_data_ids([sent.id])
+                    _record_frame_data_ids([sent.id], response_text=fd_context_data)
                 except Exception as reply_error:
                     if is_deleted_message_reference_error(reply_error):
                         print("Direct frame reply target deleted. Triggering failsafe.", flush=True)
@@ -2672,26 +2787,7 @@ async def _handle_message(message):
                     replied_context = replied_msg.content  # capture only TC prompt
                 elif "Special Strength Options" in replied_msg.content:
                     replied_context = replied_msg.content
-                    special_strength_reply_mode = sf6_prompt_replies.get_special_strength_prompt_mode(replied_msg.id)
-                    if (
-                        not special_strength_reply_mode
-                        and replied_msg.reference
-                        and replied_msg.reference.message_id
-                    ):
-                        try:
-                            if replied_msg.reference.cached_message:
-                                prompt_source_msg = replied_msg.reference.cached_message
-                            else:
-                                prompt_source_msg = await message.channel.fetch_message(
-                                    replied_msg.reference.message_id
-                                )
-                            prompt_source_text = strip_discord_mentions(
-                                prompt_source_msg.content or ""
-                            ).lower()
-                            if has_explicit_gif_lookup_intent(prompt_source_text):
-                                special_strength_reply_mode = "gif"
-                        except Exception:
-                            pass
+                    special_strength_reply_mode = await _resolve_special_strength_reply_mode(replied_msg)
 
         except discord.NotFound:
             pass
@@ -2700,21 +2796,9 @@ async def _handle_message(message):
         except Exception as e:
             print(f"Reply logic error: {e}")
 
+    # SF6 target combo / special strength numbered replies
     if await sf6_prompt_replies.handle_sf6_prompt_reply(
-        {
-            "FRAME_DATA": FRAME_DATA,
-            "send_missing_hitbox_gif_reply": send_missing_hitbox_gif_reply,
-            "normalize_char_name": normalize_char_name,
-            "resolve_character_key": resolve_character_key,
-            "lookup_frame_data": lookup_frame_data,
-            "lookup_hitbox_gif_link": lookup_hitbox_gif_link,
-            "collect_hitbox_gif_links_from_text": collect_hitbox_gif_links_from_text,
-            "send_frame_table_response": send_frame_table_response,
-            "send_gif_links_response": send_gif_links_response,
-            "format_frame_data": format_frame_data,
-            "find_moves_in_text": find_moves_in_text,
-            "reply_and_log_response": _reply_and_log_response,
-        },
+        _sf6_prompt_reply_deps(),
         message,
         replied_context,
         content_no_mentions,
@@ -2723,8 +2807,7 @@ async def _handle_message(message):
     ):
         return
 
-
-
+    # BV LLM chat when enabled; otherwise fall through to public invalid-query notice in BV too
     should_respond = buenavista_extension.should_handle_chat_trigger(
         client=client,
         message=message,

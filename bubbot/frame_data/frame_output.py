@@ -1,3 +1,5 @@
+"""SF6 frame embed formatting and Discord result views (build_frame_result_view wiring)."""
+
 import os
 import re
 
@@ -39,6 +41,9 @@ SF6_MOVE_IMAGE_URLS = {
     ("ken", "5hp"): "https://wiki.supercombo.gg/images/thumb/6/6c/SF6_Ken_5hp.png/262px-SF6_Ken_5hp.png",
 }
 SF6_MOVE_IMAGES_MODULE = "bubbot.data.sf6_move_images"
+
+
+# Runtime dependency injection
 
 
 def configure(**deps):
@@ -123,6 +128,9 @@ def get_sf6_move_image_url(row):
 
 
 load_move_image_urls()
+
+
+# Partial property-only text replies
 
 
 def format_property_only_lines(lines, limit=1800):
@@ -245,6 +253,18 @@ def get_notes_text(row):
     return clean_embed_value(row.get("extraInfo", ""), strip_brackets=True)
 
 
+def sf6_row_has_notes_content(row):
+    if get_notes_text(row):
+        return True
+    for key in ("hcWinSpCa", "hcWinTc", "hcWinNotes"):
+        if not is_missing_embed_value(clean_embed_value(row.get(key, ""))):
+            return True
+    return False
+
+
+# SF6 frame Discord embeds
+
+
 def build_frame_embed(row, image_url_override=None, show_notes=False):
     char_name = clean_embed_value(row.get("char_name", "Unknown"), default="Unknown")
     move_name = clean_embed_value(row.get("moveName", "Unknown"), default="Unknown")
@@ -275,10 +295,6 @@ def build_frame_embed(row, image_url_override=None, show_notes=False):
     stun_hit = clean_embed_value(row.get("hitstun", ""))
     stun_block = clean_embed_value(row.get("blockstun", ""))
 
-    hc_sp = clean_embed_value(row.get("hcWinSpCa", ""))
-    hc_tc = clean_embed_value(row.get("hcWinTc", ""))
-    hc_notes = clean_embed_value(row.get("hcWinNotes", ""), strip_brackets=True)
-
     add_embed_field(embed, "Startup", startup, inline=True)
     add_embed_field(embed, "Active", active, inline=True)
     add_embed_field(embed, "Recovery", recovery, inline=True)
@@ -295,11 +311,13 @@ def build_frame_embed(row, image_url_override=None, show_notes=False):
     add_embed_field(embed, "Super Gain", format_hit_block_value(super_hit, super_block), inline=True)
     add_embed_field(embed, "Stun", format_hit_block_value(stun_hit, stun_block), inline=True)
 
-    add_embed_field(embed, "Hit Confirm (Sp/Su)", hc_sp, inline=True)
-    add_embed_field(embed, "Hit Confirm (TC)", hc_tc, inline=True)
-    add_embed_field(embed, "Hit Confirm Notes", hc_notes, inline=False)
-
     if show_notes:
+        hc_sp = clean_embed_value(row.get("hcWinSpCa", ""))
+        hc_tc = clean_embed_value(row.get("hcWinTc", ""))
+        hc_notes = clean_embed_value(row.get("hcWinNotes", ""), strip_brackets=True)
+        add_embed_field(embed, "Hit Confirm (Sp/Su)", hc_sp, inline=True)
+        add_embed_field(embed, "Hit Confirm (TC)", hc_tc, inline=True)
+        add_embed_field(embed, "Hit Confirm Notes", hc_notes, inline=False)
         add_long_embed_field(embed, "Notes", get_notes_text(row), inline=False)
 
     image_url = image_url_override or get_sf6_move_image_url(row)
@@ -360,6 +378,10 @@ def sanitize_embed_followup_text(text):
         if sentence:
             return sentence
     return "Noted. The relevant frame data is in the embeds above."
+
+
+# Missing-gif and panel toggle Discord views
+
 
 class MissingHitboxGifShowFramedataButton(discord.ui.Button):
     def __init__(self):
@@ -578,7 +600,7 @@ class SF6NotesButton(SF6PanelToggleButton):
         super().__init__(
             label="Show Notes",
             style=discord.ButtonStyle.primary,
-            disabled=not self.notes_text,
+            disabled=not sf6_row_has_notes_content(row),
             row=0,
         )
 
@@ -593,9 +615,16 @@ class SF6NotesButton(SF6PanelToggleButton):
         return []
 
 
-async def send_character_stats_response(message, char_keys, stat_keys=None):
+# Channel send helpers
+
+
+async def send_character_stats_response(message, char_keys, stat_keys=None, *, client=None):
+    from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
+    from bubbot.utils.embed_source_utils import apply_game_source_footer, source_icon_files
+
     channel = getattr(message, "channel", message)
     owner_id = getattr(getattr(message, "author", None), "id", None)
+    prompt = str(getattr(message, "content", "") or "")
     unique_keys = []
     for char_key in char_keys or []:
         if char_key and char_key not in unique_keys:
@@ -605,18 +634,37 @@ async def send_character_stats_response(message, char_keys, stat_keys=None):
         stats = (FRAME_STATS or {}).get(char_key)
         if not stats:
             continue
-        embed = build_character_stats_embed(char_key, stats, stat_keys)
+        embed = apply_game_source_footer(build_character_stats_embed(char_key, stats, stat_keys), "sf6")
         view = None
+        files = source_icon_files("sf6", kind="frame")
         if owner_id:
             from bubbot.features.menu_system import StatsResultView
 
-            view = StatsResultView(char_key, owner_id, stat_keys=stat_keys, menu_locked=False)
-        sent = await channel.send(embed=embed, view=view)
+            view = StatsResultView(
+                char_key,
+                owner_id,
+                stat_keys=stat_keys,
+                menu_locked=False,
+                source_message=message,
+                prompt=prompt,
+            )
+        sent = await channel.send(embed=embed, view=view, files=files)
+        stamp_report_context_on_sent(view, sent, client=client)
         sent_ids.append(sent.id)
     return sent_ids
 
 
-async def send_frame_embeds_with_views(channel, rows, embeds=None, owner_id=None):
+async def send_frame_embeds_with_views(
+    channel,
+    rows,
+    embeds=None,
+    owner_id=None,
+    *,
+    source_message=None,
+    prompt="",
+    client=None,
+):
+    from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
     from bubbot.features.menu_system import build_frame_result_view
 
     unique_rows = iter_unique_frame_rows(rows or [])
@@ -631,42 +679,90 @@ async def send_frame_embeds_with_views(channel, rows, embeds=None, owner_id=None
                 sent = await channel.send(embed=embed)
                 sent_ids.append(sent.id)
                 continue
-            view = build_frame_result_view("sf6", unique_rows[index], owner_id=owner_id, menu_locked=False)
-            files = []
-            if view.default_gif_asset_path:
-                filename = os.path.basename(view.default_gif_asset_path)
-                embed.set_image(url=f"attachment://{filename}")
-                files = view.initial_files()
-            sent = await channel.send(embed=embed, view=view, files=files)
+            view = build_frame_result_view(
+                "sf6",
+                unique_rows[index],
+                owner_id=owner_id,
+                menu_locked=False,
+                source_message=source_message,
+                prompt=prompt,
+            )
+            embed = view.build_embed()
+            sent = await channel.send(embed=embed, view=view, files=view.initial_files())
+            stamp_report_context_on_sent(view, sent, client=client)
             sent_ids.append(sent.id)
         return sent_ids
 
-    return await _send_sf6_frame_result_messages(channel, unique_rows, owner_id=owner_id)
+    return await _send_sf6_frame_result_messages(
+        channel,
+        unique_rows,
+        owner_id=owner_id,
+        source_message=source_message,
+        prompt=prompt,
+        client=client,
+    )
 
 
-async def _send_sf6_frame_result_messages(channel, rows, *, owner_id=None):
+async def _send_sf6_frame_result_messages(
+    channel,
+    rows,
+    *,
+    owner_id=None,
+    source_message=None,
+    prompt="",
+    client=None,
+):
+    from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
     from bubbot.features.menu_system import build_frame_result_view
 
     sent_ids = []
     for row in rows:
-        view = build_frame_result_view("sf6", row, owner_id=owner_id, menu_locked=False)
+        view = build_frame_result_view(
+            "sf6",
+            row,
+            owner_id=owner_id,
+            menu_locked=False,
+            source_message=source_message,
+            prompt=prompt,
+        )
         embed = view.build_embed()
         sent = await channel.send(embed=embed, view=view, files=view.initial_files())
+        stamp_report_context_on_sent(view, sent, client=client)
         sent_ids.append(sent.id)
     return sent_ids
 
 
 async def send_frame_table_response(message, rows, data_text):
+    from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
+    from bubbot.features.menu_system import build_frame_result_view
+
     unique_rows = iter_unique_frame_rows(rows or [])
-    if unique_rows:
-        try:
-            return await send_frame_embeds_with_views(
-                message.channel,
-                unique_rows,
-                owner_id=getattr(message.author, "id", None),
+    if not unique_rows:
+        return []
+    try:
+        sent_ids = []
+        owner_id = getattr(message.author, "id", None)
+        prompt = str(getattr(message, "content", "") or "")
+        for index, row in enumerate(unique_rows):
+            view = build_frame_result_view(
+                "sf6",
+                row,
+                owner_id=owner_id,
+                menu_locked=False,
+                source_message=message,
+                prompt=prompt,
             )
-        except Exception as e:
-            print(f"Direct frame embed send failed: {e}", flush=True)
+            embed = view.build_embed()
+            files = view.initial_files()
+            if index == 0:
+                sent = await message.reply(embed=embed, view=view, files=files)
+            else:
+                sent = await message.channel.send(embed=embed, view=view, files=files)
+            stamp_report_context_on_sent(view, sent)
+            sent_ids.append(sent.id)
+        return sent_ids
+    except Exception as e:
+        print(f"Direct frame embed send failed: {e}", flush=True)
     return []
 
 

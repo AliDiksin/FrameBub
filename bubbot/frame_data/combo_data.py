@@ -1,3 +1,5 @@
+"""Cross-game SF6 and MK1 combo load, NL filter, embeds, menu/slash views."""
+
 import json
 import os
 import re
@@ -58,6 +60,9 @@ _resolve_sf6_character_key = None
 _resolve_mk1_character_key = None
 _mk1_character_aliases = None
 _sf6_character_aliases = None
+
+
+# Game config and ODS/JSON load
 
 
 def configure(
@@ -229,6 +234,9 @@ def load_combo_data(
     return bool(sf6_count or mk1_count)
 
 
+# Menu section/subsection navigation
+
+
 def combo_character_list(game):
     data = COMBO_DATA.get(game) or {}
     filtered = {key: rows for key, rows in data.items() if rows and not str(key).startswith("kameo_")}
@@ -319,7 +327,7 @@ def rows_for_section(game, char_key, section):
 
 
 def _row_partition_label(row):
-    """Menu button label within a section — wiki h3/tabber trail plus row position when present."""
+    """Menu button label within a section. Wiki h3/tabber trail plus row position when present."""
     _section, subsection = _split_group(row.get("group"))
     parts = [part.strip() for part in subsection.split(GROUP_SEPARATOR) if part.strip()] if subsection else []
     position = str(row.get("position") or "").strip()
@@ -520,6 +528,9 @@ def find_characters_in_text(game, text):
     return matches
 
 
+# Natural-language combo query
+
+
 def find_combo_rows_in_text(game, text):
     lowered = str(text or "").lower()
     combo_query = _query_has_combo_intent(lowered)
@@ -626,6 +637,9 @@ def find_combo_rows_in_text(game, text):
 
 
 SUBHEADER_DIVIDER = "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+
+
+# Paginated combo embeds and Discord views
 
 
 def _row_subheader(row, section):
@@ -767,6 +781,9 @@ def build_combo_pages(game, char_key, rows, *, section=None, subsection=None, gr
     if len(pages) > 1:
         for page_index, embed in enumerate(pages):
             embed.set_footer(text=f"Page {page_index + 1}/{len(pages)} · {len(rows)} combos")
+    from bubbot.utils.embed_source_utils import apply_source_footer_to_pages
+
+    apply_source_footer_to_pages(pages, game, kind="combo")
     return pages
 
 
@@ -784,6 +801,8 @@ class ComboListView(discord.ui.View):
         section=None,
         subsection=None,
         back_to="character_select",
+        source_message=None,
+        prompt="",
     ):
         super().__init__(timeout=None)
         self.game = game
@@ -796,6 +815,8 @@ class ComboListView(discord.ui.View):
         self.section = section
         self.subsection = subsection
         self.back_to = back_to
+        self.source_message = source_message
+        self.prompt = prompt
         self._sync_buttons()
 
     def _sync_buttons(self):
@@ -804,6 +825,17 @@ class ComboListView(discord.ui.View):
             self.add_item(ComboListPreviousButton())
             self.add_item(ComboListNextButton())
         self.add_item(ComboListBackButton())
+        from bubbot.features.failed_prompt_report import attach_combo_report_button
+
+        attach_combo_report_button(
+            self,
+            game=self.game,
+            char_key=self.char_key,
+            source_message=self.source_message,
+            prompt=self.prompt,
+            section=self.section,
+            subsection=self.subsection,
+        )
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not self.menu_locked:
@@ -819,6 +851,11 @@ class ComboListView(discord.ui.View):
     def current_embed(self):
         return self.pages[self.page]
 
+    def message_attachments(self):
+        from bubbot.utils.embed_source_utils import source_icon_files
+
+        return source_icon_files(self.game, kind="combo")
+
 
 class ComboListPreviousButton(discord.ui.Button):
     def __init__(self):
@@ -827,7 +864,11 @@ class ComboListPreviousButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view = self.view
         view.page = view.page - 1 if view.page > 0 else len(view.pages) - 1
-        await interaction.response.edit_message(embed=view.current_embed(), view=view)
+        await interaction.response.edit_message(
+            embed=view.current_embed(),
+            view=view,
+            attachments=view.message_attachments(),
+        )
 
 
 class ComboListNextButton(discord.ui.Button):
@@ -837,7 +878,11 @@ class ComboListNextButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view = self.view
         view.page = view.page + 1 if view.page < len(view.pages) - 1 else 0
-        await interaction.response.edit_message(embed=view.current_embed(), view=view)
+        await interaction.response.edit_message(
+            embed=view.current_embed(),
+            view=view,
+            attachments=view.message_attachments(),
+        )
 
 
 class ComboListBackButton(discord.ui.Button):
@@ -949,8 +994,15 @@ async def send_combo_entry(
     owner_id=None,
     *,
     back_to="game_menu",
+    source_message=None,
+    prompt="",
+    client=None,
 ):
     """Route NL/slash combo queries to the section menu or a filtered list."""
+    if source_message is None and hasattr(destination, "content"):
+        source_message = destination
+    if not prompt and source_message is not None:
+        prompt = str(getattr(source_message, "content", "") or "")
     nav, details = combo_entry_nav(
         game,
         char_key,
@@ -978,6 +1030,9 @@ async def send_combo_entry(
             menu_locked=True,
             section=details["section"],
             back_to=back_to,
+            source_message=source_message,
+            prompt=prompt,
+            client=client,
         )
     return await send_combo_response(
         destination,
@@ -988,6 +1043,9 @@ async def send_combo_entry(
         menu_locked=True,
         group=details["group"],
         back_to=back_to,
+        source_message=source_message,
+        prompt=prompt,
+        client=client,
     )
 
 
@@ -1003,7 +1061,12 @@ async def send_combo_response(
     section=None,
     subsection=None,
     back_to="character_select",
+    source_message=None,
+    prompt="",
+    client=None,
 ):
+    from bubbot.utils.embed_source_utils import source_icon_files
+
     pages = build_combo_pages(game, char_key, rows, group=group, section=section, subsection=subsection)
     if not pages:
         return []
@@ -1017,18 +1080,22 @@ async def send_combo_response(
         section=section,
         subsection=subsection,
         back_to=back_to,
+        source_message=source_message,
+        prompt=prompt,
     )
-    send_kwargs = {"embed": pages[0], "view": view}
+    send_kwargs = {"embed": pages[0], "view": view, "files": source_icon_files(game, kind="combo")}
     if hasattr(destination, "response") and hasattr(destination.response, "is_done"):
         if not destination.response.is_done():
             sent = await destination.response.send_message(**send_kwargs)
         else:
             sent = await destination.followup.send(**send_kwargs)
-        return [sent.id]
-    if hasattr(destination, "reply"):
+    elif hasattr(destination, "reply"):
         sent = await destination.reply(**send_kwargs)
-        return [sent.id]
-    sent = await destination.send(**send_kwargs)
+    else:
+        sent = await destination.send(**send_kwargs)
+    from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
+
+    stamp_report_context_on_sent(view, sent, client=client)
     return [sent.id]
 
 

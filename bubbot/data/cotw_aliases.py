@@ -1,3 +1,5 @@
+"""Fatal Fury: City of the Wolves character and move alias maps for parsers and quiz."""
+
 COTW_CHARACTER_ALIASES = {
     "andy": "andy_bogard",
     "andy bogard": "andy_bogard",

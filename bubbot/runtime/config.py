@@ -1,3 +1,6 @@
+"""Runtime constants: paths, Discord copy strings, and local hitbox GIF settings.
+Env-backed values like TOKEN live here; game data workbooks are loaded elsewhere."""
+
 import os
 
 

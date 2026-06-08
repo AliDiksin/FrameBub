@@ -1,6 +1,9 @@
+"""Single-character SF6 move lookup by numCmd, alias, or move name."""
+
 import difflib
 import re
 
+from bubbot.utils.notation_match_utils import find_rows_by_notation_prefix, looks_like_notation_query
 from bubbot.utils.text_utils import correct_alias_typos
 
 
@@ -604,6 +607,27 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
             if non_air_non_ca_rows:
                 return non_air_non_ca_rows[0]
     
+    notation_key = move_input_num_cmd_generic or move_input_num_cmd
+    if looks_like_notation_query(notation_key, "motion_digits"):
+        notation_matches = find_rows_by_notation_prefix(
+            data,
+            notation_key,
+            normalize_fn=normalize_num_cmd_generic_for_lookup,
+            looks_like_fn=lambda key: looks_like_notation_query(key, "motion_digits"),
+        )
+        if notation_matches:
+            if notation_key.isdigit() and len(notation_key) == 3 and notation_key == "623":
+                exception_terms = dp_prefix_exceptions.get(char_key, [])
+                if exception_terms:
+                    filtered = [
+                        row
+                        for row in notation_matches
+                        if not any(term in str(row.get("moveName", "")).lower() for term in exception_terms)
+                    ]
+                    if filtered:
+                        return filtered[0]
+            return notation_matches[0]
+
     # search priority: numCmd -> plnCmd -> moveName
     for row in data:
         num_cmd = str(row.get('numCmd', '')).lower()
@@ -625,16 +649,6 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
             and num_cmd_generic == move_input_num_cmd_generic
         ):
             return row
-        # prefix match for motion inputs (e.g., 623 -> 623LP)
-        if move_input.isdigit() and len(move_input) == 3:
-            if move_input == "623":
-                exception_terms = dp_prefix_exceptions.get(char_key, [])
-                if exception_terms:
-                    move_name = str(row.get("moveName", "")).lower()
-                    if any(term in move_name for term in exception_terms):
-                        continue
-            if num_cmd.startswith(move_input) or num_cmd_generic.startswith(move_input):
-                return row
         # exact match plnCmd (MP)
         if str(row.get('plnCmd', '')).lower() == move_input:
             return row

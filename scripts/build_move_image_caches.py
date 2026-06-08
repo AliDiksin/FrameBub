@@ -1,3 +1,7 @@
+"""Builds generated move image URL caches in bubbot/data/.
+Regenerates remote image, hitbox, and notes URL dicts for supported games.
+"""
+
 from __future__ import annotations
 
 import argparse

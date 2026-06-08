@@ -1,3 +1,5 @@
+"""Discord embed field truncation, cleaning, and long-field chunking."""
+
 import re
 
 

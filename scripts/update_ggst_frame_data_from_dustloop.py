@@ -1,3 +1,7 @@
+"""GGST ODS update from Dustloop.
+Refreshes GGST Frame Data.ods from Dustloop raw data pages.
+"""
+
 from __future__ import annotations
 
 import json

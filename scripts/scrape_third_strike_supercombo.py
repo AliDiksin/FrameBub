@@ -1,3 +1,7 @@
+"""Third Strike SuperCombo scrape.
+Parses MoveData and AttackData templates into Third Strike Frame Data.ods.
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,5 @@
+"""Autocomplete ordering and generic character/move choice builders."""
+
 import difflib
 
 

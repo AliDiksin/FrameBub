@@ -1,3 +1,5 @@
+"""Street Fighter 6 character and input alias maps for parsers and quiz."""
+
 from copy import deepcopy
 
 CHARACTER_ALIASES = {

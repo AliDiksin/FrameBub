@@ -1,3 +1,5 @@
+"""Shared append helpers for SF6 parser alias collection."""
+
 import re
 
 

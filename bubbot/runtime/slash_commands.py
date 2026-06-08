@@ -1,3 +1,6 @@
+"""Public slash command registration and global Discord command tree sync.
+Registers /sf6, cross-game frame lookups, combos, stats, and /bub menu handlers once per tree."""
+
 import os
 import re
 
@@ -589,8 +592,8 @@ async def sync_public_slash_commands(client, tree):
     Sync global slash commands and clear stale guild-scoped copies.
 
     Duplicate /command entries in Discord usually mean the same commands were
-    synced globally and to a guild during an earlier deploy — not duplicate
-  registrations in our CommandTree.
+    synced globally and to a guild during an earlier deploy, not duplicate
+    registrations in our CommandTree.
     """
     local_commands = list(tree.get_commands())
     local_names = [cmd.name for cmd in local_commands]

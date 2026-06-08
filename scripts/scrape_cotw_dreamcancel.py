@@ -1,3 +1,7 @@
+"""COTW DreamCancel scrape.
+Builds COTW Frame Data.ods from DreamCancel character pages.
+"""
+
 from __future__ import annotations
 
 import argparse

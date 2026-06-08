@@ -1,3 +1,7 @@
+"""BBCF Dustloop raw /Data scrape to ODS.
+Pulls MoveData-BBCF templates into BBCF Frame Data.ods.
+"""
+
 from __future__ import annotations
 
 import argparse

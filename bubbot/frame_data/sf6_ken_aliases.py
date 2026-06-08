@@ -1,3 +1,5 @@
+"""Ken Jinrai, run, and Dragonlash alias and result filters."""
+
 import re
 
 from bubbot.frame_data.sf6_parser_helpers import append_first_matching_alias, append_unique

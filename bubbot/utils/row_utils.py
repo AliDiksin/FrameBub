@@ -1,3 +1,5 @@
+"""Row-key construction and order-preserving deduplication."""
+
 def row_key(row, fields=("char_name", "moveName", "numCmd")):
     """Build a tuple key from a frame-data row."""
     return tuple(row.get(field, "") for field in fields)

@@ -1,3 +1,7 @@
+"""SFV SuperCombo scrape.
+Builds SF5 Frame Data workbook content from SuperCombo character pages.
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -1,3 +1,5 @@
+"""SF6 natural-language frame/gif query orchestration. Character-specific rules live in sf6_* helper modules."""
+
 import difflib
 import re
 
@@ -382,7 +384,7 @@ def find_moves_in_text(deps, text):
                 or has_wind_stock_hold
             )
 
-
+        # 3. Extract move inputs and aliases from query text
         move_regex = r"\b([1-9][0-9]*[a-zA-Z]+|stand\s+[a-zA-Z]+|crouch\s+[a-zA-Z]+|(?:neutral\s+|n\s+)?jump\s+[a-zA-Z]+|(?:neutral\s+|n\s+)?jump\s+[1-9][0-9]*[a-zA-Z]+|(?:neutral\s+|n\s+)?j(?:\s+|\.)[a-zA-Z]+|(?:neutral\s+|n\s+)?j(?:\s+|\.)[1-9][0-9]*[a-zA-Z]+|(?:neutral\s+|n\s+)?j\.?[1-9][0-9]*[a-zA-Z]+|(?:lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)?|[a-zA-Z]+\s+kick|[a-zA-Z]+\s+punch)\b"
         potential_inputs = re.findall(move_regex, text_lower)
         compact_motion_inputs = []
@@ -1628,6 +1630,7 @@ def find_moves_in_text(deps, text):
         )
         formatted_blocks.append(block)
 
+    # 5. Attach TC/special prompts, punish verdict, and mode selection
     if tc_prompt_blocks:
         formatted_blocks.extend(tc_prompt_blocks)
     if special_prompt_blocks:

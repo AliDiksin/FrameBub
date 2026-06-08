@@ -1,5 +1,6 @@
+"""Street Fighter V frame parser, V-Trigger row separation, embeds, image/notes helpers."""
+
 import ast
-import difflib
 import os
 import re
 
@@ -11,6 +12,8 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.discord_formatting import add_embed_field, clean_value, truncate_value
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.frame_match_utils import find_matching_rows_standard
+from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
@@ -143,6 +146,9 @@ def _register_character_aliases(char_key, char_name):
             SFV_CHARACTER_ALIASES.setdefault(alias, char_key)
 
 
+# ODS load (Normal vs Trigger1/Trigger2 sheets)
+
+
 def load_frame_data(filename=None):
     global SFV_FRAME_DATA, SFV_TRIGGER_FRAME_DATA
     SFV_FRAME_DATA = {}
@@ -269,37 +275,26 @@ def _rows_for_state(char_key, state_key=""):
     return list(SFV_FRAME_DATA.get(char_key, []) or [])
 
 
+def _sfv_notation_query(query_key):
+    return looks_like_notation_query(query_key, "digit_button", "sf_button")
+
+
 def find_matching_rows(char_key, move_text):
     state_key = query_requested_state(move_text)
     query = normalize_move_query(move_text)
     query_key = normalize_move_token(query)
-    if not query_key:
-        return []
     rows = _rows_for_state(char_key, state_key)
-    exact = [row for row in rows if query_key in row_match_keys(row)]
-    if exact:
-        return unique_rows(exact)
-
-    normalized_query_words = re.sub(r"[^a-z0-9]+", " ", query.lower()).strip()
-    name_matches = []
-    for row in rows:
-        haystack = " ".join(
-            re.sub(r"[^a-z0-9]+", " ", str(row.get(field, "")).lower()).strip()
-            for field in ("moveName", "numCmd", "cmnName")
-        )
-        if normalized_query_words and normalized_query_words in haystack:
-            name_matches.append(row)
-    if name_matches:
-        return unique_rows(name_matches)
-
-    candidates = []
-    for row in rows:
-        for value in (row.get("moveName"), row.get("numCmd"), row.get("cmnName")):
-            key = normalize_move_token(value)
-            if key:
-                candidates.append((key, row))
-    close_keys = difflib.get_close_matches(query_key, [key for key, _row in candidates], n=4, cutoff=0.84)
-    return unique_rows([row for key, row in candidates if key in close_keys])
+    return find_matching_rows_standard(
+        rows,
+        query,
+        query_key,
+        normalize_fn=normalize_move_token,
+        looks_like_fn=_sfv_notation_query,
+        row_keys_fn=row_match_keys,
+        dedupe_fn=unique_rows,
+        name_fields=("moveName", "cmnName"),
+        fuzzy_value_fields=("moveName", "numCmd", "cmnName"),
+    )
 
 
 def build_disambiguation_prompt(char_key, rows):
@@ -314,6 +309,9 @@ def build_disambiguation_prompt(char_key, rows):
         suffix = f" [{state_label}]" if state_label else ""
         lines.append(f"{index}. {move_name}: `{num_cmd}`{suffix}")
     return "\n".join(lines)
+
+
+# Natural-language query entry
 
 
 def find_moves_in_text(text):
@@ -457,7 +455,10 @@ def find_moves_in_text(text):
         "wants_comparison": is_comparison_query(lowered, char_matches),
         "explicit_move_attempt": bool(char_matches and (frame_query or gif_query or notes_query or game_query or query_has_sfv_notation(lowered))),
         "missing_scrolls_query": bool(char_matches and not rows and (frame_query or gif_query or notes_query or game_query)),
-    }
+        }
+
+
+# Discord embed output
 
 
 def get_move_image_url(row):
@@ -525,7 +526,7 @@ class SFVNotesButton(discord.ui.Button):
         view.show_notes = not view.show_notes
         self.label = "Hide Notes" if view.show_notes else "Show Notes"
         self.style = discord.ButtonStyle.danger if view.show_notes else discord.ButtonStyle.primary
-        await interaction.response.edit_message(embed=view.build_embed(), view=view)
+        await interaction.response.edit_message(embed=view.build_embed(), view=view, attachments=view.initial_files())
 
 
 class SFVHitboxButton(discord.ui.Button):
@@ -558,6 +559,8 @@ async def send_frame_response(message, rows):
         rows,
         owner_id=getattr(message.author, "id", None),
         menu_locked=False,
+        source_message=message,
+        prompt=str(getattr(message, "content", "") or ""),
     )
 
 

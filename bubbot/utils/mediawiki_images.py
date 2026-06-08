@@ -1,3 +1,5 @@
+"""Deterministic MediaWiki thumbnail URL construction and width rewriting."""
+
 import hashlib
 import re
 import urllib.parse

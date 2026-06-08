@@ -1,3 +1,5 @@
+"""Guilty Gear Strive frame parser, embeds, hitbox/notes helpers."""
+
 import difflib
 import json
 import os
@@ -25,6 +27,11 @@ from bubbot.data.ggst_aliases import (
     NAGORIYUKI_BLOOD_STATE_SHEETS,
 )
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
+from bubbot.utils.notation_match_utils import (
+    find_rows_by_notation_prefix,
+    looks_like_notation_query,
+    notation_prefix_matches_row_key,
+)
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.row_utils import row_key
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words, word_tokens
@@ -130,6 +137,9 @@ def resolve_frame_data_file(filename=None):
         if os.path.exists(candidate):
             return candidate
     return None
+
+
+# ODS load (normal, state, supplemental sheets)
 
 
 def load_frame_data(filename=None):
@@ -595,6 +605,21 @@ def find_matching_rows(character, move_input, state_key=None):
     if not supplemental_first:
         rows_to_search.extend(GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, []))
 
+    query_compact = normalize_key(query)
+    notation_matches = []
+    if looks_like_notation_query(query_compact, "ggst"):
+        notation_matches = find_rows_by_notation_prefix(
+            rows_to_search,
+            query_compact,
+            normalize_fn=normalize_key,
+            looks_like_fn=lambda key: looks_like_notation_query(key, "ggst"),
+        )
+    if notation_matches:
+        primary_matches = [row for row in notation_matches if row_primary_command_matches_move(row, query)]
+        if primary_matches:
+            return dedupe_equivalent_frame_rows(primary_matches)
+        return dedupe_equivalent_frame_rows(notation_matches)
+
     matches = []
     seen = set()
     for row in rows_to_search:
@@ -650,7 +675,11 @@ def find_followup_rows(character, move_input):
         if key in seen:
             continue
         row_cmd_compact = normalize_key(row.get("numCmd", ""))
-        if row_cmd_compact.startswith(query_compact) or row_matches_move(row, query):
+        if looks_like_notation_query(query_compact, "ggst"):
+            cmd_match = notation_prefix_matches_row_key(query_compact, row_cmd_compact)
+        else:
+            cmd_match = row_cmd_compact.startswith(query_compact)
+        if cmd_match or row_matches_move(row, query):
             matches.append(row)
             seen.add(key)
     return matches
@@ -708,6 +737,9 @@ def find_comparison_matching_rows(char_key, move_text):
     if not query_text:
         return []
     return find_matching_rows(char_key, query_text, state_key=state_key)
+
+
+# Natural-language query entry
 
 
 def find_moves_in_text(text):
@@ -837,6 +869,9 @@ def find_moves_in_text(text):
         "explicit_move_attempt": bool(char_found and (frame_query or gif_query or game_query)),
         "missing_scrolls_query": bool(char_found and not rows and (frame_query or gif_query or game_query)),
     }
+
+
+# Discord embed output
 
 
 def clean_value(value, default=""):
@@ -1023,7 +1058,7 @@ class GGSTNotesButton(discord.ui.Button):
         self.view.show_notes = not self.view.show_notes
         self.label = "Hide Notes" if self.view.show_notes else "Show Notes"
         self.style = discord.ButtonStyle.danger if self.view.show_notes else discord.ButtonStyle.primary
-        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view)
+        await interaction.response.edit_message(embed=self.view.build_embed(), view=self.view, attachments=self.view.initial_files())
 
 
 async def send_frame_response(message, rows):
@@ -1035,6 +1070,8 @@ async def send_frame_response(message, rows):
         rows,
         owner_id=getattr(message.author, "id", None),
         menu_locked=False,
+        source_message=message,
+        prompt=str(getattr(message, "content", "") or ""),
     )
 
 

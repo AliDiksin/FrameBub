@@ -1,3 +1,6 @@
+"""SF6 character-specific special prompt skip/selection rules."""
+
+
 def should_skip_special_prompt_base(
     *,
     char,

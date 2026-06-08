@@ -1,3 +1,6 @@
+"""Alex stance follow-up result filter."""
+
+
 def filter_alex_stance_results(results, *, alex_stance_followup_context, normalize_char_name, normalize_num_cmd_token):
     if not alex_stance_followup_context or not results:
         return results

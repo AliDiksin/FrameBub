@@ -1,3 +1,5 @@
+"""Shared slash-command helpers for framedata and stats embed responses."""
+
 async def send_slash_frame_result(
     interaction,
     *,
@@ -39,12 +41,20 @@ async def send_slash_frame_result(
         owner_id=getattr(interaction.user, "id", None),
         char_key=char_key,
         menu_locked=False,
+        prompt=query,
     )
     if game == "cotw":
         await prepare_cotw_frame_view(view)
     embed = view.build_embed()
     files = view.initial_files()
     await interaction.response.send_message(embed=embed, view=view, files=files)
+    from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
+
+    try:
+        sent = await interaction.original_response()
+        stamp_report_context_on_sent(view, sent)
+    except Exception:
+        pass
     try:
         from bubbot.utils.response_log import INTERACTION_SLASH, log_from_interaction, summarize_embed
 
@@ -78,11 +88,25 @@ async def send_slash_stats_result(
     if not stats_row:
         await interaction.response.send_message(f"No stats scrolls are loaded for {char_name}.")
         return
-    embed = build_stats_embed_fn(char_key, stats_row, stat_keys)
     from bubbot.features.menu_system import StatsResultView
+    from bubbot.utils.embed_source_utils import apply_game_source_footer, source_icon_files
 
-    view = StatsResultView(char_key, interaction.user.id, stat_keys=stat_keys, menu_locked=False)
-    await interaction.response.send_message(embed=embed, view=view)
+    embed = apply_game_source_footer(build_stats_embed_fn(char_key, stats_row, stat_keys), "sf6")
+    view = StatsResultView(
+        char_key,
+        interaction.user.id,
+        stat_keys=stat_keys,
+        menu_locked=False,
+        prompt=query or f"{char_name} stats",
+    )
+    await interaction.response.send_message(embed=embed, view=view, files=source_icon_files("sf6", kind="frame"))
+    from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
+
+    try:
+        sent = await interaction.original_response()
+        stamp_report_context_on_sent(view, sent)
+    except Exception:
+        pass
     try:
         from bubbot.utils.response_log import INTERACTION_SLASH, log_from_interaction, summarize_embed
 

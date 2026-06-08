@@ -1,3 +1,5 @@
+"""BlazBlue: Central Fiction character alias maps for parsers and quiz."""
+
 BBCF_CHARACTER_ALIASES = {
     "amane": "amane_nishiki",
     "amane nishiki": "amane_nishiki",

@@ -1,3 +1,5 @@
+"""SF6 character stats sheet helpers: intent parsing, embeds, parser context injection."""
+
 import re
 from dataclasses import dataclass
 from typing import Optional, Tuple

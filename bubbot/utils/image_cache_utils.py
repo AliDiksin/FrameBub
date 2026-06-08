@@ -1,3 +1,5 @@
+"""Import generated move-image cache modules and merge nested URL dicts."""
+
 import importlib
 
 

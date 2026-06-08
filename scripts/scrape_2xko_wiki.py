@@ -1,3 +1,7 @@
+"""2XKO wiki scrape.
+Pulls frame data from the 2XKO wiki into 2XKO Frame Data.ods.
+"""
+
 from __future__ import annotations
 
 import argparse

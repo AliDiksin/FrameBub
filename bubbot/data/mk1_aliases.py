@@ -1,3 +1,5 @@
+"""Mortal Kombat 1 character and kameo alias maps for parsers and quiz."""
+
 MK1_CHARACTER_ALIASES = {
     "mk1": "mk1",
     "mortal kombat 1": "mk1",

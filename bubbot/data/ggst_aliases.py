@@ -1,3 +1,5 @@
+"""Guilty Gear Strive character, move, and state alias maps for parsers and quiz."""
+
 GGST_CHARACTER_ALIASES = {
     "aba": "aba",
     "a.b.a": "aba",

@@ -1,3 +1,5 @@
+"""Compact lowercase keys, word tokenization, and contiguous token-sequence helpers."""
+
 import difflib
 import re
 
@@ -75,6 +77,7 @@ def strip_noise_words(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Typo correction against alias vocabulary; short buttons/strengths are left alone.
 def alias_word_vocabulary(*alias_maps, min_word_len=4):
     """Build typo-correction vocabulary from human-readable alias words."""
     words = set()
