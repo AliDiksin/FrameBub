@@ -2578,6 +2578,33 @@ async def _handle_message(message):
                 _record_frame_data_ids([sent.id], response_text=default_data)
             return
 
+        if (
+            wants_comparison
+            and fd_context_mode == "frame"
+            and fd_context_rows
+            and explicit_move_attempt
+            and not gif_query
+            and not property_only_query
+            and not target_combo_query
+            and not startup_alias_query
+            and not hitconfirm_alias_query
+            and not super_gain_alias_query
+            and not range_alias_query
+        ):
+            frame_sent_ids = await send_frame_table_response(message, fd_context_rows, fd_context_data)
+            _record_frame_data_ids(frame_sent_ids)
+            if not frame_sent_ids and fd_context_data:
+                try:
+                    sent = await message.reply(fd_context_data)
+                    _record_frame_data_ids([sent.id], response_text=fd_context_data)
+                except Exception as reply_error:
+                    if is_deleted_message_reference_error(reply_error):
+                        print("Comparison frame reply target deleted. Triggering failsafe.", flush=True)
+                        await send_deleted_message_failsafe(message.channel)
+                    else:
+                        print(f"Comparison frame reply error: {reply_error}", flush=True)
+            return
+
         if combined_frame_gif_request and frame_command_is_addressed:
             if "Special Strength Options" in fd_context_data:
                 try:

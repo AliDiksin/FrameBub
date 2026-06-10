@@ -516,6 +516,18 @@ def find_moves_in_text(deps, text):
                 text_lower,
             )
         )
+        chun_stance_followup_context = bool(
+            re.search(
+                r"\b(?:stance|ss|serenity\s+stream|214p)\s+"
+                r"(?:lp|mp|hp|lk|mk|hk|"
+                r"(?:light|medium|heavy|l|m|h)\s+(?:punch|kick))\b"
+                r"|\b214p\s*(?:>|\+)?\s*"
+                r"(?:lp|mp|hp|lk|mk|hk|"
+                r"(?:light|medium|heavy|l|m|h)\s+(?:punch|kick))\b"
+                r"|\b(?:stance|ss)\s+(?:light|medium|heavy|l|m|h)\s+(?:punch|kick)\b",
+                text_lower,
+            )
+        )
         air_sa3_context = bool(
             re.search(
                 r"\b(?:air|aerial)\s*(?:sa\s*3|super\s*art\s*3|super\s*3|level\s*3|critical\s+art|ca)\b"
@@ -1331,6 +1343,7 @@ def find_moves_in_text(deps, text):
             lookup_frame_data=lookup_frame_data,
             row_is_ca_variant=row_is_ca_variant,
             alex_stance_followup_context=alex_stance_followup_context,
+            chun_stance_followup_context=chun_stance_followup_context,
             normalize_num_cmd_token=normalize_num_cmd_token,
         )
 

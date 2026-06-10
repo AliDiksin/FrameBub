@@ -163,13 +163,21 @@ def apply_character_specific_result_filters(
     lookup_frame_data,
     row_is_ca_variant,
     alex_stance_followup_context,
+    chun_stance_followup_context,
     normalize_num_cmd_token,
 ):
     from bubbot.frame_data.sf6_alex_stance import filter_alex_stance_results
+    from bubbot.frame_data.sf6_chun_stance import filter_chun_stance_results
 
     results = filter_alex_stance_results(
         results,
         alex_stance_followup_context=alex_stance_followup_context,
+        normalize_char_name=normalize_char_name,
+        normalize_num_cmd_token=normalize_num_cmd_token,
+    )
+    results = filter_chun_stance_results(
+        results,
+        chun_stance_followup_context=chun_stance_followup_context,
         normalize_char_name=normalize_char_name,
         normalize_num_cmd_token=normalize_num_cmd_token,
     )
@@ -329,6 +337,45 @@ def collect_simple_character_aliases(text_lower, extra_inputs, *, mentioned_char
             (r"\b(?:m|medium|mp)\s+whip\b", "m whip"),
             (r"\b(?:h|heavy|hp)\s+whip\b", "h whip"),
             (r"\bwhip\b", "whip"),
+        ])
+    if "chun-li" in mentioned_chars:
+        append_first_matching_alias(text_lower, extra_inputs, [
+            (r"\b214p\s*(?:>|\+)?\s*(?:light|l)\s+punch\b", "stance lp"),
+            (r"\b214p\s*(?:>|\+)?\s*(?:medium|m)\s+punch\b", "stance mp"),
+            (r"\b214p\s*(?:>|\+)?\s*(?:heavy|h)\s+punch\b", "stance hp"),
+            (r"\b214p\s*(?:>|\+)?\s*(?:light|l)\s+kick\b", "stance lk"),
+            (r"\b214p\s*(?:>|\+)?\s*(?:medium|m)\s+kick\b", "stance mk"),
+            (r"\b214p\s*(?:>|\+)?\s*(?:heavy|h)\s+kick\b", "stance hk"),
+            (r"\b214p\s*(?:>|\+)?\s*lp\b", "stance lp"),
+            (r"\b214p\s*(?:>|\+)?\s*mp\b", "stance mp"),
+            (r"\b214p\s*(?:>|\+)?\s*hp\b", "stance hp"),
+            (r"\b214p\s*(?:>|\+)?\s*lk\b", "stance lk"),
+            (r"\b214p\s*(?:>|\+)?\s*mk\b", "stance mk"),
+            (r"\b214p\s*(?:>|\+)?\s*hk\b", "stance hk"),
+            (r"\bstance\s+(?:light|l)\s+punch\b", "stance lp"),
+            (r"\bstance\s+(?:medium|m)\s+punch\b", "stance mp"),
+            (r"\bstance\s+(?:heavy|h)\s+punch\b", "stance hp"),
+            (r"\bstance\s+(?:light|l)\s+kick\b", "stance lk"),
+            (r"\bstance\s+(?:medium|m)\s+kick\b", "stance mk"),
+            (r"\bstance\s+(?:heavy|h)\s+kick\b", "stance hk"),
+            (r"\bss\s+(?:light|l)\s+punch\b", "ss lp"),
+            (r"\bss\s+(?:medium|m)\s+punch\b", "ss mp"),
+            (r"\bss\s+(?:heavy|h)\s+punch\b", "ss hp"),
+            (r"\bss\s+(?:light|l)\s+kick\b", "ss lk"),
+            (r"\bss\s+(?:medium|m)\s+kick\b", "ss mk"),
+            (r"\bss\s+(?:heavy|h)\s+kick\b", "ss hk"),
+            (r"\bserenity\s+stream\s+(?:light|l)\s+punch\b", "stance lp"),
+            (r"\bserenity\s+stream\s+(?:medium|m)\s+punch\b", "stance mp"),
+            (r"\bserenity\s+stream\s+(?:heavy|h)\s+punch\b", "stance hp"),
+            (r"\bserenity\s+stream\s+(?:light|l)\s+kick\b", "stance lk"),
+            (r"\bserenity\s+stream\s+(?:medium|m)\s+kick\b", "stance mk"),
+            (r"\bserenity\s+stream\s+(?:heavy|h)\s+kick\b", "stance hk"),
+            (r"\bserenity\s+stream\s+lp\b", "stance lp"),
+            (r"\bserenity\s+stream\s+mp\b", "stance mp"),
+            (r"\bserenity\s+stream\s+hp\b", "stance hp"),
+            (r"\bserenity\s+stream\s+lk\b", "stance lk"),
+            (r"\bserenity\s+stream\s+mk\b", "stance mk"),
+            (r"\bserenity\s+stream\s+hk\b", "stance hk"),
         ])
     if "luke" in mentioned_chars:
         append_first_matching_alias(text_lower, extra_inputs, [
@@ -532,6 +579,17 @@ def collect_character_specific_rows(
 
         if char == "chun-li":
             stance_patterns = [
+                ("stance light punch", "stance lp"), ("stance medium punch", "stance mp"),
+                ("stance heavy punch", "stance hp"), ("stance light kick", "stance lk"),
+                ("stance medium kick", "stance mk"), ("stance heavy kick", "stance hk"),
+                ("ss light punch", "ss lp"), ("ss medium punch", "ss mp"),
+                ("ss heavy punch", "ss hp"), ("ss light kick", "ss lk"),
+                ("ss medium kick", "ss mk"), ("ss heavy kick", "ss hk"),
+                ("214p light punch", "stance lp"), ("214p medium punch", "stance mp"),
+                ("214p heavy punch", "stance hp"), ("214p light kick", "stance lk"),
+                ("214p medium kick", "stance mk"), ("214p heavy kick", "stance hk"),
+                ("214p lp", "stance lp"), ("214p mp", "stance mp"), ("214p hp", "stance hp"),
+                ("214p lk", "stance lk"), ("214p mk", "stance mk"), ("214p hk", "stance hk"),
                 ("stance lp", "stance lp"), ("stance mp", "stance mp"), ("stance hp", "stance hp"),
                 ("stance lk", "stance lk"), ("stance mk", "stance mk"), ("stance hk", "stance hk"),
                 ("ss lp", "ss lp"), ("ss mp", "ss mp"), ("ss hp", "ss hp"),
