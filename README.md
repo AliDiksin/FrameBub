@@ -1,4 +1,4 @@
-# Bub - Fighting Game Frame Data Bot
+# FrameBub - Fighting Game Frame Data Bot
 
 A Discord bot that provides instant frame data, hitbox images, combo routes, and quiz challenges for 8 fighting games using natural language queries or interactive menus.
 
