@@ -14,6 +14,7 @@ TUCO_CHARACTER_ALIASES = {
     "jinx": "jinx",
     "senna": "senna",
     "teemo": "teemo",
+    "thresh": "thresh",
     "vi": "vi",
     "warwick": "warwick",
     "ww": "warwick",

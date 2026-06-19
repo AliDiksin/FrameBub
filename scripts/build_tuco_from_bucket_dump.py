@@ -52,6 +52,7 @@ CHAMPIONS = {
     "Jinx",
     "Senna",
     "Teemo",
+    "Thresh",
     "Vi",
     "Warwick",
     "Yasuo",

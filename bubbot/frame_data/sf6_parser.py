@@ -94,6 +94,16 @@ def find_moves_in_text(deps, text):
         "frames",
     ]
     gif_query = has_explicit_gif_lookup_intent(text_lower)
+    air_throw_move_query = bool(
+        re.search(r"\b(?:air|aerial)\s+throw\b", text_lower)
+        or re.search(r"\bairthrows?\b", text_lower)
+    )
+    jump_normal_move_query = bool(
+        re.search(r"\b[789][lmh][pk]\b", text_lower)
+        or re.search(r"\bj\.?[789]?[lmh][pk]\b", text_lower)
+        or re.search(r"\b(?:neutral|n)\s+j(?:ump)?\s*\.?\s*[lmh][pk]\b", text_lower)
+        or re.search(r"\bjump\s+[lmh][pk]\b", text_lower)
+    )
     startup_alias_query = bool(
         re.search(r"\bhow\s+fast\b", text_lower)
         or re.search(r"\bhow\s+quick\b", text_lower)
@@ -144,6 +154,25 @@ def find_moves_in_text(deps, text):
         "hitconfirm": hitconfirm_alias_query,
         "super_gain": super_gain_alias_query,
         "range": range_alias_query,
+        "frame_advantage": bool(re.search(r"\bframe\s+adv(?:antage)?\b", text_lower)),
+        "counter_hit_adv": bool(
+            re.search(r"\bcounter\s*hit\s+adv(?:antage)?\b", text_lower)
+            or re.search(r"\bch\s*adv\b", text_lower)
+        ),
+        "counter_hit": bool(
+            (
+                re.search(r"\bcounter\s*hit\b", text_lower)
+                and not re.search(r"\bcounter\s*hit\s+adv(?:antage)?\b", text_lower)
+            )
+            or (
+                re.search(r"\bch\b", text_lower)
+                and not re.search(r"\bch\s*adv\b", text_lower)
+            )
+        ),
+        "punish_counter": bool(
+            re.search(r"\bpunish\s*counter\b", text_lower)
+            or re.search(r"\bpc\b", text_lower)
+        ),
     }
     if property_alias_flags.get("damage") and (
         property_alias_flags.get("chip_damage") or property_alias_flags.get("drive_damage")
@@ -183,6 +212,8 @@ def find_moves_in_text(deps, text):
         or property_match_count > 0
         or target_combo_query
         or gif_query
+        or air_throw_move_query
+        or jump_normal_move_query
     )
     results = []
     tc_selected_combos = set()
@@ -675,6 +706,17 @@ def find_moves_in_text(deps, text):
                         base_in_query = bool(re.search(r"\bsa\s*3\b", text_lower))
                     if not base_in_query and base_name == "spd":
                         base_in_query = "command" in text_tokens and "grab" in text_tokens
+                    if not base_in_query and base_name in {"burn kick", "burning kick"}:
+                        base_in_query = bool(
+                            re.search(r"\bburnkicks?\b", text_lower)
+                            or re.search(r"\bburn\s+kicks?\b", text_lower)
+                            or re.search(r"\bburning\s+kicks?\b", text_lower)
+                        )
+                    if not base_in_query and base_name == "scissor kick":
+                        base_in_query = bool(
+                            re.search(r"\bscissors?\b", text_lower)
+                            or re.search(r"\bscissor\s+kicks?\b", text_lower)
+                        )
                     if not base_in_query:
                         continue
                     if (
@@ -952,6 +994,15 @@ def find_moves_in_text(deps, text):
             "burnkicks",
             "burning kick",
             "burning kicks",
+            "airthrow",
+            "air throw",
+            "air grab",
+            "scissors",
+            "scissor kick",
+            "scissor kicks",
+            "bear grab",
+            "bear hug",
+            "running bear grab",
             "air burn kick",
             "air burnkick",
             "air burning kick",
@@ -1080,6 +1131,7 @@ def find_moves_in_text(deps, text):
                 "tell", "me", "about", "can", "i", "punish", "punishable", "stats",
                 "send", "post", "drop", "give", "link",
                 "gif", "gifs", "hitbox", "hitboxes",
+                "advantage", "counter", "punish", "pc", "ch",
             }
             char_tokens = set()
             for char in mentioned_chars:

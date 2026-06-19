@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -42,6 +43,7 @@ CHAMPIONS = [
     "Jinx",
     "Senna",
     "Teemo",
+    "Thresh",
     "Vi",
     "Warwick",
     "Yasuo",
@@ -72,7 +74,55 @@ def compact_key(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
 
 
-def fetch_url(url: str, sleep_seconds: float = 0.1) -> str:
+class WikiFetcher:
+    """Fetch wiki API responses; fall back to Playwright when Cloudflare blocks urllib."""
+
+    def __init__(self) -> None:
+        self._playwright = None
+        self._browser = None
+        self._page = None
+
+    def fetch_url(self, url: str, sleep_seconds: float = 0.1) -> str:
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            if exc.code != 403:
+                raise
+            body = self._fetch_with_playwright(url, sleep_seconds)
+        else:
+            if sleep_seconds:
+                time.sleep(sleep_seconds)
+        return body
+
+    def _fetch_with_playwright(self, url: str, sleep_seconds: float) -> str:
+        if self._page is None:
+            from playwright.sync_api import sync_playwright
+
+            self._playwright = sync_playwright().start()
+            self._browser = self._playwright.chromium.launch(headless=True)
+            self._page = self._browser.new_page()
+            print("[2xko] using Playwright fallback for Cloudflare-blocked wiki API", flush=True)
+        self._page.goto(url, wait_until="domcontentloaded", timeout=120000)
+        time.sleep(max(1.0, sleep_seconds))
+        return self._page.locator("body").inner_text()
+
+    def close(self) -> None:
+        if self._page is not None:
+            self._page.close()
+            self._page = None
+        if self._browser is not None:
+            self._browser.close()
+            self._browser = None
+        if self._playwright is not None:
+            self._playwright.stop()
+            self._playwright = None
+
+
+def fetch_url(url: str, sleep_seconds: float = 0.1, fetcher: WikiFetcher | None = None) -> str:
+    if fetcher is not None:
+        return fetcher.fetch_url(url, sleep_seconds=sleep_seconds)
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=60) as response:
         body = response.read().decode("utf-8")
@@ -81,12 +131,12 @@ def fetch_url(url: str, sleep_seconds: float = 0.1) -> str:
     return body
 
 
-def wiki_request(params: dict[str, object], sleep_seconds: float) -> dict:
+def wiki_request(params: dict[str, object], sleep_seconds: float, fetcher: WikiFetcher | None = None) -> dict:
     query = urllib.parse.urlencode(params)
-    return json.loads(fetch_url(f"{API_URL}?{query}", sleep_seconds=sleep_seconds))
+    return json.loads(fetch_url(f"{API_URL}?{query}", sleep_seconds=sleep_seconds, fetcher=fetcher))
 
 
-def fetch_raw_page(page_title: str, sleep_seconds: float) -> str:
+def fetch_raw_page(page_title: str, sleep_seconds: float, fetcher: WikiFetcher | None = None) -> str:
     data = wiki_request(
         {
             "action": "query",
@@ -98,6 +148,7 @@ def fetch_raw_page(page_title: str, sleep_seconds: float) -> str:
             "formatversion": "2",
         },
         sleep_seconds,
+        fetcher=fetcher,
     )
     pages = data.get("query", {}).get("pages", []) or []
     if not pages or pages[0].get("missing"):
@@ -134,7 +185,7 @@ def default_file_name(champion: str, move_name: str, input_text: str, suffix: st
     return f"{champion}_{label}{suffix}.png"
 
 
-def resolve_file_urls(filenames: list[str], sleep_seconds: float) -> dict[str, str]:
+def resolve_file_urls(filenames: list[str], sleep_seconds: float, fetcher: WikiFetcher | None = None) -> dict[str, str]:
     results: dict[str, str] = {}
     unique_names = []
     seen = set()
@@ -156,6 +207,7 @@ def resolve_file_urls(filenames: list[str], sleep_seconds: float) -> dict[str, s
                 "format": "json",
             },
             sleep_seconds,
+            fetcher=fetcher,
         )
         for page in (data.get("query", {}).get("pages", {}) or {}).values():
             title = str(page.get("title", ""))
@@ -251,33 +303,37 @@ def write_cache(path: Path, media: list[tuple[str, str, str, str]], urls: dict[s
 
 
 def build(output_workbook: Path, output_cache: Path, sleep_seconds: float) -> None:
+    fetcher = WikiFetcher()
     all_rows: list[dict[str, str]] = []
     all_media: list[tuple[str, str, str, str]] = []
-    for champion in CHAMPIONS:
-        try:
-            raw = fetch_raw_page(champion, sleep_seconds)
-            rows, media = parse_champion_page(champion, raw)
-        except Exception as exc:
-            print(f"[2xko] skipped {champion}: {exc}", flush=True)
-            continue
-        all_rows.extend(rows)
-        all_media.extend(media)
-        print(f"[2xko] parsed {champion}: {len(rows)} moves", flush=True)
-
-    if not all_rows:
-        raise RuntimeError("No 2XKO rows were parsed.")
-
-    with pd.ExcelWriter(output_workbook, engine="odf") as writer:
-        pd.DataFrame(all_rows, columns=MOVE_COLUMNS).to_excel(writer, sheet_name="Moves", index=False)
+    try:
         for champion in CHAMPIONS:
-            char_rows = [row for row in all_rows if row.get("char_name") == champion]
-            if char_rows:
-                pd.DataFrame(char_rows, columns=MOVE_COLUMNS).to_excel(writer, sheet_name=f"{champion}Normal"[:31], index=False)
+            try:
+                raw = fetch_raw_page(champion, sleep_seconds, fetcher=fetcher)
+                rows, media = parse_champion_page(champion, raw)
+            except Exception as exc:
+                print(f"[2xko] skipped {champion}: {exc}", flush=True)
+                continue
+            all_rows.extend(rows)
+            all_media.extend(media)
+            print(f"[2xko] parsed {champion}: {len(rows)} moves", flush=True)
 
-    urls = resolve_file_urls([item[3] for item in all_media], sleep_seconds)
-    image_count, hitbox_count = write_cache(output_cache, all_media, urls)
-    print(f"[2xko] wrote {output_workbook}: {len(all_rows)} rows", flush=True)
-    print(f"[2xko] wrote {output_cache}: {image_count} images, {hitbox_count} hitboxes", flush=True)
+        if not all_rows:
+            raise RuntimeError("No 2XKO rows were parsed.")
+
+        with pd.ExcelWriter(output_workbook, engine="odf") as writer:
+            pd.DataFrame(all_rows, columns=MOVE_COLUMNS).to_excel(writer, sheet_name="Moves", index=False)
+            for champion in CHAMPIONS:
+                char_rows = [row for row in all_rows if row.get("char_name") == champion]
+                if char_rows:
+                    pd.DataFrame(char_rows, columns=MOVE_COLUMNS).to_excel(writer, sheet_name=f"{champion}Normal"[:31], index=False)
+
+        urls = resolve_file_urls([item[3] for item in all_media], sleep_seconds, fetcher=fetcher)
+        image_count, hitbox_count = write_cache(output_cache, all_media, urls)
+        print(f"[2xko] wrote {output_workbook}: {len(all_rows)} rows", flush=True)
+        print(f"[2xko] wrote {output_cache}: {image_count} images, {hitbox_count} hitboxes", flush=True)
+    finally:
+        fetcher.close()
 
 
 def parse_args() -> argparse.Namespace:

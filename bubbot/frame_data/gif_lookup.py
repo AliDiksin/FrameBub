@@ -279,12 +279,20 @@ def should_use_sf6_move_image_for_gif(row):
     row_num_cmd = normalize_num_cmd_token(row.get("numCmd", ""))
     row_move_name_norm = normalize_move_name_for_gif_text(row.get("moveName", ""))
 
+    row_num_cmd_raw = str(row.get("numCmd", "")).lower()
     return bool(
         (char_key == "rashid" and row_num_cmd == "8hk" and row_move_name_norm == "jump h")
         or (
             char_key == "akuma"
             and row_num_cmd == "5lp>5lp>6lk>5hp"
             and row_move_name_norm == "shun goku satsu"
+        )
+        or (
+            str(row.get("moveType", "")).lower() == "throw"
+            and (
+                "(air" in row_num_cmd_raw
+                or "air" in row_move_name_norm
+            )
         )
     )
 
@@ -636,6 +644,10 @@ def resolve_hitbox_gif_query_alias(char_key, move_query):
     if char_key != "jamie":
         if char_key == "cammy":
             cammy_gif_aliases = {
+                "airthrow": "leg scissors choke",
+                "air throw": "leg scissors choke",
+                "air grab": "leg scissors choke",
+                "aerial throw": "leg scissors choke",
                 "reverse edge": "236k>2k",
                 "od reverse edge": "236kk>2k",
                 "silent step": "236k>p",

@@ -3,12 +3,29 @@ Dev/ops helper, not part of the production bot runtime."""
 
 import json
 import os
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 from urllib import error, request
 
+
+def _ensure_runtime_python() -> None:
+    try:
+        import dotenv  # noqa: F401
+    except ModuleNotFoundError:
+        venv_python = Path(__file__).resolve().parent / ".venv" / "Scripts" / "python.exe"
+        if venv_python.is_file():
+            raise SystemExit(subprocess.call([str(venv_python), *sys.argv]))
+        raise SystemExit(
+            "Missing dependency: python-dotenv. "
+            "Run: python -m venv .venv && .\\.venv\\Scripts\\pip install -r requirements.txt"
+        )
+
+
+_ensure_runtime_python()
 from dotenv import load_dotenv
 
 

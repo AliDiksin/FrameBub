@@ -69,6 +69,25 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
 
     original_move_input = move_input
     query_requests_air_context = bool(re.search(r"\b(air|aerial)\b", original_move_input))
+
+    def row_is_air_throw(row):
+        num_cmd_raw = str(row.get("numCmd", "")).lower()
+        move_name = str(row.get("moveName", "")).lower()
+        cmn_name = str(row.get("cmnName", "")).lower()
+        return bool(
+            str(row.get("moveType", "")).lower() == "throw"
+            and (
+                "(air" in num_cmd_raw
+                or "air throw" in cmn_name
+                or "air throw" in move_name
+            )
+        )
+
+    if query_requests_air_context and re.search(r"\bthrows?\b", original_move_input):
+        air_throw_rows = [row for row in data if row_is_air_throw(row)]
+        if air_throw_rows:
+            return air_throw_rows[0]
+
     query_requests_charged = bool(re.search(r"\b(charged|hold|held)\b", original_move_input))
     query_requests_sa1 = bool(
         re.search(r"\b(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\b", original_move_input)
@@ -648,6 +667,14 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
             and move_input_num_cmd_generic
             and num_cmd_generic == move_input_num_cmd_generic
         ):
+            if query_requests_air_context:
+                air_throw_matches = [
+                    row for row in data
+                    if row_is_air_throw(row)
+                    and normalize_num_cmd_generic_for_lookup(row.get("numCmd", "")) == move_input_num_cmd_generic
+                ]
+                if air_throw_matches:
+                    return air_throw_matches[0]
             return row
         # exact match plnCmd (MP)
         if str(row.get('plnCmd', '')).lower() == move_input:

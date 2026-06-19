@@ -100,6 +100,22 @@ def _query_mentions_stats(text_lower):
     return any(_phrase_in_text(text_lower, term) for term in SF6_STAT_LEGACY_TERMS)
 
 
+def _query_has_air_throw_move_intent(text_lower):
+    return bool(
+        re.search(r"\b(?:air|aerial)\s+throw\b", text_lower)
+        or re.search(r"\bairthrows?\b", text_lower)
+    )
+
+
+def _query_has_jump_normal_move_intent(text_lower):
+    return bool(
+        re.search(r"\b[789][lmh][pk]\b", text_lower)
+        or re.search(r"\bj\.?[789]?[lmh][pk]\b", text_lower)
+        or re.search(r"\b(?:neutral|n)\s+j(?:ump)?\s*\.?\s*[lmh][pk]\b", text_lower)
+        or re.search(r"\bjump\s+[lmh][pk]\b", text_lower)
+    )
+
+
 def parse_stats_intent(
     text_lower,
     mentioned_chars,
@@ -115,7 +131,21 @@ def parse_stats_intent(
 
     broad_stats = any(_phrase_in_text(text_lower, term) for term in SF6_STAT_BROAD_TERMS)
     phrase_keys = match_stat_keys_in_text(text_lower)
+    air_throw_move_query = _query_has_air_throw_move_intent(text_lower)
+    jump_normal_move_query = _query_has_jump_normal_move_intent(text_lower)
+    if air_throw_move_query and phrase_keys:
+        phrase_keys = tuple(
+            key for key in phrase_keys
+            if key not in {"throwRange", "throwHurt"}
+        )
+    if jump_normal_move_query and phrase_keys:
+        phrase_keys = tuple(key for key in phrase_keys if key not in _JUMP_FAMILY_KEYS and key != "health")
     wants_stats = bool(broad_stats or phrase_keys or _query_mentions_stats(text_lower))
+
+    if air_throw_move_query and not broad_stats:
+        wants_stats = False
+    if jump_normal_move_query and not broad_stats:
+        wants_stats = False
 
     if (startup_alias_query or property_only_query) and not broad_stats and not phrase_keys:
         wants_stats = False

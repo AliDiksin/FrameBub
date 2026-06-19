@@ -48,4 +48,17 @@ def choose_ryu_super_art_variant(
 
 
 def choose_character_special_variant(**kwargs):
-    return choose_ryu_super_art_variant(**kwargs)
+    ryu_kwargs = {
+        key: kwargs[key]
+        for key in (
+            "char",
+            "base_name",
+            "variants",
+            "query_requests_sa1",
+            "query_requests_sa2",
+            "query_requires_variant_state",
+            "row_matches_variant_state",
+        )
+        if key in kwargs
+    }
+    return choose_ryu_super_art_variant(**ryu_kwargs)

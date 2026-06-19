@@ -546,15 +546,32 @@ PROPERTY_VALUE_ALIASES = [
     ("risc_gain", "RISC Gain", ("riscGain",), r"\brisc\s*gain\b|\brisc\b"),
     ("proration", "Proration", ("prorate",), r"\bproration\b|\bprorate\b"),
     ("knockdown_adv", "Knockdown Adv", ("kda",), r"\bknockdown\s+adv(?:antage)?\b|\bkda\b"),
-    ("counter_hit_adv", "Counter Hit Adv", ("chAdv",), r"\bcounter\s*hit\s+adv(?:antage)?\b|\bch\s*adv\b"),
+    ("punish_counter", "Punish Counter", (), r"\bpunish\s*counter\b|\bpc\b"),
+    ("counter_hit_adv", "Counter Hit", (), r"\bcounter\s*hit\s+adv(?:antage)?\b|\bch\s*adv\b"),
+    ("counter_hit", "Counter Hit", (), r"\bcounter\s*hit\b|\bch\b"),
+    ("frame_advantage", "Frame Advantage", (), r"\bframe\s+adv(?:antage)?\b"),
 ]
+
+_PROPERTY_REQUEST_PRIORITY = (
+    "punish_counter",
+    "counter_hit_adv",
+    "counter_hit",
+    "frame_advantage",
+)
 
 
 def _requested_property_key(text):
     lowered = str(text or "").lower()
     if re.search(r"\b(?:all|full)\s+(?:frame\s*)?data\b|\btable\b", lowered):
         return None
-    matches = [key for key, _label, _fields, pattern in PROPERTY_VALUE_ALIASES if re.search(pattern, lowered)]
+    for key in _PROPERTY_REQUEST_PRIORITY:
+        config = next((item for item in PROPERTY_VALUE_ALIASES if item[0] == key), None)
+        if config and re.search(config[3], lowered):
+            return key
+    matches = [
+        key for key, _label, _fields, pattern in PROPERTY_VALUE_ALIASES
+        if key not in _PROPERTY_REQUEST_PRIORITY and re.search(pattern, lowered)
+    ]
     if "damage" in matches and any(
         key in matches for key in ("block_damage", "guard_damage", "rev_damage", "chip_damage", "drive_damage")
     ):
@@ -566,7 +583,7 @@ def _requested_property_key(text):
     return matches[0] if len(matches) == 1 else None
 
 
-def _format_requested_property_reply(rows, property_key):
+def _format_requested_property_reply(rows, property_key, *, game="sf6"):
     if not rows or not property_key:
         return None
     config = next((item for item in PROPERTY_VALUE_ALIASES if item[0] == property_key), None)
@@ -585,6 +602,14 @@ def _format_requested_property_reply(rows, property_key):
             hc_tc = str(row.get("hcWinTc") or "-").replace("*", ",").strip() or "-"
             hc_notes = str(row.get("hcWinNotes") or "-").replace("[", "").replace("]", "").replace('"', "").strip() or "-"
             value = f"Sp/Su: {hc_sp}, TC: {hc_tc}. Notes: {hc_notes}"
+        elif game == "sf6" and property_key in {"frame_advantage", "counter_hit", "punish_counter", "counter_hit_adv"}:
+            from bubbot.utils.sf6_advantage_utils import format_sf6_frame_advantage_value
+
+            value = format_sf6_frame_advantage_value(row, mode=property_key)
+        elif game != "sf6" and property_key == "frame_advantage":
+            on_hit = str(row.get("onHit") or row.get("on_hit") or "-").replace("*", ",").strip() or "-"
+            on_block = str(row.get("onBlock") or row.get("on_block") or "-").replace("*", ",").strip() or "-"
+            value = f"On Hit: {on_hit}, On Block: {on_block}"
         elif property_key in {"super_gain", "drive_damage", "stun"} or (
             property_key == "meter_gain" and (row.get("SelfSoH") is not None or row.get("SelfSoB") is not None) and row.get("meterGain") is None
         ):
@@ -638,7 +663,7 @@ def _property_reply_view(game, rows, property_key, owner_id, content):
 
 
 async def _send_property_value_reply(message, rows, property_key, content=None, game="sf6"):
-    property_reply = content or _format_requested_property_reply(rows, property_key)
+    property_reply = content or _format_requested_property_reply(rows, property_key, game=game)
     if not property_reply:
         return None
     view = _property_reply_view(game, rows, property_key, getattr(message.author, "id", None), property_reply)
@@ -773,7 +798,7 @@ class PropertyCompareSelect(discord.ui.Select):
         parent = self.view.parent_view
         row, _label = self.view.moves[idx]
         next_rows = iter_unique_frame_rows(parent.rows + [row])
-        property_reply = _format_requested_property_reply(next_rows, parent.property_key)
+        property_reply = _format_requested_property_reply(next_rows, parent.property_key, game=parent.game)
         if not property_reply:
             await interaction.response.send_message("I could not format that value for the selected move.", ephemeral=True)
             return
@@ -799,7 +824,7 @@ async def _send_cross_game_lookup_response(message, module, rows, payload, query
         _record_frame_data_ids(await module.send_hitbox_response(message, rows))
         return True
     property_key = _requested_property_key(query_text)
-    if _format_requested_property_reply(rows, property_key):
+    if _format_requested_property_reply(rows, property_key, game=_game_key_for_frame_module(module)):
         await _send_property_value_reply(message, rows, property_key, game=_game_key_for_frame_module(module))
         return True
     _record_frame_data_ids(await module.send_frame_response(message, rows))
@@ -871,7 +896,7 @@ async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
     elif rows and output_mode == "both":
         _record_frame_data_ids(await module.send_frame_response(message, rows))
         _record_frame_data_ids(await module.send_hitbox_response(message, rows))
-    elif rows and _format_requested_property_reply(rows, _requested_property_key(source_text)):
+    elif rows and _format_requested_property_reply(rows, _requested_property_key(source_text), game=_game_key_for_frame_module(module)):
         await _send_property_value_reply(message, rows, _requested_property_key(source_text), game=_game_key_for_frame_module(module))
     elif rows:
         _record_frame_data_ids(await module.send_frame_response(message, rows))
@@ -988,23 +1013,22 @@ def normalize_jump_normal_text(text):
     }
 
     def replace_named_jump(match):
-        prefix = match.group(1) or ""
         strength = match.group(2)
         button = match.group(3)
         short = f"{strength_map[strength]}{button_map[button]}"
-        if prefix:
-            return f"neutral jump {short}"
-        return f"jump {short}"
+        return f"8{short}"
 
     text = re.sub(
         r"\b(?:(neutral|n)\s+)?jump\s+(light|medium|heavy)\s+(punch|kick)\b",
         replace_named_jump,
         text,
     )
-    text = re.sub(r"\bneutral\s+j\s*\.?\s*([lmh][pk])\b", r"neutral jump \1", text)
-    text = re.sub(r"\bn\.?j\s*([lmh][pk])\b", r"neutral jump \1", text)
-    text = re.sub(r"\bnj\s*([lmh][pk])\b", r"neutral jump \1", text)
-    text = re.sub(r"\bj\s*\.?\s*([lmh][pk])\b", r"jump \1", text)
+    text = re.sub(r"\b(?:neutral|n)\s+j\s*\.?\s*([lmh][pk])\b", r"8\1", text)
+    text = re.sub(r"\bn\.?j\s*([lmh][pk])\b", r"8\1", text)
+    text = re.sub(r"\bnj\s*([lmh][pk])\b", r"8\1", text)
+    text = re.sub(r"\bj\s*\.?\s*([lmh][pk])\b", r"8\1", text)
+    text = re.sub(r"\b(?:neutral|n)\s+jump\s+([lmh][pk])\b", r"8\1", text)
+    text = re.sub(r"\bjump\s+([lmh][pk])\b", r"8\1", text)
     text = re.sub(r"\bn\.?j\s*\.?\s*([1-9][0-9]*[a-z]{1,3})\b", r"neutral j\1", text)
     text = re.sub(r"\bnj\s*([1-9][0-9]*[a-z]{1,3})\b", r"neutral j\1", text)
     text = re.sub(r"\bj\s*\.?\s*([1-9][0-9]*[a-z]{1,3})\b", r"j\1", text)
