@@ -1,4 +1,4 @@
-# Bub - Fighting Game Frame Data Bot
+# FrameBub - Fighting Game Frame Data Bot
 
 A Discord bot that provides instant frame data, hitbox images, combo routes, and quiz challenges for 8 fighting games using natural language queries or interactive menus.
 
@@ -25,7 +25,7 @@ A Discord bot that provides instant frame data, hitbox images, combo routes, and
 | BlazBlue Central Fiction | Dustloop ODS | Hitbox images, move notes |
 | City of the Wolves | DreamCancel ODS | Regular move images (no hitbox images available) |
 | Third Strike | SuperCombo ODS | Hitbox images, versioned moves |
-| Mortal Kombat 1 | Local JSON | Playable characters, Kameos, combo routes |
+| Mortal Kombat 1 | Kombat Akademy | Playable characters, Kameos, combo routes |
 
 ## Screenshots
 
