@@ -1,6 +1,12 @@
-discord.py
+discord.py==2.6.4; platform_system == "Windows"
+discord.py[voice]==2.7.1; platform_system != "Windows"
 python-dotenv
 aiohttp
+PyNaCl==1.5.0
+discord-ext-voice-recv>=0.5.2a179
+# openWakeWord 0.6+ for local wake; install with --no-deps on Linux if tflite-runtime has no wheel.
+openwakeword>=0.6.0,<0.7; platform_system != "Windows"
+onnxruntime>=1.16.0; platform_system != "Windows"
 pandas
 odfpy
 openpyxl

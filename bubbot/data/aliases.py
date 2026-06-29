@@ -17,6 +17,7 @@ CHARACTER_ALIASES = {
     "viper": "c.viper",
     "c viper": "c.viper",
     "cviper": "c.viper",
+    "bosch": "luke",
     "aki": "a.k.i",
     "a.k.i": "a.k.i",
     "a.k.i.": "a.k.i",

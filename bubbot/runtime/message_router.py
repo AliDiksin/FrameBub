@@ -976,6 +976,7 @@ buenavista_extension.log_status()
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.voice_states = True
 client = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(client)
 
@@ -989,6 +990,12 @@ def truncate_message(text, limit=1800):
 
 
 
+
+
+_BOSCH_BREAKDANCE_VIDEO_URL = (
+    "https://cdn.discordapp.com/attachments/1345474577316319265/"
+    "1520875333803577386/breakdance.mp4"
+)
 
 
 def strip_discord_mentions(content):
@@ -1480,6 +1487,10 @@ async def _handle_message(message):
     if quiz_result is not False:
         return
 
+    if "bosch breakdance" in content_lower:
+        await message.reply(_BOSCH_BREAKDANCE_VIDEO_URL)
+        return
+
     if await _handle_cross_game_disambiguation_reply(message, content_no_mentions):
         return
 
@@ -1489,6 +1500,22 @@ async def _handle_message(message):
         gif_query=has_explicit_gif_lookup_intent(content_lower),
     ):
         return
+
+    if await buenavista_extension.maybe_handle_voice_command(
+        client=client,
+        message=message,
+        content_lower=content_lower,
+    ):
+        return
+
+    if await buenavista_extension.maybe_handle_streetfighterdle_message(
+        client=client,
+        message=message,
+        content_lower=content_lower,
+    ):
+        return
+
+    await buenavista_extension.maybe_ack_streetfighterdle_score(message)
 
     if await _is_reply_to_suppressed_bub_message(message):
         return
@@ -3012,6 +3039,7 @@ register_slash_commands(
         "mk1_module": mk1_module,
         "combo_data_module": combo_data_module,
         "menu_system": menu_system,
+        "buenavista_extension": buenavista_extension,
     },
 )
 
