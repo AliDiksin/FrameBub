@@ -226,6 +226,24 @@ def move_name_match_tokens(move_name, num_cmd=""):
     return token_set
 
 
+def text_mentions_stocked_variant(value):
+    text = str(value or "").lower()
+    if re.search(r"\b0\s*stocks?\b", text):
+        return False
+    return bool(
+        re.search(r"\b[1-9]\d*\s*stocks?\b", text)
+        or re.search(r"\b(?:stock|stocked|boosted|enhanced|windclad)\b", text)
+        or "wind stock" in text
+    )
+
+
+def row_mentions_stocked_variant(row):
+    return any(
+        text_mentions_stocked_variant(row.get(field, ""))
+        for field in ("moveName", "cmnName", "numCmd", "sourceFile")
+    )
+
+
 def build_num_cmd_candidates_for_gif(row):
     row_num_cmd_raw = str(row.get("numCmd", "")).lower()
     row_num_cmd = normalize_num_cmd_token(row_num_cmd_raw)
@@ -346,6 +364,7 @@ def lookup_hitbox_gif_link(row):
         or "(charged" in row_num_cmd_raw
         or "(hold" in row_num_cmd_raw
     )
+    row_is_stocked = row_mentions_stocked_variant(row)
 
     if char_key == "akuma" and "gou hadoken" in row_move_name_norm and re.search(r"\blvl\s*[23]\b", row_move_name_norm):
         level_match = re.search(r"\blvl\s*([23])\b", row_move_name_norm)
@@ -417,6 +436,7 @@ def lookup_hitbox_gif_link(row):
                     or "(charged" in gif_num_cmd_raw
                     or "(hold" in gif_num_cmd_raw
                 ),
+                "is_stocked": row_mentions_stocked_variant(gif_row),
             }
         )
 
@@ -437,6 +457,12 @@ def lookup_hitbox_gif_link(row):
         jump_matches = [item for item in filtered if item["is_jump"] == row_is_jump]
         if jump_matches:
             filtered = jump_matches
+
+        stocked_matches = [item for item in filtered if item["is_stocked"] == row_is_stocked]
+        if stocked_matches:
+            filtered = stocked_matches
+        elif filtered:
+            return []
 
         return filtered
 
@@ -910,6 +936,7 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
                     or "(charged" in gif_num_cmd_raw
                     or "(hold" in gif_num_cmd_raw
                 ),
+                "is_stocked": row_mentions_stocked_variant(gif_row),
             }
         )
 
@@ -920,6 +947,7 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
     query_wants_air = bool({"air", "aerial"} & query_tokens)
     query_wants_jump = "jump" in query_tokens
     query_wants_denjin = bool({"denjin", "charged", "hold", "held"} & query_tokens)
+    query_wants_stocked = any(text_mentions_stocked_variant(token) for token in query_tokens)
 
     def apply_query_context_filters(items):
         filtered = list(items)
@@ -955,6 +983,12 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
             denjin_matches = [item for item in filtered if item["is_denjin"]]
             if denjin_matches:
                 filtered = denjin_matches
+
+        stocked_matches = [item for item in filtered if item["is_stocked"] == query_wants_stocked]
+        if stocked_matches:
+            filtered = stocked_matches
+        elif filtered:
+            return []
 
         if query_suffix:
             suffix_matches = [item for item in filtered if item["suffix"] == query_suffix]

@@ -3,6 +3,8 @@
 import difflib
 import re
 
+from bubbot.frame_data.sf6_parser_helpers import normalize_directional_normal_notation
+from bubbot.frame_data.sf6_parser_helpers import normalize_grounded_normal_notation
 from bubbot.utils.notation_match_utils import find_rows_by_notation_prefix, looks_like_notation_query
 from bubbot.utils.text_utils import correct_alias_typos
 
@@ -32,6 +34,8 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     data = frame_data[char_key]
     move_input = normalize_jump_normal_text(move_input.lower().strip())
 
+    move_input = normalize_directional_normal_notation(move_input)
+
     def normalize_strength_word_shorthand(text):
         prefix_map = {"l": "light", "m": "medium", "h": "heavy"}
 
@@ -51,20 +55,7 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
 
     move_input = normalize_strength_word_shorthand(move_input)
 
-    def normalize_boomer_normal_notation(text):
-        pattern = re.compile(
-            r"\b(st|cr)\s*\.?\s*(lp|mp|hp|lk|mk|hk|l\s*p|m\s*p|h\s*p|l\s*k|m\s*k|h\s*k)\b"
-        )
-
-        def repl(match):
-            stance = match.group(1).lower()
-            button = re.sub(r"\s+", "", match.group(2).lower())
-            prefix = "5" if stance == "st" else "2"
-            return f"{prefix}{button}"
-
-        return pattern.sub(repl, text)
-
-    move_input = normalize_boomer_normal_notation(move_input)
+    move_input = normalize_grounded_normal_notation(move_input)
     move_input = re.sub(r"^(?:7|9)\s*(lp|mp|hp|lk|mk|hk)$", r"jump \1", move_input)
 
     original_move_input = move_input
@@ -112,6 +103,28 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     query_requests_stocked = bool(
         re.search(r"\b(stock|stocked|enhanced|windclad|wind\s+clad)\b", original_move_input)
     ) or any(token_is_stock_hint(token) for token in re.findall(r"[a-z0-9]+", original_move_input))
+
+    def row_is_stocked_lookup_variant(row):
+        move_name = str(row.get("moveName", "")).lower()
+        cmn_name = str(row.get("cmnName", "")).lower()
+        num_cmd = str(row.get("numCmd", "")).lower()
+        combined = f"{move_name} {cmn_name} {num_cmd}"
+        if re.search(r"\b0\s*stocks?\b", combined):
+            return False
+        return bool(
+            re.search(r"\b[1-9]\d*\s*stocks?\b", combined)
+            or "(stock" in move_name
+            or "(stock" in cmn_name
+            or "(stock" in num_cmd
+            or "enhanced" in move_name
+            or "enhanced" in cmn_name
+            or "(enhanced" in num_cmd
+            or "windclad" in move_name
+            or "windclad" in cmn_name
+            or ("wind stock" in cmn_name and ("(" in cmn_name or "(hold" in num_cmd))
+        )
+
+    data = sorted(data, key=lambda row: row_is_stocked_lookup_variant(row) != query_requests_stocked)
     neutral_tokens = []
     input_tokens = re.findall(r"[a-z0-9]+", original_move_input)
     if (
@@ -832,7 +845,4 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
             return fuzzy_alias_row
 
     return None
-
-
-
 

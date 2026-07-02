@@ -20,6 +20,9 @@ from bubbot.frame_data.sf6_character_aliases import (
     should_skip_keyword_input,
 )
 from bubbot.frame_data.sf6_character_stats import apply_stats_context
+from bubbot.frame_data.sf6_parser_helpers import collect_normal_notation_inputs
+from bubbot.frame_data.sf6_parser_helpers import query_has_directional_normal_notation
+from bubbot.frame_data.sf6_parser_helpers import query_has_grounded_normal_notation
 from bubbot.frame_data.sf6_special_prompt_rules import (
     choose_character_special_variant,
     should_skip_ambiguous_special_key,
@@ -104,6 +107,8 @@ def find_moves_in_text(deps, text):
         or re.search(r"\b(?:neutral|n)\s+j(?:ump)?\s*\.?\s*[lmh][pk]\b", text_lower)
         or re.search(r"\bjump\s+[lmh][pk]\b", text_lower)
     )
+    directional_normal_move_query = query_has_directional_normal_notation(text_lower)
+    grounded_normal_move_query = query_has_grounded_normal_notation(text_lower)
     startup_alias_query = bool(
         re.search(r"\bhow\s+fast\b", text_lower)
         or re.search(r"\bhow\s+quick\b", text_lower)
@@ -196,6 +201,12 @@ def find_moves_in_text(deps, text):
     punish_keywords = ["punish", "punishable", "can i punish", "is it punishable"]
     target_combo_query = bool(re.search(r"\b(tc|target\s+combo|targetcombo)\b", text_lower))
     special_grab_query = bool(re.search(r"\b(command\s+grab|spd|piledriver|typhoon)\b", text_lower))
+    super_level_query = bool(
+        re.search(
+            r"\b(?:sa\s*[123]|super\s*art\s*(?:level\s*)?[123]|super\s*[123]|lv\s*[123]|lvl\s*[123]|level\s*[123])\b",
+            text_lower,
+        )
+    )
     wants_comparison = (
         any(kw in text_lower for kw in comparison_keywords)
         or re.search(r"\bvs\b", text_lower)
@@ -211,9 +222,12 @@ def find_moves_in_text(deps, text):
         or range_alias_query
         or property_match_count > 0
         or target_combo_query
+        or super_level_query
         or gif_query
         or air_throw_move_query
         or jump_normal_move_query
+        or directional_normal_move_query
+        or grounded_normal_move_query
     )
     results = []
     tc_selected_combos = set()
@@ -229,16 +243,16 @@ def find_moves_in_text(deps, text):
 
         query_requires_variant_state = query_requires_character_variant_state(text_tokens)
         query_requires_charged = any(token in text_tokens for token in ("charged", "hold", "held"))
-        query_requests_level2 = bool(re.search(r"\b(?:lvl|level)\s*2\b", text_lower))
-        query_requests_level3 = bool(re.search(r"\b(?:lvl|level)\s*3\b", text_lower))
+        query_requests_level2 = bool(re.search(r"\b(?:lv|lvl|level)\s*2\b", text_lower))
+        query_requests_level3 = bool(re.search(r"\b(?:lv|lvl|level)\s*3\b", text_lower))
         query_requests_sa1 = bool(
-            re.search(r"\b(?:sa\s*1|super\s*art\s*1|super\s*1|level\s*1)\b", text_lower)
+            re.search(r"\b(?:sa\s*1|super\s*art\s*(?:level\s*)?1|super\s*1|lv\s*1|lvl\s*1|level\s*1)\b", text_lower)
         )
         query_requests_sa2 = bool(
-            re.search(r"\b(?:sa\s*2|super\s*art\s*2|super\s*2|level\s*2)\b", text_lower)
+            re.search(r"\b(?:sa\s*2|super\s*art\s*(?:level\s*)?2|super\s*2|lv\s*2|lvl\s*2|level\s*2)\b", text_lower)
         )
         query_requests_sa3 = bool(
-            re.search(r"\b(?:sa\s*3|super\s*art\s*3|super\s*3|level\s*3)\b", text_lower)
+            re.search(r"\b(?:sa\s*3|super\s*art\s*(?:level\s*)?3|super\s*3|lv\s*3|lvl\s*3|level\s*3)\b", text_lower)
         )
         query_requests_ca = bool(
             re.search(r"\b(?:ca|critical\s+art)\b", text_lower)
@@ -293,6 +307,20 @@ def find_moves_in_text(deps, text):
                 or num_cmd_compact.endswith(("pp", "kk"))
             )
 
+        def apply_explicit_strength_result_filter(rows):
+            if not query_has_explicit_strength or not rows:
+                return rows
+            if query_wants_od_strength:
+                od_rows = [row for row in rows if row_is_od_variant(row)]
+                return od_rows or rows
+            if query_wants_non_od_strength:
+                exact_rows = [row for row in rows if row_matches_explicit_strength(row, text_lower)]
+                if exact_rows:
+                    return exact_rows
+                non_od_rows = [row for row in rows if not row_is_od_variant(row)]
+                return non_od_rows or rows
+            return rows
+
         def row_matches_requested_level(row):
             if not (query_requests_level2 or query_requests_level3):
                 return False
@@ -300,9 +328,9 @@ def find_moves_in_text(deps, text):
                 str(row.get(field, "")).lower()
                 for field in ("moveName", "cmnName", "numCmd")
             )
-            if query_requests_level2 and re.search(r"\b(?:lvl|level)\s*2\b", row_text):
+            if query_requests_level2 and re.search(r"\b(?:lv|lvl|level)\s*2\b", row_text):
                 return True
-            if query_requests_level3 and re.search(r"\b(?:lvl|level)\s*3\b", row_text):
+            if query_requests_level3 and re.search(r"\b(?:lv|lvl|level)\s*3\b", row_text):
                 return True
             return False
 
@@ -350,6 +378,8 @@ def find_moves_in_text(deps, text):
                 "od", "ex", "charged", "hold", "held",
                 "startup", "active", "recovery", "range",
                 "on", "hit", "block", "damage", "cancel",
+                "super", "art", "level", "lvl", "lv",
+                "sa1", "sa2", "sa3", "lv1", "lv2", "lv3", "lvl1", "lvl2", "lvl3",
             }
             for char in mentioned_chars:
                 ignored_tokens.update(re.findall(r"[a-z0-9]+", str(char).lower()))
@@ -428,14 +458,7 @@ def find_moves_in_text(deps, text):
             if compact_motion not in compact_motion_inputs:
                 compact_motion_inputs.append(compact_motion)
 
-        boomer_normal_matches = re.findall(
-            r"\b(st|cr)\s*\.?\s*(lp|mp|hp|lk|mk|hk|l\s*p|m\s*p|h\s*p|l\s*k|m\s*k|h\s*k)\b",
-            text_lower,
-        )
-        for stance_token, button_token in boomer_normal_matches:
-            stance_prefix = "5" if stance_token == "st" else "2"
-            normalized_button = re.sub(r"\s+", "", button_token)
-            compact_motion = f"{stance_prefix}{normalized_button}"
+        for compact_motion in collect_normal_notation_inputs(text_lower):
             if compact_motion not in compact_motion_inputs:
                 compact_motion_inputs.append(compact_motion)
 
@@ -592,6 +615,13 @@ def find_moves_in_text(deps, text):
 
         if query_requests_ca and "critical art" not in extra_inputs:
             extra_inputs.append("critical art")
+        for requested, super_input in (
+            (query_requests_sa1, "super art level 1"),
+            (query_requests_sa2, "super art level 2"),
+            (query_requests_sa3, "super art level 3"),
+        ):
+            if requested and super_input not in extra_inputs:
+                extra_inputs.append(super_input)
 
 
         def is_special_motion_num_cmd(num_cmd_raw):
@@ -699,11 +729,11 @@ def find_moves_in_text(deps, text):
                     if not base_in_query and base_name == "palm thrust":
                         base_in_query = "hashogeki" in text_tokens
                     if not base_in_query and base_name == "super art level 1":
-                        base_in_query = bool(re.search(r"\bsa\s*1\b", text_lower))
+                        base_in_query = query_requests_sa1
                     if not base_in_query and base_name == "super art level 2":
-                        base_in_query = bool(re.search(r"\bsa\s*2\b", text_lower))
+                        base_in_query = query_requests_sa2
                     if not base_in_query and base_name == "super art level 3":
-                        base_in_query = bool(re.search(r"\bsa\s*3\b", text_lower))
+                        base_in_query = query_requests_sa3
                     if not base_in_query and base_name == "spd":
                         base_in_query = "command" in text_tokens and "grab" in text_tokens
                     if not base_in_query and base_name in {"burn kick", "burning kick"}:
@@ -1132,6 +1162,8 @@ def find_moves_in_text(deps, text):
                 "send", "post", "drop", "give", "link",
                 "gif", "gifs", "hitbox", "hitboxes",
                 "advantage", "counter", "punish", "pc", "ch",
+                "range", "length", "super", "art", "level", "lvl", "lv",
+                "sa1", "sa2", "sa3", "lv1", "lv2", "lv3", "lvl1", "lvl2", "lvl3",
             }
             char_tokens = set()
             for char in mentioned_chars:
@@ -1419,6 +1451,8 @@ def find_moves_in_text(deps, text):
             stocked_rows = [row for row in results if row_is_stocked_variant(row)]
             if stocked_rows:
                 results = stocked_rows
+
+        results = apply_explicit_strength_result_filter(results)
 
         if (
             not query_has_explicit_strength

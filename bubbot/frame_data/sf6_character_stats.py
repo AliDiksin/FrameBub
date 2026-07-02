@@ -13,6 +13,8 @@ from bubbot.data.aliases import (
     SF6_STAT_PHRASE_ALIASES,
     SF6_STAT_TOKEN_SEQUENCE_ALIASES,
 )
+from bubbot.frame_data.sf6_parser_helpers import query_has_directional_normal_notation
+from bubbot.frame_data.sf6_parser_helpers import query_has_grounded_normal_notation
 from bubbot.utils.discord_formatting import add_embed_field as shared_add_embed_field
 from bubbot.utils.discord_formatting import clean_value as shared_clean_value
 from bubbot.utils.discord_formatting import truncate_value as shared_truncate_value
@@ -133,6 +135,8 @@ def parse_stats_intent(
     phrase_keys = match_stat_keys_in_text(text_lower)
     air_throw_move_query = _query_has_air_throw_move_intent(text_lower)
     jump_normal_move_query = _query_has_jump_normal_move_intent(text_lower)
+    directional_normal_move_query = query_has_directional_normal_notation(text_lower)
+    grounded_normal_move_query = query_has_grounded_normal_notation(text_lower)
     if air_throw_move_query and phrase_keys:
         phrase_keys = tuple(
             key for key in phrase_keys
@@ -140,11 +144,19 @@ def parse_stats_intent(
         )
     if jump_normal_move_query and phrase_keys:
         phrase_keys = tuple(key for key in phrase_keys if key not in _JUMP_FAMILY_KEYS and key != "health")
+    if directional_normal_move_query and phrase_keys:
+        phrase_keys = tuple(key for key in phrase_keys if key != "health")
+    if grounded_normal_move_query and phrase_keys:
+        phrase_keys = tuple(key for key in phrase_keys if key != "health")
     wants_stats = bool(broad_stats or phrase_keys or _query_mentions_stats(text_lower))
 
     if air_throw_move_query and not broad_stats:
         wants_stats = False
     if jump_normal_move_query and not broad_stats:
+        wants_stats = False
+    if directional_normal_move_query and not broad_stats:
+        wants_stats = False
+    if grounded_normal_move_query and not broad_stats:
         wants_stats = False
 
     if (startup_alias_query or property_only_query) and not broad_stats and not phrase_keys:
