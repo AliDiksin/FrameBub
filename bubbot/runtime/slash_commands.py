@@ -8,6 +8,7 @@ import aiohttp
 import discord
 
 from bubbot.utils.choice_utils import autocomplete_values, character_choices, move_choices
+from bubbot.features.fg_glossary import build_glossary_definition_embed, build_glossary_link_view
 from bubbot.frame_data.sf6_character_stats import (
     build_character_stats_embed,
     build_slash_stats_query,
@@ -566,6 +567,11 @@ def register_slash_commands(tree, deps):
     @tree.command(name="readme", description="Show a quick guide to Bub's features")
     async def readme_slash_command(interaction: discord.Interaction):
         await interaction.response.send_message(embed=menu_system.build_readme_embed())
+
+    @tree.command(name="glossary", description="Open Infil's Fighting Game Glossary")
+    @discord.app_commands.describe(term="Optional glossary term, like safe jump or option select")
+    async def glossary_slash_command(interaction: discord.Interaction, term: str = None):
+        await interaction.response.send_message(embed=build_glossary_definition_embed(term), view=build_glossary_link_view(term))
 
     @tree.command(name="ggst")
     @discord.app_commands.describe(char_name="The characters name", move_name="The move name", char_state="Optional char specific states like Installs.")

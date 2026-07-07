@@ -445,6 +445,18 @@ def find_moves_in_text(deps, text):
                 or has_wind_stock_hold
             )
 
+        def row_is_air_move(row):
+            move_name = str(row.get("moveName", "")).lower()
+            cmn_name = str(row.get("cmnName", "")).lower()
+            num_cmd = str(row.get("numCmd", "")).lower()
+            return (
+                "(air" in num_cmd
+                or "air" in move_name
+                or "air" in cmn_name
+                or "aerial" in move_name
+                or "aerial" in cmn_name
+            )
+
         # 3. Extract move inputs and aliases from query text
         move_regex = r"\b([1-9][0-9]*[a-zA-Z]+|stand\s+[a-zA-Z]+|crouch\s+[a-zA-Z]+|(?:neutral\s+|n\s+)?jump\s+[a-zA-Z]+|(?:neutral\s+|n\s+)?jump\s+[1-9][0-9]*[a-zA-Z]+|(?:neutral\s+|n\s+)?j(?:\s+|\.)[a-zA-Z]+|(?:neutral\s+|n\s+)?j(?:\s+|\.)[1-9][0-9]*[a-zA-Z]+|(?:neutral\s+|n\s+)?j\.?[1-9][0-9]*[a-zA-Z]+|(?:lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)?|[a-zA-Z]+\s+kick|[a-zA-Z]+\s+punch)\b"
         potential_inputs = re.findall(move_regex, text_lower)
@@ -711,6 +723,12 @@ def find_moves_in_text(deps, text):
                         charged_prompt_variants = [row for row in prompt_variants if row_is_charged_variant(row)]
                         if charged_prompt_variants:
                             prompt_variants = charged_prompt_variants
+                    if query_requests_air_context:
+                        air_prompt_variants = [row for row in prompt_variants if row_is_air_move(row)]
+                        if air_prompt_variants:
+                            prompt_variants = air_prompt_variants
+                        else:
+                            continue
                     if query_requests_level2 or query_requests_level3:
                         level_variants = [row for row in prompt_variants if row_matches_requested_level(row)]
                         if level_variants:

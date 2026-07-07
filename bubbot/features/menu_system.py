@@ -7,6 +7,7 @@ import re
 
 import discord
 
+from bubbot.features.fg_glossary import build_glossary_definition_embed, build_glossary_embed, build_glossary_link_button, normalize_glossary_term
 from bubbot.utils.choice_utils import character_choices, move_choices
 
 FRAME_DATA = {}
@@ -801,6 +802,14 @@ class MainMenuView(OwnedView):
             attachments=[],
         )
 
+    @discord.ui.button(label="Glossary", style=discord.ButtonStyle.primary, custom_id="menu_glossary", row=1)
+    async def glossary_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=build_glossary_embed(),
+            view=GlossaryMenuView(self.owner_id),
+            attachments=[],
+        )
+
 
 class ReadmeView(OwnedView):
     def __init__(self, owner_id):
@@ -811,6 +820,49 @@ class ReadmeView(OwnedView):
         await interaction.response.edit_message(
             embed=_main_menu_embed(),
             view=MainMenuView(self.owner_id),
+            attachments=[],
+        )
+
+
+class GlossaryMenuView(OwnedView):
+    def __init__(self, owner_id, term=None):
+        super().__init__(owner_id=owner_id, menu_locked=True, timeout=None)
+        self.term = normalize_glossary_term(term)
+        self.add_item(build_glossary_link_button(self.term))
+
+    @discord.ui.button(label="Search Term", style=discord.ButtonStyle.primary, custom_id="glossary_search", row=1)
+    async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(GlossarySearchModal(self.owner_id))
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.danger, custom_id="glossary_back", row=1)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=_main_menu_embed(),
+            view=MainMenuView(self.owner_id),
+            attachments=[],
+        )
+
+
+class GlossarySearchModal(discord.ui.Modal):
+    def __init__(self, owner_id):
+        super().__init__(title="Search Glossary")
+        self.owner_id = owner_id
+        self.query = discord.ui.TextInput(
+            label="Glossary term",
+            placeholder="Example: safe jump, option select, meaty",
+            required=False,
+            max_length=100,
+        )
+        self.add_item(self.query)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the person who opened this menu can search it.", ephemeral=True)
+            return
+        term = normalize_glossary_term(self.query.value)
+        await interaction.response.edit_message(
+            embed=build_glossary_definition_embed(term),
+            view=GlossaryMenuView(self.owner_id, term),
             attachments=[],
         )
 
@@ -2162,8 +2214,16 @@ def build_readme_embed():
         value=(
             "Use `/bub` for the guided menu (game picker dropdown), `@bub` alone for the main menu, "
             "or `@bub` plus a game tag only (e.g. `@bub sf6`) to open that game's menu. "
-            "Slash commands include `/sf6`, `/sf6-stats` (SF6 stats), `/sf6-combos`, `/ggst`, `/ggacr`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1`, and `/mk1-combos`. "
+            "Slash commands include `/sf6`, `/sf6-stats` (SF6 stats), `/sf6-combos`, `/ggst`, `/ggacr`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1`, `/mk1-combos`, and `/glossary`. "
             "Menus are locked to the user who opened them."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="FG Glossary",
+        value=(
+            "Use `/glossary safe jump`, `@Bub glossary option select`, or the main menu Glossary button "
+            "to show a local glossary definition with a source link to Infil's Fighting Game Glossary."
         ),
         inline=False,
     )

@@ -38,6 +38,7 @@ import bubbot.frame_data.third_strike_frame_data as third_strike_module
 import bubbot.frame_data.mk1_frame_data as mk1_module
 import bubbot.frame_data.combo_data as combo_data_module
 import bubbot.features.menu_system as menu_system
+from bubbot.features.fg_glossary import build_glossary_definition_embed, build_glossary_link_view, normalize_glossary_term
 from bubbot.frame_data.frame_output import (
     send_character_stats_response,
     send_frame_embeds_with_views,
@@ -332,6 +333,40 @@ def has_explicit_gif_lookup_intent(text):
         or re.search(r"\bhit\s*box(?:es)?\b", cleaned)
         or re.search(r"\bhitbox(?:es)?\b", cleaned)
     )
+
+
+def extract_glossary_lookup_term(text):
+    cleaned = strip_discord_mentions(text).strip()
+    patterns = (
+        r"^(?:(?:fg|fighting\s+game)\s+)?glossary(?:\s+(.+))?$",
+        r"^fgg(?:\s+(.+))?$",
+        r"^(?:define|definition)(?:\s+(.+))?$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, cleaned, flags=re.IGNORECASE)
+        if match:
+            return normalize_glossary_term(match.group(1) or "")
+    return None
+
+
+async def maybe_handle_glossary_lookup(message, content_no_mentions, *, addressed):
+    if not addressed:
+        return False
+    term = extract_glossary_lookup_term(content_no_mentions)
+    if term is None:
+        return False
+    sent = await message.reply(embed=build_glossary_definition_embed(term), view=build_glossary_link_view(term))
+    try:
+        log_message_and_reply(
+            message,
+            sent,
+            interaction_type=INTERACTION_PROMPT,
+            reason="fg_glossary_lookup",
+            response_text=f"Opened FG glossary lookup for: {term or 'home'}",
+        )
+    except Exception as log_error:
+        print(f"Response log error: {log_error}", flush=True)
+    return True
 
 
 DISAMBIGUATION_GAME_CONFIGS = [
@@ -1513,6 +1548,9 @@ async def _handle_message(message):
         message=message,
         content_lower=content_lower,
     ):
+        return
+
+    if await maybe_handle_glossary_lookup(message, content_no_mentions, addressed=directly_mentions_bot):
         return
 
     await buenavista_extension.maybe_ack_streetfighterdle_score(message)
