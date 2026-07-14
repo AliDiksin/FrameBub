@@ -1701,6 +1701,9 @@ COMMAND_JUMP_NORMAL_ALIASES = {
             "j2hk": "hk drill kick",
         },
         "alex": {
+            "j2hp": "flying cross chop",
+            "j.2hp": "flying cross chop",
+            "jump 2hp": "flying cross chop",
             "stance": "prowler stance",
             "stance jab": "palm jab",
             "stance lp": "palm jab",

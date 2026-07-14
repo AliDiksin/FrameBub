@@ -257,6 +257,8 @@ def build_num_cmd_candidates_for_gif(row):
             candidates.update(parts)
             if parts:
                 candidates.add(parts[-1])
+                if len(parts) == 2 and parts[0] in {"7", "8", "9"}:
+                    candidates.add(f"{parts[0]}{parts[-1]}")
     row_suffix = extract_button_suffix(row_num_cmd)
 
     if row_suffix and "jump" in move_name_lower and ">" not in row_num_cmd:
