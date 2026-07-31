@@ -9,6 +9,7 @@ import math
 import re
 import shutil
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -16,12 +17,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pandas as pd
 
+from bubbot.data.ggst_aliases import GGST_PAGE_OVERRIDES
 from bubbot.utils.text_utils import compact_key
+from scripts import scrape_ggst_dustloop
 
 
 TARGET = Path("GGST Frame Data.ods")
-SOURCE = Path("GGST - Dustloop Frame Data.ods")
 BACKUP = Path("GGST Frame Data.backup.ods")
+REFRESH_OUTPUT = Path("GGST Frame Data.refresh.ods")
 
 CHARACTER_BY_SHEET_PREFIX = {
     "ABA": "A.B.A",
@@ -69,25 +72,6 @@ MOVE_SHEET_SUFFIXES = [
     "L3",
     "BR",
 ]
-
-UPDATE_COLUMNS = [
-    "startup",
-    "active",
-    "recovery",
-    "total",
-    "onHit",
-    "onBlock",
-    "dmg",
-    "riscGain",
-    "prorate",
-    "kda",
-    "guardLevel",
-    "atkLvl",
-    "extraInfo",
-    "images",
-    "hitboxes",
-]
-
 
 def is_blank(value: Any) -> bool:
     if value is None:
@@ -142,9 +126,9 @@ def active_total(value: Any) -> int | None:
 def transform_recovery_and_total(row: pd.Series) -> tuple[str, str]:
     recovery = normalize_number_text(row.get("recovery", ""))
     total = ""
-    match = re.fullmatch(r"Total\s+(\d+)", recovery, flags=re.IGNORECASE)
+    match = re.fullmatch(r"(?:Total\s+(\d+)|(\d+)\s+Total)", recovery, flags=re.IGNORECASE)
     if match:
-        return "", match.group(1)
+        return "", match.group(1) or match.group(2)
 
     startup = simple_int(row.get("startup", ""))
     active = active_total(row.get("active", ""))
@@ -243,35 +227,45 @@ def row_candidates(row: pd.Series, state: str) -> list[str]:
     return candidates
 
 
-def build_dust_index(move_data: pd.DataFrame, move_details: pd.DataFrame) -> dict[str, dict[str, pd.Series]]:
-    detail_by_row = {
-        (str(row.character_display), int(row.template_order)): row for row in move_details.itertuples(index=False)
-    }
-    index_by_character: dict[str, dict[str, pd.Series]] = {}
-    for _, row in move_data.iterrows():
-        character = blank_to_empty(row.get("character_display", ""))
-        if not character:
-            continue
-        index = index_by_character.setdefault(character, {})
-        keys = [row.get("input", ""), row.get("name", ""), row.get("subsection", "")]
-        for key_value in keys:
-            key = normalize_key(key_value)
-            if key and key not in index:
-                index[key] = row
-        details = detail_by_row.get((character, int(row.get("template_order", 0))))
-        if details is not None:
-            row.attrs["details"] = details
-        row.attrs["source_order"] = int(row.get("template_order", 0) or 0)
-    return index_by_character
+def fetch_live_source_moves() -> pd.DataFrame:
+    def fetch(page_title: str) -> str:
+        for attempt in range(2):
+            try:
+                return scrape_ggst_dustloop.fetch_text(page_title)
+            except Exception:
+                if attempt:
+                    raise
+                print(f"Retrying {page_title} after fetch failure", flush=True)
+        raise AssertionError("unreachable")
+
+    rows: list[dict[str, Any]] = []
+    key_aliases = {"onhit": "onHit", "onblock": "onBlock", "riscgain": "riscGain"}
+    for sheet_prefix, display_name in CHARACTER_BY_SHEET_PREFIX.items():
+        page_name = GGST_PAGE_OVERRIDES.get(sheet_prefix, sheet_prefix.replace(" ", "_"))
+        main_title = f"GGST/{page_name}"
+        data_title = f"{main_title}/Data"
+        data_raw = fetch(data_title)
+        _stats, character_rows = scrape_ggst_dustloop.parse_data_page(
+            sheet_prefix, display_name, data_title, data_raw, {}
+        )
+        if not character_rows:
+            raise RuntimeError(f"No live move templates found for {display_name} ({data_title})")
+        for order, source_row in enumerate(character_rows, start=1):
+            canonical_row = {key_aliases.get(key, key): value for key, value in source_row.items()}
+            canonical_row.update(character_display=display_name, template_order=order)
+            rows.append(canonical_row)
+        print(f"Fetched {display_name}: {len(character_rows)} moves", flush=True)
+    return pd.DataFrame(rows).fillna("")
 
 
 def transform_row(dust_row: pd.Series) -> dict[str, str]:
     recovery, total = transform_recovery_and_total(dust_row)
     on_hit, kda = parse_on_hit(dust_row.get("onHit", ""))
-    details = dust_row.attrs.get("details")
-    notes = []
-    if details is not None:
-        notes.append(getattr(details, "notes_text", ""))
+    notes = [
+        dust_row.get("description_text", ""),
+        dust_row.get("notes_text", ""),
+        dust_row.get("caption_text", ""),
+    ]
 
     return {
         "startup": normalize_number_text(dust_row.get("startup", "")),
@@ -307,6 +301,8 @@ def source_rows_for_sheet(source_moves: pd.DataFrame, character: str, sheet_name
         rows = rows[rows["type"].astype(str).eq("spell")]
     elif kind == "Items":
         rows = rows[rows["section"].astype(str).eq("Items")]
+    elif kind == "Install":
+        rows = rows[rows["subsection"].astype(str).str.startswith("Error 6")]
     elif state == "DI":
         rows = rows[rows["input"].astype(str).str.startswith("DI ")]
     elif state:
@@ -314,6 +310,7 @@ def source_rows_for_sheet(source_moves: pd.DataFrame, character: str, sheet_name
     elif kind == "Normal":
         inputs = rows["input"].astype(str)
         sections = rows["section"].astype(str)
+        subsections = rows["subsection"].astype(str)
         types = rows["type"].astype(str)
         rows = rows[
             ~inputs.str.startswith("DI ")
@@ -321,6 +318,7 @@ def source_rows_for_sheet(source_moves: pd.DataFrame, character: str, sheet_name
             & ~inputs.str.contains(" Level 3", regex=False)
             & ~inputs.str.contains(" Level BR", regex=False)
             & ~sections.eq("Items")
+            & ~subsections.str.startswith("Error 6")
             & ~types.eq("spell")
         ]
     else:
@@ -329,24 +327,43 @@ def source_rows_for_sheet(source_moves: pd.DataFrame, character: str, sheet_name
     return [row for _, row in rows.sort_values("template_order").iterrows()]
 
 
-def new_target_row_from_source(dust_row: pd.Series, columns: list[str], sheet_name: str) -> dict[str, Any]:
-    values = {column: "" for column in columns}
+def source_command_for_sheet(dust_row: pd.Series, sheet_name: str) -> str:
+    command = blank_to_empty(dust_row.get("input", ""))
+    if command.lower() == "none":
+        command = ""
+    command = command or re.sub(r"\s+Data$", "", blank_to_empty(dust_row.get("subsection", "")))
+    state = sheet_state(sheet_name)
+    if state == "DI":
+        return re.sub(r"^DI\s+", "", command)
+    if state:
+        return re.sub(rf"\s+{re.escape(state)}$", "", command)
+    return command
+
+
+def new_target_row_from_source(
+    dust_row: pd.Series,
+    columns: list[str],
+    sheet_name: str,
+    existing_row: pd.Series | None = None,
+) -> dict[str, Any]:
+    values = existing_row.to_dict() if existing_row is not None else {}
+    values = {column: values.get(column, "") for column in columns}
     transformed = transform_row(dust_row)
-    move_name = blank_to_empty(dust_row.get("name", "")) or blank_to_empty(dust_row.get("input", ""))
-    num_cmd = blank_to_empty(dust_row.get("input", ""))
+    num_cmd = source_command_for_sheet(dust_row, sheet_name)
+    move_name = blank_to_empty(values.get("moveName")) or blank_to_empty(dust_row.get("name")) or num_cmd
     source_order = source_row_order(dust_row)
 
     values.update(
         {
             "moveName": move_name,
-            "cmnName": num_cmd,
-            "plnCmd": num_cmd,
-            "numCmd": num_cmd,
+            "cmnName": blank_to_empty(values.get("cmnName")) or num_cmd,
+            "plnCmd": blank_to_empty(values.get("plnCmd")) or num_cmd,
+            "numCmd": blank_to_empty(values.get("numCmd")) or num_cmd,
             "dustloopKey": re.sub(r"\s+Data$", "", blank_to_empty(dust_row.get("subsection", ""))),
             "moveType": blank_to_empty(dust_row.get("type", "")),
             "movesList": blank_to_empty(dust_row.get("section", "")),
             "airmove": "true" if num_cmd.startswith("j.") else "",
-            "followUp": "true" if "~" in num_cmd else "",
+            "followUp": "true" if "~" in num_cmd or "target combo" in blank_to_empty(dust_row.get("section")).lower() else "",
             "nonHittingMove": "true" if transformed.get("dmg", "") == "" and blank_to_empty(dust_row.get("guard", "")) == "" else "",
             "projectile": "true" if "Projectile" in transformed.get("extraInfo", "") else "",
         }
@@ -357,87 +374,46 @@ def new_target_row_from_source(dust_row: pd.Series, columns: list[str], sheet_na
     return values
 
 
-def insert_unmatched_source_rows(
-    df: pd.DataFrame,
-    source_rows: list[pd.Series],
-    matched_positions: dict[int, int],
-    sheet_name: str,
-) -> tuple[pd.DataFrame, int]:
-    if not source_rows:
-        return df, 0
-    records = df.to_dict("records")
-    order_positions = dict(matched_positions)
-    existing_exact_inputs = {normalize_key(record.get("numCmd", "")) for record in records}
-    inserted = 0
+def rebuild_move_sheet(
+    df: pd.DataFrame, source_rows: list[pd.Series], sheet_name: str
+) -> tuple[pd.DataFrame, int, int]:
+    existing_by_key: dict[str, list[int]] = defaultdict(list)
+    state = sheet_state(sheet_name)
+    for row_index, row in df.iterrows():
+        for key in row_candidates(row, state):
+            if row_index not in existing_by_key[key]:
+                existing_by_key[key].append(row_index)
 
-    for source_row in source_rows:
-        source_order = source_row_order(source_row)
-        source_input_key = normalize_key(source_row.get("input", ""))
-        if source_input_key and source_input_key in existing_exact_inputs:
-            continue
-        new_row = new_target_row_from_source(source_row, list(df.columns), sheet_name)
-        previous_positions = [position for order, position in order_positions.items() if order < source_order]
-        insert_at = max(previous_positions) + 1 if previous_positions else len(records)
-        records.insert(insert_at, new_row)
-        order_positions = {
-            order: position + 1 if position >= insert_at else position for order, position in order_positions.items()
-        }
-        order_positions[source_order] = insert_at
-        if source_input_key:
-            existing_exact_inputs.add(source_input_key)
-        inserted += 1
-
-    return pd.DataFrame(records, columns=df.columns), inserted
-
-
-def update_move_sheet(df: pd.DataFrame, dust_index: dict[str, pd.Series], state: str) -> tuple[pd.DataFrame, int, int, dict[int, int], set[int]]:
-    updated = df.copy()
-    for column in UPDATE_COLUMNS:
-        if column not in updated.columns:
-            updated[column] = ""
-        updated[column] = updated[column].astype(object)
+    used_existing: set[int] = set()
+    records: list[dict[str, Any]] = []
     matched = 0
-    changed = 0
-    matched_positions: dict[int, int] = {}
-    matched_orders: set[int] = set()
-    for row_index, row in updated.iterrows():
-        dust_row = None
-        for candidate in row_candidates(row, state):
-            dust_row = dust_index.get(candidate)
-            if dust_row is not None:
-                break
-        if dust_row is None:
-            continue
-
-        matched += 1
-        source_order = source_row_order(dust_row)
-        if source_order:
-            matched_positions[source_order] = int(row_index)
-            matched_orders.add(source_order)
-        new_values = transform_row(dust_row)
-        for column, value in new_values.items():
-            if column not in updated.columns:
-                continue
-            if value == "" and column != "extraInfo":
-                continue
-            old_value = blank_to_empty(updated.at[row_index, column])
-            if old_value != value:
-                updated.at[row_index, column] = value
-                changed += 1
-    return updated, matched, changed, matched_positions, matched_orders
+    for source_row in source_rows:
+        source_keys = []
+        for value in (source_row.get("input", ""), source_row.get("name", ""), source_row.get("subsection", "")):
+            key = normalize_key(re.sub(r"\s+Data$", "", blank_to_empty(value)))
+            if key and key not in source_keys:
+                source_keys.append(key)
+        existing_position = next(
+            (
+                position
+                for key in source_keys
+                for position in existing_by_key.get(key, [])
+                if position not in used_existing
+            ),
+            None,
+        )
+        existing_row = df.loc[existing_position] if existing_position is not None else None
+        if existing_position is not None:
+            used_existing.add(existing_position)
+            matched += 1
+        records.append(new_target_row_from_source(source_row, list(df.columns), sheet_name, existing_row))
+    return pd.DataFrame(records, columns=df.columns), matched, len(df) - len(used_existing)
 
 
 def main() -> None:
     if not TARGET.exists():
         raise FileNotFoundError(TARGET)
-    if not SOURCE.exists():
-        raise FileNotFoundError(SOURCE)
-    if not BACKUP.exists():
-        shutil.copy2(TARGET, BACKUP)
-
-    source_moves = pd.read_excel(SOURCE, sheet_name="MoveData", engine="odf").fillna("")
-    source_details = pd.read_excel(SOURCE, sheet_name="MoveDetails", engine="odf").fillna("")
-    dust_index = build_dust_index(source_moves, source_details)
+    source_moves = fetch_live_source_moves()
 
     target_book = pd.ExcelFile(TARGET, engine="odf")
     output_sheets: dict[str, pd.DataFrame] = {}
@@ -448,42 +424,55 @@ def main() -> None:
         prefix = sheet_prefix(sheet_name)
         character = CHARACTER_BY_SHEET_PREFIX.get(prefix or "")
         if character and sheet_name not in {"IdealSheetNormal", "TemplateNormal"}:
-            updated, matched, changed, matched_positions, matched_orders = update_move_sheet(
-                df,
-                dust_index.get(character, {}),
-                sheet_state(sheet_name),
-            )
-            updated, inserted = insert_unmatched_source_rows(
-                updated,
-                source_rows_for_sheet(source_moves, character, sheet_name),
-                matched_positions,
-                sheet_name,
-            )
+            source_rows = source_rows_for_sheet(source_moves, character, sheet_name)
+            if not source_rows:
+                raise RuntimeError(f"No live source rows map to {sheet_name}")
+            updated, matched, removed = rebuild_move_sheet(df, source_rows, sheet_name)
             output_sheets[sheet_name] = updated
             report_rows.append(
                 {
                     "sheet": sheet_name,
-                    "rows": len(df),
-                    "matched_rows": matched,
-                    "inserted_rows": inserted,
-                    "changed_cells": changed,
+                    "old_rows": len(df),
+                    "new_rows": len(updated),
+                    "metadata_matches": matched,
+                    "removed_old_rows": removed,
                 }
             )
         else:
             output_sheets[sheet_name] = df
 
-    with pd.ExcelWriter(TARGET, engine="odf") as writer:
+    target_sheet_names = list(target_book.sheet_names)
+    target_book.close()
+    generated_rows = sum(row["new_rows"] for row in report_rows)
+    if generated_rows != len(source_moves):
+        raise RuntimeError(f"Mapped {generated_rows} workbook rows from {len(source_moves)} live source rows")
+
+    REFRESH_OUTPUT.unlink(missing_ok=True)
+    with pd.ExcelWriter(REFRESH_OUTPUT, engine="odf") as writer:
         for sheet_name, df in output_sheets.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
 
+    refreshed_book = pd.ExcelFile(REFRESH_OUTPUT, engine="odf")
+    if refreshed_book.sheet_names != target_sheet_names:
+        raise RuntimeError("Refreshed workbook sheet order changed")
+    for sheet_name, expected in output_sheets.items():
+        actual = pd.read_excel(refreshed_book, sheet_name=sheet_name, engine="odf")
+        if list(actual.columns) != list(expected.columns) or len(actual) != len(expected):
+            raise RuntimeError(f"Refreshed workbook schema/count validation failed for {sheet_name}")
+    refreshed_book.close()
+
+    if not BACKUP.exists():
+        shutil.copy2(TARGET, BACKUP)
+    REFRESH_OUTPUT.replace(TARGET)
+
     report = pd.DataFrame(report_rows)
-    print(f"Backed up original to {BACKUP}")
-    print(f"Updated {TARGET}")
-    print(f"Matched rows: {int(report['matched_rows'].sum())}")
-    print(f"Inserted rows: {int(report['inserted_rows'].sum())}")
-    print(f"Changed cells: {int(report['changed_cells'].sum())}")
-    print("Lowest match sheets:")
-    print(report.sort_values(["matched_rows", "rows"]).head(10).to_string(index=False))
+    print(f"Backup retained at {BACKUP}")
+    print(f"Updated {TARGET} atomically from {len(source_moves)} live Dustloop move templates")
+    print(f"Metadata matches: {int(report['metadata_matches'].sum())}")
+    print(f"Removed stale/duplicate rows: {int(report['removed_old_rows'].sum())}")
+    print("Largest count changes:")
+    report["delta"] = report["new_rows"] - report["old_rows"]
+    print(report.reindex(report["delta"].abs().sort_values(ascending=False).index).head(10).to_string(index=False))
 
 
 if __name__ == "__main__":

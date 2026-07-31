@@ -14,6 +14,7 @@ from bubbot.frame_data.sf6_character_aliases import (
     expand_character_candidate_names,
     filter_character_specific_final_results,
     infer_character_mentions_from_terms,
+    jamie_drink_level_from_text,
     query_requires_character_variant_state,
     row_matches_character_variant_state,
     should_append_single_token_candidate,
@@ -82,6 +83,7 @@ def find_moves_in_text(deps, text):
             mentioned_chars.append(char)
 
     infer_character_mentions_from_terms(text_lower, FRAME_DATA, mentioned_chars)
+    jamie_drink_level = jamie_drink_level_from_text(text_lower) if "jamie" in mentioned_chars else None
 
     frame_keywords = [
         "frame data",
@@ -243,17 +245,22 @@ def find_moves_in_text(deps, text):
 
         query_requires_variant_state = query_requires_character_variant_state(text_tokens)
         query_requires_charged = any(token in text_tokens for token in ("charged", "hold", "held"))
-        query_requests_level2 = bool(re.search(r"\b(?:lv|lvl|level)\s*2\b", text_lower))
-        query_requests_level3 = bool(re.search(r"\b(?:lv|lvl|level)\s*3\b", text_lower))
-        query_requests_sa1 = bool(
-            re.search(r"\b(?:sa\s*1|super\s*art\s*(?:level\s*)?1|super\s*1|lv\s*1|lvl\s*1|level\s*1)\b", text_lower)
-        )
-        query_requests_sa2 = bool(
-            re.search(r"\b(?:sa\s*2|super\s*art\s*(?:level\s*)?2|super\s*2|lv\s*2|lvl\s*2|level\s*2)\b", text_lower)
-        )
-        query_requests_sa3 = bool(
-            re.search(r"\b(?:sa\s*3|super\s*art\s*(?:level\s*)?3|super\s*3|lv\s*3|lvl\s*3|level\s*3)\b", text_lower)
-        )
+        query_requests_level2 = jamie_drink_level is None and bool(re.search(r"\b(?:lv|lvl|level)\s*2\b", text_lower))
+        query_requests_level3 = jamie_drink_level is None and bool(re.search(r"\b(?:lv|lvl|level)\s*3\b", text_lower))
+
+        def query_requests_super_art(level):
+            explicit_super = bool(
+                re.search(
+                    rf"\b(?:sa\s*{level}|super\s*art\s*(?:level\s*)?{level}|super\s*{level})\b",
+                    text_lower,
+                )
+            )
+            bare_level = bool(re.search(rf"\b(?:lv|lvl|level)\s*{level}\b", text_lower))
+            return explicit_super or (jamie_drink_level is None and bare_level)
+
+        query_requests_sa1 = query_requests_super_art(1)
+        query_requests_sa2 = query_requests_super_art(2)
+        query_requests_sa3 = query_requests_super_art(3)
         query_requests_ca = bool(
             re.search(r"\b(?:ca|critical\s+art)\b", text_lower)
         )
@@ -381,6 +388,8 @@ def find_moves_in_text(deps, text):
                 "super", "art", "level", "lvl", "lv",
                 "sa1", "sa2", "sa3", "lv1", "lv2", "lv3", "lvl1", "lvl2", "lvl3",
             }
+            if jamie_drink_level is not None:
+                ignored_tokens.update({"drink", "drinks", f"dl{jamie_drink_level}"})
             for char in mentioned_chars:
                 ignored_tokens.update(re.findall(r"[a-z0-9]+", str(char).lower()))
             for alias, canonical in CHARACTER_ALIASES.items():
@@ -687,6 +696,8 @@ def find_moves_in_text(deps, text):
             for char in mentioned_chars:
                 special_base_map = {}
                 for row in FRAME_DATA.get(char, []):
+                    if char == "jamie" and row.get("_jamie_drink_level") is not None:
+                        continue
                     if not is_special_motion_num_cmd(row.get("numCmd", "")):
                         continue
                     canonical_base = get_special_canonical_base_name(row)
@@ -729,15 +740,6 @@ def find_moves_in_text(deps, text):
                             prompt_variants = air_prompt_variants
                         else:
                             continue
-                    if query_requests_level2 or query_requests_level3:
-                        level_variants = [row for row in prompt_variants if row_matches_requested_level(row)]
-                        if level_variants:
-                            for row in level_variants:
-                                if row not in results:
-                                    results.append(row)
-                            continue
-                    if len(prompt_variants) < 2:
-                        continue
                     base_tokens = re.findall(r"[a-z0-9]+", base_name)
                     base_in_query = tokens_in_text(base_tokens)
                     if not base_in_query and base_name == "fireball":
@@ -766,6 +768,15 @@ def find_moves_in_text(deps, text):
                             or re.search(r"\bscissor\s+kicks?\b", text_lower)
                         )
                     if not base_in_query:
+                        continue
+                    if query_requests_level2 or query_requests_level3:
+                        level_variants = [row for row in prompt_variants if row_matches_requested_level(row)]
+                        if level_variants:
+                            for row in level_variants:
+                                if row not in results:
+                                    results.append(row)
+                            continue
+                    if len(prompt_variants) < 2:
                         continue
                     if (
                         air_fireball_context
@@ -1531,6 +1542,8 @@ def find_moves_in_text(deps, text):
 
                 variants = []
                 for candidate in FRAME_DATA.get(row_char_key, []):
+                    if row_char_key == "jamie" and candidate.get("_jamie_drink_level") is not None:
+                        continue
                     if not is_special_motion_num_cmd(candidate.get("numCmd", "")):
                         continue
                     if get_special_canonical_base_name(candidate) != base_name:
@@ -1664,6 +1677,7 @@ def find_moves_in_text(deps, text):
         results,
         lookup_frame_data,
         query_has_explicit_strength=query_has_explicit_strength,
+        frame_data=FRAME_DATA,
     )
     if (
         wants_frame_data

@@ -471,7 +471,7 @@ def register_slash_commands(tree, deps):
             embed_fn=build_frame_embed,
             game="sf6",
             game_label="SF6",
-            selected_row=selected_row,
+            selected_row=None if char_state else selected_row,
             selected_char_key=selected_char_key,
             prompt_predicate=lambda payload: "Special Strength Options" in str(payload.get("data", "") or "") or "Target Combo Options" in str(payload.get("data", "") or ""),
         )

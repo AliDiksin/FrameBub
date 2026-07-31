@@ -322,38 +322,44 @@ TUCO_MOVE_IMAGE_URLS = {
     "super2": "https://wiki.play2xko.com/en-us/images/thumb/Jinx_S2L.png/300px-Jinx_S2L.png?f7afb"
   },
   "senna": {
-    "2h": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "2hwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "2l": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "2lwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "2m": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "2mwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "2s1": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
+    "2h": "https://wiki.play2xko.com/en-us/images/thumb/Senna_2H.png/300px-Senna_2H.png?363f0",
+    "2hwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_2H.png/300px-Senna_2H.png?363f0",
+    "2l": "https://wiki.play2xko.com/en-us/images/thumb/Senna_2L.png/300px-Senna_2L.png?5d0c4",
+    "2lwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_2L.png/300px-Senna_2L.png?5d0c4",
+    "2m": "https://wiki.play2xko.com/en-us/images/thumb/Senna_2M.png/300px-Senna_2M.png?1fc7e",
+    "2mwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_2M.png/300px-Senna_2M.png?1fc7e",
+    "2s1": "https://wiki.play2xko.com/en-us/images/thumb/Senna_2S1.png/300px-Senna_2S1.png?1e248",
+    "2s2": "https://wiki.play2xko.com/en-us/images/thumb/Final_Embrace.png/300px-Final_Embrace.png?64b05",
     "2t": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "3s2": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "4mh": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
+    "3h": "https://wiki.play2xko.com/en-us/images/thumb/Senna_3H.png/300px-Senna_3H.png?a4111",
+    "3s2": "https://wiki.play2xko.com/en-us/images/thumb/Senna_3S2.png/300px-Senna_3S2.png?1135d",
+    "4mh": "https://wiki.play2xko.com/en-us/images/thumb/Senna_4MH.png/300px-Senna_4MH.png?8c91f",
     "4t": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "5h": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "5hwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "5l": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "5lwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "5m": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "5mh": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "5mwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "5s1": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
+    "5h": "https://wiki.play2xko.com/en-us/images/thumb/Senna_5H.png/300px-Senna_5H.png?a635e",
+    "5hwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_5H.png/300px-Senna_5H.png?a635e",
+    "5l": "https://wiki.play2xko.com/en-us/images/thumb/Senna_5L.png/300px-Senna_5L.png?5fd95",
+    "5lwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_5L.png/300px-Senna_5L.png?5fd95",
+    "5m": "https://wiki.play2xko.com/en-us/images/thumb/Senna_5M.png/300px-Senna_5M.png?399b7",
+    "5mh": "https://wiki.play2xko.com/en-us/images/thumb/Senna_5MH.png/300px-Senna_5MH.png?8b08b",
+    "5mwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_5M.png/300px-Senna_5M.png?399b7",
+    "5s1": "https://wiki.play2xko.com/en-us/images/thumb/Senna_5S1.png/300px-Senna_5S1.png?974f8",
     "5s2": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
     "5t": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "j2h": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "j2s1": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
+    "6h": "https://wiki.play2xko.com/en-us/images/thumb/Senna_6H.png/300px-Senna_6H.png?bfd05",
+    "6s2": "https://wiki.play2xko.com/en-us/images/thumb/Last_Grasp.png/300px-Last_Grasp.png?1c371",
+    "j2h": "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.2H.png/300px-Senna_j.2H.png?2fe98",
+    "j2s1": "https://wiki.play2xko.com/en-us/images/thumb/Senna_2S1.png/300px-Senna_2S1.png?1e248",
+    "j2s2": "https://wiki.play2xko.com/en-us/images/thumb/Final_Embrace.png/300px-Final_Embrace.png?64b05",
     "j5s1": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
     "j5s2": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "jh": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "jhwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "jl": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "jlwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "jm": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "jmh": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
-    "jmwraith": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
+    "j66orlm": "https://wiki.play2xko.com/en-us/images/thumb/Senna_Air_Dash.png/300px-Senna_Air_Dash.png?0a3e4",
+    "jh": "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.H.png/300px-Senna_j.H.png?e1d1b",
+    "jhwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.H.png/300px-Senna_j.H.png?e1d1b",
+    "jl": "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.L.png/300px-Senna_j.L.png?c97da",
+    "jlwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.L.png/300px-Senna_j.L.png?c97da",
+    "jm": "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.M.png/300px-Senna_j.M.png?63cae",
+    "jmh": "https://wiki.play2xko.com/en-us/images/thumb/Senna_jMH.png/300px-Senna_jMH.png?8001d",
+    "jmwraith": "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.M.png/300px-Senna_j.M.png?63cae",
     "super1": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
     "super2": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3",
     "ultimate": "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move.png/300px-Placeholder_Move.png?2fcf3"
@@ -409,13 +415,14 @@ TUCO_MOVE_IMAGE_URLS = {
     "5s1": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_5S1_1.png/300px-Thresh_5S1_1.png?e9c2f",
     "5s16": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_5S1_3.png/300px-Thresh_5S1_3.png?ca954",
     "5s166": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_5S1_1.png/300px-Thresh_5S1_1.png?e9c2f",
-    "5s2": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_5S2_1.png/300px-Thresh_5S2_1.png?37671",
     "5s25s2": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_5cS2_Lantern.png/300px-Thresh_5cS2_Lantern.png?016b5",
     "5s4": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_5S14.png/300px-Thresh_5S14.png?a247c",
     "5t": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_Assist_5T.png/300px-Thresh_Assist_5T.png?ccf63",
     "66": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_66.png/300px-Thresh_66.png?53485",
     "6h": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_6H.png/300px-Thresh_6H.png?a7e67",
+    "j1j35s2": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_5S2_1.png/300px-Thresh_5S2_1.png?37671",
     "j2h": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_j2H.png/300px-Thresh_j2H.png?54b64",
+    "j44": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_j66.png/300px-Thresh_j66.png?4ab51",
     "j66": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_j66.png/300px-Thresh_j66.png?4ab51",
     "j6h": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_j6H.png/300px-Thresh_j6H.png?dd2b1",
     "jh": "https://wiki.play2xko.com/en-us/images/thumb/Thresh_jH.png/300px-Thresh_jH.png?b9ffe",
@@ -1165,100 +1172,122 @@ TUCO_HITBOX_DATA = {
   },
   "senna": {
     "2h": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2H_hitbox.png/300px-Senna_2H_hitbox.png?3d112"
     ],
     "2hwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2H_hitbox.png/300px-Senna_2H_hitbox.png?3d112"
     ],
     "2l": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2L_hitbox.png/300px-Senna_2L_hitbox.png?ed2f3"
     ],
     "2lwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2L_hitbox.png/300px-Senna_2L_hitbox.png?ed2f3"
     ],
     "2m": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2M_hitbox.png/300px-Senna_2M_hitbox.png?b781b"
     ],
     "2mwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2M_hitbox.png/300px-Senna_2M_hitbox.png?b781b"
     ],
     "2s1": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2S1_hitbox.png/300px-Senna_2S1_hitbox.png?6448f"
+    ],
+    "2s2": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Final_Embrace_Hitbox.png/300px-Final_Embrace_Hitbox.png?49448"
     ],
     "2t": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2T_hitbox.png/300px-Senna_2T_hitbox.png?9a18e",
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+    ],
+    "3h": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_3H_hitbox.png/300px-Senna_3H_hitbox.png?dbc7b"
     ],
     "3s2": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_3S2_hitbox.png/300px-Senna_3S2_hitbox.png?456c1"
     ],
     "4mh": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_4MH_hitbox.png/300px-Senna_4MH_hitbox.png?ca84c"
     ],
     "4t": [
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
     ],
     "5h": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5H_hitbox.png/300px-Senna_5H_hitbox.png?8f6e6"
     ],
     "5hwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5H_hitbox.png/300px-Senna_5H_hitbox.png?8f6e6"
     ],
     "5l": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5L_hitbox.png/300px-Senna_5L_hitbox.png?507cc"
     ],
     "5lwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5L_hitbox.png/300px-Senna_5L_hitbox.png?507cc"
     ],
     "5m": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5M_hitbox.png/300px-Senna_5M_hitbox.png?6a318"
     ],
     "5mh": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5MH_hitbox.png/300px-Senna_5MH_hitbox.png?f9ab9"
     ],
     "5mwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5M_hitbox.png/300px-Senna_5M_hitbox.png?6a318"
     ],
     "5s1": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5S1_hitbox.png/300px-Senna_5S1_hitbox.png?b15ba"
     ],
     "5s2": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5S2_held_hitbox.png/300px-Senna_5S2_held_hitbox.png?63df0",
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
     ],
     "5t": [
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
     ],
+    "6h": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_6H_hitbox.png/300px-Senna_6H_hitbox.png?24f16"
+    ],
+    "6s2": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Last_Grasp_Hitbox.png/300px-Last_Grasp_Hitbox.png?28754"
+    ],
     "j2h": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.2H_hitbox.png/300px-Senna_j.2H_hitbox.png?eead7"
     ],
     "j2s1": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_2S1_hitbox.png/300px-Senna_2S1_hitbox.png?6448f"
+    ],
+    "j2s2": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Final_Embrace_Hitbox.png/300px-Final_Embrace_Hitbox.png?49448"
     ],
     "j5s1": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_5S1_hitbox.png/300px-Senna_5S1_hitbox.png?b15ba",
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
     ],
     "j5s2": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Soul_Storm_Hitbox.png/300px-Soul_Storm_Hitbox.png?df3c2",
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+    ],
+    "j66orlm": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_Air_Dash_Hitbox.png/300px-Senna_Air_Dash_Hitbox.png?ad113"
     ],
     "jh": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.H_hitbox.png/300px-Senna_j.H_hitbox.png?1a8d2"
     ],
     "jhwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.H_hitbox.png/300px-Senna_j.H_hitbox.png?1a8d2"
     ],
     "jl": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.L_hitbox.png/300px-Senna_j.L_hitbox.png?db081"
     ],
     "jlwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.L_hitbox.png/300px-Senna_j.L_hitbox.png?db081"
     ],
     "jm": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.M_hitbox.png/300px-Senna_j.M_hitbox.png?03a30"
     ],
     "jmh": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_jMH_hitbox.png/300px-Senna_jMH_hitbox.png?eae2b"
     ],
     "jmwraith": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+      "https://wiki.play2xko.com/en-us/images/thumb/Senna_j.M_hitbox.png/300px-Senna_j.M_hitbox.png?03a30"
     ],
     "super1": [
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
@@ -1330,13 +1359,13 @@ TUCO_HITBOX_DATA = {
     "5s166": [
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
     ],
-    "5s2": [
-      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
-    ],
     "5s25s2": [
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
     ],
     "5t": [
+      "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
+    ],
+    "j1j35s2": [
       "https://wiki.play2xko.com/en-us/images/thumb/Placeholder_Move_Hitbox.png/300px-Placeholder_Move_Hitbox.png?bd411"
     ],
     "jmh": [

@@ -18,7 +18,6 @@ from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
-from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.frame_match_utils import find_matching_rows_standard
 from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
@@ -32,7 +31,6 @@ GGACR_HITBOX_DATA = {}
 GGACR_MOVE_NOTES = {}
 GGACR_EXCLUSIVE_CHAR_KEYS = set()
 GGACR_MOVE_IMAGES_MODULE = "bubbot.data.ggacr_move_images"
-GGACR_IMAGE_THUMB_WIDTH = 200
 
 
 def normalize_key(value):
@@ -48,8 +46,9 @@ def normalize_move_token(value):
     return re.sub(r"[^a-z0-9]+", "", text)
 
 
-def resize_ggacr_image_url(url):
-    return shared_resize_mediawiki_thumb_url(url, GGACR_IMAGE_THUMB_WIDTH)
+def resolve_ggacr_media_url(url):
+    text = str(url or "").strip()
+    return re.sub(r"/images/thumb/([^/]+/[^/]+/[^/]+)/[^/]+$", r"/images/\1", text)
 
 
 def query_has_explicit_ggacr_tag(text):
@@ -392,14 +391,14 @@ def get_notes_text(row):
 def get_move_image_url(row):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
-    return resize_ggacr_image_url((GGACR_MOVE_IMAGE_URLS.get(char_key, {}) or {}).get(num_cmd_key, ""))
+    return resolve_ggacr_media_url(GGACR_MOVE_IMAGE_URLS.get((char_key, num_cmd_key), ""))
 
 
 def get_hitbox_links(row, limit=4):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
     links = (GGACR_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
-    clean_links = [resize_ggacr_image_url(link) for link in list(links or []) if str(link or "").strip()]
+    clean_links = [resolve_ggacr_media_url(link) for link in list(links or []) if str(link or "").strip()]
     return clean_links[:limit] if limit is not None else clean_links
 
 

@@ -14,6 +14,16 @@ def normalize_loader_move_key(move_name, num_cmd):
     return normalized_name, normalized_num_cmd
 
 
+def loader_row_signature(row):
+    return tuple(
+        sorted(
+            (str(key), str(value).strip())
+            for key, value in row.items()
+            if key != "char_name" and not str(key).startswith("_jamie_")
+        )
+    )
+
+
 # Jamie drink-level sheet merge
 
 
@@ -26,12 +36,13 @@ def merge_jamie_drink_level_sheets(xls, frame_data):
         name for name in xls.sheet_names
         if re.fullmatch(r"JamieD[1-4]", str(name or ""), re.IGNORECASE)
     ]
-    existing_jamie_keys = {
-        normalize_loader_move_key(row.get("moveName", ""), row.get("numCmd", ""))
+    previous_signatures = {
+        normalize_loader_move_key(row.get("moveName", ""), row.get("numCmd", "")): loader_row_signature(row)
         for row in frame_data["jamie"]
         if str(row.get("moveName", "")).strip() and str(row.get("numCmd", "")).strip()
     }
     for sheet_name in sorted(jamie_extra_sheets, key=str.lower):
+        drink_level = int(re.search(r"([1-4])$", sheet_name, re.IGNORECASE).group(1))
         df = pd.read_excel(xls, sheet_name=sheet_name)
         records = df.fillna("").to_dict("records")
         for row in records:
@@ -40,11 +51,12 @@ def merge_jamie_drink_level_sheets(xls, frame_data):
             if not move_name or not num_cmd:
                 continue
             row_key = normalize_loader_move_key(move_name, num_cmd)
-            if row_key in existing_jamie_keys:
-                continue
-            row["char_name"] = "Jamie"
-            frame_data["jamie"].append(row)
-            existing_jamie_keys.add(row_key)
+            row_signature = loader_row_signature(row)
+            if previous_signatures.get(row_key) != row_signature:
+                row["char_name"] = "Jamie"
+                row["_jamie_drink_level"] = drink_level
+                frame_data["jamie"].append(row)
+            previous_signatures[row_key] = row_signature
 
 
 # Attack range token normalization

@@ -185,12 +185,19 @@ def normalize_move_name_for_gif_text(value):
         "ex": "od",
     }
     drop_tokens = {"punch", "kick", "button", "normal", "attack", "move"}
+    stocked_variant_tokens = {"stock", "stocked", "boosted", "enhanced", "windclad"}
+    has_stocked_variant = False
     normalized_tokens = []
     for token in raw_tokens:
         mapped = token_map.get(token, token)
         if mapped in drop_tokens:
             continue
+        if mapped in stocked_variant_tokens:
+            has_stocked_variant = True
+            continue
         normalized_tokens.append(mapped)
+    if has_stocked_variant:
+        normalized_tokens.append("stocked")
     return " ".join(normalized_tokens).strip()
 
 

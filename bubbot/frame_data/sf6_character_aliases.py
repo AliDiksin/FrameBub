@@ -136,14 +136,16 @@ def filter_character_specific_final_results(
     lookup_frame_data,
     *,
     query_has_explicit_strength,
+    frame_data,
 ):
-    return filter_viper_air_burnkick_results(
+    results = filter_viper_air_burnkick_results(
         text_lower,
         mentioned_chars,
         results,
         lookup_frame_data,
         query_has_explicit_strength=query_has_explicit_strength,
     )
+    return filter_jamie_drink_level_results(text_lower, mentioned_chars, results, frame_data)
 
 
 def apply_character_specific_result_filters(
@@ -266,7 +268,11 @@ def collect_jamie_aliases(text_lower, extra_inputs):
     elif re.search(r"\bdrink\b", text_lower):
         drink_alias = "drink"
 
-    if drink_alias and drink_alias not in extra_inputs:
+    drink_is_state_modifier = drink_alias and re.search(
+        r"\b(?!22p\b)[1-9][0-9]*(?:lp|mp|hp|lk|mk|hk|pp|kk|p|k)\b",
+        text_lower,
+    )
+    if drink_alias and not drink_is_state_modifier and drink_alias not in extra_inputs:
         extra_inputs.insert(0, drink_alias)
 
     alias_groups = [
@@ -319,6 +325,21 @@ def collect_jamie_aliases(text_lower, extra_inputs):
     ]
     for aliases in alias_groups:
         append_first_matching_alias(text_lower, extra_inputs, aliases)
+
+
+def jamie_drink_level_from_text(text_lower):
+    numeric_match = re.search(
+        r"\b(?:dl\s*|drink\s*(?:(?:level|lvl|lv)\s*)?)([1-4])\s*\+?"
+        r"|\b(?:level|lvl|lv)\s*([1-4])\s*\+?\s*drinks?\b"
+        r"|\b([1-4])\s*\+?\s*drinks?\b",
+        text_lower,
+    )
+    if numeric_match:
+        return int(next(group for group in numeric_match.groups() if group))
+
+    word_levels = {"one": 1, "two": 2, "three": 3, "four": 4}
+    word_match = re.search(r"\b(one|two|three|four)\s+drinks?\b", text_lower)
+    return word_levels.get(word_match.group(1)) if word_match else None
 
 
 def collect_simple_character_aliases(text_lower, extra_inputs, *, mentioned_chars):
@@ -456,6 +477,11 @@ def collect_lily_typhoon_rows(text_lower, mentioned_chars, results, lookup_frame
 def filter_jamie_special_results(text_lower, mentioned_chars, results):
     if "jamie" not in mentioned_chars or not results:
         return results
+    if jamie_drink_level_from_text(text_lower) is not None and re.search(
+        r"\b(?!22p\b)[1-9][0-9]*(?:lp|mp|hp|lk|mk|hk|pp|kk|p|k)\b",
+        text_lower,
+    ):
+        return results
     if not re.search(
         r"\b(?:rekka|freeflow|palm|swagger|arrow\s+kick|upkicks?|drink(?:\s+activation)?|activation)\b",
         text_lower,
@@ -469,6 +495,44 @@ def filter_jamie_special_results(text_lower, mentioned_chars, results):
         in {"special", "movement-special", "super", "command-grab"}
     ]
     return jamie_special_rows or results
+
+
+def filter_jamie_drink_level_results(text_lower, mentioned_chars, results, frame_data):
+    drink_level = jamie_drink_level_from_text(text_lower)
+    if "jamie" not in mentioned_chars or drink_level is None or not results:
+        return results
+    drink_is_state_modifier = bool(
+        re.search(
+            r"\b(?!22p\b)[1-9][0-9]*(?:lp|mp|hp|lk|mk|hk|pp|kk|p|k)\b",
+            text_lower,
+        )
+    )
+
+    def row_key(row):
+        return tuple(str(row.get(field, "")).strip().lower() for field in ("moveName", "numCmd"))
+
+    variants_by_key = {}
+    for row in frame_data.get("jamie", []):
+        variants_by_key.setdefault(row_key(row), []).append(row)
+
+    filtered = []
+    for row in results:
+        if str(row.get("char_name", "")).strip().lower() != "jamie":
+            filtered.append(row)
+            continue
+        if drink_is_state_modifier and str(row.get("moveName", "")).lower().startswith("the devil inside"):
+            continue
+        eligible = [
+            candidate
+            for candidate in variants_by_key.get(row_key(row), [])
+            if int(candidate.get("_jamie_drink_level", 0) or 0) <= drink_level
+        ]
+        if not eligible:
+            continue
+        selected = max(eligible, key=lambda candidate: int(candidate.get("_jamie_drink_level", 0) or 0))
+        if selected not in filtered:
+            filtered.append(selected)
+    return filtered
 
 
 def get_ken_run_followup_context(text_lower, mentioned_chars):
