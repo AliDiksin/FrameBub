@@ -1,4 +1,5 @@
 """SF6 character stats sheet helpers: intent parsing, embeds, parser context injection."""
+# Stats parsing is separate from move parsing because its workbook rows have a different schema.
 
 import re
 from dataclasses import dataclass

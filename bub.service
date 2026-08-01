@@ -1,0 +1,16 @@
+[Unit]
+Description=Bub Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alwaly
+WorkingDirectory=/var/lib/bub
+EnvironmentFile=/var/lib/bub/.env
+ExecStart=/var/lib/bub/.venv/bin/python /var/lib/bub/bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

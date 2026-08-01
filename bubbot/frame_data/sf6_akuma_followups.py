@@ -1,4 +1,5 @@
 """Akuma Demon Raid / air SA alias collection and result filters."""
+# Akuma-specific aliases live here so the general SF6 parser remains character-agnostic.
 
 import re
 

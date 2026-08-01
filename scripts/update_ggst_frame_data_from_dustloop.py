@@ -19,7 +19,7 @@ import pandas as pd
 
 from bubbot.data.ggst_aliases import GGST_PAGE_OVERRIDES
 from bubbot.utils.text_utils import compact_key
-from scripts import scrape_ggst_dustloop
+from scripts import scraper_utils
 
 
 TARGET = Path("GGST Frame Data.ods")
@@ -231,7 +231,7 @@ def fetch_live_source_moves() -> pd.DataFrame:
     def fetch(page_title: str) -> str:
         for attempt in range(2):
             try:
-                return scrape_ggst_dustloop.fetch_text(page_title)
+                return scraper_utils.fetch_text(page_title)
             except Exception:
                 if attempt:
                     raise
@@ -245,7 +245,7 @@ def fetch_live_source_moves() -> pd.DataFrame:
         main_title = f"GGST/{page_name}"
         data_title = f"{main_title}/Data"
         data_raw = fetch(data_title)
-        _stats, character_rows = scrape_ggst_dustloop.parse_data_page(
+        _stats, character_rows = scraper_utils.parse_data_page(
             sheet_prefix, display_name, data_title, data_raw, {}
         )
         if not character_rows:

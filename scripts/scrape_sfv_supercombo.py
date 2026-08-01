@@ -5,12 +5,8 @@ Builds SF5 Frame Data workbook content from SuperCombo character pages.
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
-import time
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 import pandas as pd
@@ -18,60 +14,30 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bubbot.frame_data.sfv_frame_data import normalize_key, normalize_move_token  # noqa: E402
-from scripts.scrape_ggst_dustloop import extract_templates, parse_template  # noqa: E402
+from scripts.generation_utils import write_python_constants  # noqa: E402
+from scripts import scraper_utils  # noqa: E402
+from scripts.scraper_utils import (  # noqa: E402
+    extract_templates,
+    file_url_for_name,
+    indexed_parameter_values,
+    resolve_file_urls as shared_resolve_file_urls,
+)
 
 
 API_URL = "https://wiki.supercombo.gg/api.php"
 PAGE_PREFIX = "Street Fighter V"
-USER_AGENT = "Mozilla/5.0 (compatible; Bub SFV scraper/1.0)"
 IMAGE_THUMB_WIDTH = 300
 
 
-def fetch_url(url: str, sleep_seconds: float = 0.1) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        body = response.read().decode("utf-8")
-    if sleep_seconds:
-        time.sleep(sleep_seconds)
-    return body
-
-
-def wiki_request(params: dict[str, object], sleep_seconds: float) -> dict:
-    query = urllib.parse.urlencode(params)
-    return json.loads(fetch_url(f"{API_URL}?{query}", sleep_seconds=sleep_seconds))
-
-
-def cache_file_for_page(cache_dir: Path, page_title: str) -> Path:
-    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", page_title.replace("/", "__"))
-    return cache_dir / f"{safe_name}.wiki"
-
 
 def fetch_raw_page(page_title: str, sleep_seconds: float, cache_dir: Path | None = None, refresh: bool = False) -> str:
-    if cache_dir is not None:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_file_for_page(cache_dir, page_title)
-        if cache_path.exists() and not refresh:
-            return cache_path.read_text(encoding="utf-8")
-    data = wiki_request(
-        {
-            "action": "query",
-            "prop": "revisions",
-            "titles": page_title,
-            "rvprop": "content",
-            "rvslots": "main",
-            "format": "json",
-            "formatversion": "2",
-        },
-        sleep_seconds,
+    return scraper_utils.fetch_text(
+        page_title,
+        sleep_seconds=sleep_seconds,
+        cache_dir=cache_dir,
+        refresh=refresh,
+        api_url=API_URL,
     )
-    pages = data.get("query", {}).get("pages", []) or []
-    if not pages or pages[0].get("missing"):
-        raise RuntimeError(f"Missing wiki page: {page_title}")
-    revisions = pages[0].get("revisions") or []
-    raw = ((revisions[0].get("slots") or {}).get("main") or {}).get("content", "") if revisions else ""
-    if cache_dir is not None:
-        cache_file_for_page(cache_dir, page_title).write_text(raw, encoding="utf-8")
-    return raw
 
 
 def clean_wiki_text(value: object) -> str:
@@ -89,9 +55,8 @@ def clean_wiki_text(value: object) -> str:
 
 def split_file_list(params: dict[str, str], prefix: str) -> list[str]:
     files = []
-    for index in range(1, 11):
-        key = prefix if index == 1 else f"{prefix}{index}"
-        value = clean_wiki_text(params.get(key, ""))
+    for raw_value in indexed_parameter_values(params, prefix):
+        value = clean_wiki_text(raw_value)
         value = re.sub(r"^(?:File|Image):", "", value, flags=re.IGNORECASE).strip()
         if value and re.search(r"\.(?:png|webp|gif|jpg|jpeg)$", value, flags=re.IGNORECASE):
             files.append(value)
@@ -100,9 +65,8 @@ def split_file_list(params: dict[str, str], prefix: str) -> list[str]:
 
 def caption_lines(params: dict[str, str], prefix: str) -> list[str]:
     lines = []
-    for index in range(1, 11):
-        key = prefix if index == 1 else f"{prefix}{index}"
-        value = clean_wiki_text(params.get(key, ""))
+    for raw_value in indexed_parameter_values(params, prefix):
+        value = clean_wiki_text(raw_value)
         if value:
             lines.append(value)
     return lines
@@ -134,37 +98,8 @@ def parse_character(display_name: str, raw_text: str) -> tuple[list[tuple[str, s
     return media, notes_cache
 
 
-def chunks(values: list[str], size: int) -> list[list[str]]:
-    return [values[index : index + size] for index in range(0, len(values), size)]
-
-
 def resolve_file_urls(filenames: list[str], sleep_seconds: float) -> dict[str, str]:
-    results = {}
-    unique_names = list(dict.fromkeys(str(name or "").strip().replace("_", " ") for name in filenames if str(name or "").strip()))
-    for batch in chunks(unique_names, 20):
-        data = wiki_request(
-            {
-                "action": "query",
-                "titles": "|".join(f"File:{name}" for name in batch),
-                "prop": "imageinfo",
-                "iiprop": "url",
-                "iiurlwidth": IMAGE_THUMB_WIDTH,
-                "format": "json",
-            },
-            sleep_seconds,
-        )
-        for page in (data.get("query", {}).get("pages", {}) or {}).values():
-            title = str(page.get("title", ""))
-            if page.get("missing") or not title.startswith("File:"):
-                continue
-            image_info = (page.get("imageinfo") or [{}])[0]
-            url = image_info.get("thumburl") or image_info.get("url")
-            if not url:
-                continue
-            filename = title.split(":", 1)[1]
-            results[filename.lower()] = url
-            results[filename.replace(" ", "_").lower()] = url
-    return results
+    return shared_resolve_file_urls(API_URL, filenames, IMAGE_THUMB_WIDTH, sleep_seconds)
 
 
 def character_names_from_workbook(workbook: Path) -> list[str]:
@@ -185,7 +120,7 @@ def write_cache(path: Path, media: list[tuple[str, str, str, str]], notes_cache:
     image_cache: dict[str, dict[str, str]] = {}
     hitbox_cache: dict[str, dict[str, list[str]]] = {}
     for char_key, move_key, media_type, filename in media:
-        url = urls.get(filename.lower()) or urls.get(filename.replace("_", " ").lower()) or urls.get(filename.replace(" ", "_").lower())
+        url = file_url_for_name(urls, filename)
         if not url:
             continue
         if media_type == "image":
@@ -194,13 +129,14 @@ def write_cache(path: Path, media: list[tuple[str, str, str, str]], notes_cache:
             links = hitbox_cache.setdefault(char_key, {}).setdefault(move_key, [])
             if url not in links:
                 links.append(url)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "# Generated by scrape_sfv_supercombo.py. Do not edit by hand.\n"
-        f"SFV_MOVE_IMAGE_URLS = {json.dumps(image_cache, indent=2, sort_keys=True, ensure_ascii=True)}\n\n"
-        f"SFV_HITBOX_DATA = {json.dumps(hitbox_cache, indent=2, sort_keys=True, ensure_ascii=True)}\n\n"
-        f"SFV_MOVE_NOTES = {json.dumps(notes_cache, indent=2, sort_keys=True, ensure_ascii=True)}\n",
-        encoding="utf-8",
+    write_python_constants(
+        path,
+        {
+            "SFV_MOVE_IMAGE_URLS": image_cache,
+            "SFV_HITBOX_DATA": hitbox_cache,
+            "SFV_MOVE_NOTES": notes_cache,
+        },
+        "scrape_sfv_supercombo.py",
     )
     return (
         sum(len(moves) for moves in image_cache.values()),

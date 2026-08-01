@@ -1,4 +1,5 @@
 """SF6 character-specific special prompt skip/selection rules."""
+# These rules decide when a special-strength prompt is useful; they never perform row lookup.
 
 
 def should_skip_special_prompt_base(

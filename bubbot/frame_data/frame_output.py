@@ -770,21 +770,25 @@ async def send_gif_links_response(message, gif_links, wants_comparison=False):
     if not gif_links:
         return []
     try:
-        asset_limit = len(gif_links) if wants_comparison else 1
-        asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=asset_limit)
-        if asset_paths:
-            if wants_comparison and len(asset_paths) > 1:
-                sent = await message.reply(
-                    files=[discord.File(path, filename=os.path.basename(path)) for path in asset_paths]
-                )
-            else:
-                sent = await message.reply(
-                    file=discord.File(asset_paths[0], filename=os.path.basename(asset_paths[0]))
-                )
+        if wants_comparison:
+            asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=None)
+            if asset_paths:
+                sent_ids = []
+                for batch_start in range(0, len(asset_paths), DISCORD_ATTACHMENT_LIMIT):
+                    batch_paths = asset_paths[batch_start : batch_start + DISCORD_ATTACHMENT_LIMIT]
+                    files = [discord.File(path, filename=os.path.basename(path)) for path in batch_paths]
+                    if batch_start == 0:
+                        sent = await message.reply(files=files)
+                    else:
+                        sent = await message.channel.send(files=files)
+                    sent_ids.append(sent.id)
+                return sent_ids
+            sent = await message.reply("\n".join(gif_links))
             return [sent.id]
 
-        if wants_comparison and len(gif_links) > 1:
-            sent = await message.reply("\n".join(gif_links))
+        asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=1)
+        if asset_paths:
+            sent = await message.reply(file=discord.File(asset_paths[0], filename=os.path.basename(asset_paths[0])))
         else:
             sent = await message.reply(gif_links[0])
         return [sent.id]

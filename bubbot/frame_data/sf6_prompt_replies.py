@@ -1,4 +1,5 @@
 """SF6 Target Combo and Special Strength disambiguation reply parsing."""
+# Prompt mode is bounded state keyed by Discord message ID, not global parser state.
 
 import re
 

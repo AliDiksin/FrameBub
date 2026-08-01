@@ -1,4 +1,5 @@
 """SF6 character-specific alias dispatcher, stocked aliases, stance/grab row collectors, Viper filters."""
+# Character-specific collection stays behind this dispatcher instead of spreading rules through the parser.
 
 import re
 

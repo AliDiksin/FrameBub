@@ -3,8 +3,11 @@
 import difflib
 import re
 
+from bubbot.frame_data.sf6_parser_helpers import normalize_button_word_notation
 from bubbot.frame_data.sf6_parser_helpers import normalize_directional_normal_notation
 from bubbot.frame_data.sf6_parser_helpers import normalize_grounded_normal_notation
+from bubbot.frame_data.sf6_parser_helpers import token_is_stock_hint
+
 from bubbot.utils.notation_match_utils import find_rows_by_notation_prefix, looks_like_notation_query
 from bubbot.utils.text_utils import correct_alias_typos
 
@@ -33,8 +36,7 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     
     data = frame_data[char_key]
     move_input = normalize_jump_normal_text(move_input.lower().strip())
-
-    move_input = normalize_directional_normal_notation(move_input)
+    move_input = normalize_button_word_notation(move_input)
 
     def normalize_strength_word_shorthand(text):
         prefix_map = {"l": "light", "m": "medium", "h": "heavy"}
@@ -88,17 +90,6 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     )
     query_requests_ca = bool(re.search(r"\b(?:ca|critical\s+art)\b", original_move_input))
     stock_hint_tokens = ("stock", "stocked", "enhanced", "windclad")
-
-    def token_is_stock_hint(token):
-        token_norm = str(token or "").lower().strip()
-        if not token_norm:
-            return False
-        if token_norm in stock_hint_tokens:
-            return True
-        return any(
-            difflib.SequenceMatcher(None, token_norm, hint_token).ratio() >= 0.82
-            for hint_token in stock_hint_tokens
-        )
 
     query_requests_stocked = bool(
         re.search(r"\b(stock|stocked|enhanced|windclad|wind\s+clad)\b", original_move_input)

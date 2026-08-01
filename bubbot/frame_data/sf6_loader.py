@@ -177,9 +177,7 @@ def load_frame_data(deps):
     frame_output_module = deps["frame_output_module"]
 
     filename = "FAT - SF6 Frame Data.ods"
-    quiz_module.QUIZ_CHARACTER_TERMS_CACHE = None
-    quiz_module.QUIZ_MOVE_NAME_TERMS_CACHE = None
-    quiz_module.QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = None
+    quiz_module.reset_quiz_caches()
     if not os.path.exists(filename):
         print(f"File not found: {filename}")
         return

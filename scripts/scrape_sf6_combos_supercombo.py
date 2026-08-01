@@ -8,16 +8,16 @@ import argparse
 import json
 import re
 import sys
-import time
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.scrape_ggst_dustloop import (
+from scripts import scraper_utils
+from scripts.generation_utils import normal_sheet_name, write_ods_sheets  # noqa: E402
+from scripts.scraper_utils import (
     extract_headings,
     extract_template_span,
     extract_templates,
@@ -27,8 +27,6 @@ from scripts.scrape_ggst_dustloop import (
 
 API_URL = "https://wiki.supercombo.gg/api.php"
 PAGE_PREFIX = "Street Fighter 6"
-USER_AGENT = "Mozilla/5.0 (compatible; Bub SF6 combo scraper/1.0)"
-
 SF6_CHARACTERS = [
     "A.K.I.",
     "Akuma",
@@ -99,51 +97,15 @@ POSITION_VOCAB = {
 SKIP_SECTIONS = {"combo notation guide"}
 
 
-def fetch_url(url: str, sleep_seconds: float = 0.1) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        body = response.read().decode("utf-8")
-    if sleep_seconds:
-        time.sleep(sleep_seconds)
-    return body
-
-
-def wiki_request(params: dict[str, object], sleep_seconds: float) -> dict:
-    query = urllib.parse.urlencode(params)
-    return json.loads(fetch_url(f"{API_URL}?{query}", sleep_seconds=sleep_seconds))
-
-
-def cache_file_for_page(cache_dir: Path, page_title: str) -> Path:
-    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", page_title.replace("/", "__"))
-    return cache_dir / f"{safe_name}.wiki"
-
 
 def fetch_raw_page(page_title: str, sleep_seconds: float, cache_dir: Path | None = None, refresh: bool = False) -> str:
-    if cache_dir is not None:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_file_for_page(cache_dir, page_title)
-        if cache_path.exists() and not refresh:
-            return cache_path.read_text(encoding="utf-8")
-    data = wiki_request(
-        {
-            "action": "query",
-            "prop": "revisions",
-            "titles": page_title,
-            "rvprop": "content",
-            "rvslots": "main",
-            "format": "json",
-            "formatversion": "2",
-        },
-        sleep_seconds,
+    return scraper_utils.fetch_text(
+        page_title,
+        sleep_seconds=sleep_seconds,
+        cache_dir=cache_dir,
+        refresh=refresh,
+        api_url=API_URL,
     )
-    pages = data.get("query", {}).get("pages", []) or []
-    if not pages or pages[0].get("missing"):
-        raise RuntimeError(f"Missing wiki page: {page_title}")
-    revisions = pages[0].get("revisions") or []
-    raw = ((revisions[0].get("slots") or {}).get("main") or {}).get("content", "") if revisions else ""
-    if cache_dir is not None:
-        cache_file_for_page(cache_dir, page_title).write_text(raw, encoding="utf-8")
-    return raw
 
 
 def page_url(page_title: str) -> str:
@@ -155,10 +117,8 @@ def char_key(display_name: str) -> str:
     text = str(display_name or "").strip().lower().replace("'", "")
     return re.sub(r"[^a-z0-9]+", "_", text).strip("_")
 
-
 def safe_sheet_name(display_name: str) -> str:
-    compact = re.sub(r"[^A-Za-z0-9.]+", "", display_name)
-    return f"{compact}Combos"[:31] or "Combos"
+    return normal_sheet_name(display_name, suffix="Combos", fallback="Combos", allow_period=True)
 
 
 def count_drive_tokens(text: str) -> str:
@@ -221,14 +181,33 @@ def is_position_tab(name: str) -> bool:
     return any(token in lowered for token in POSITION_VOCAB)
 
 
-def heading_stack(headings: list[dict[str, str | int]], position: int) -> tuple[str, str]:
+def _heading_parts(heading) -> tuple[int, int, object] | None:
+    if isinstance(heading, dict):
+        level = heading.get("level", heading.get("heading_level"))
+        heading_pos = heading.get("position", heading.get("start", heading.get("pos")))
+        title = heading.get("title", heading.get("text", heading.get("heading", "")))
+    else:
+        try:
+            level, heading_pos, title = heading[:3]
+        except (TypeError, ValueError, IndexError):
+            return None
+    try:
+        return int(level), int(heading_pos), title
+    except (TypeError, ValueError):
+        return None
+
+
+def heading_stack(headings: list, position: int) -> tuple[str, str]:
     section = ""
     category = ""
     for heading in headings:
-        if int(heading["pos"]) >= position:
+        parts = _heading_parts(heading)
+        if parts is None:
+            continue
+        level, heading_pos, title_raw = parts
+        if heading_pos >= position:
             break
-        level = int(heading["level"])
-        title = clean_combo_text(str(heading["title_raw"]))
+        title = clean_combo_text(title_raw)
         if level == 2:
             section = title
             category = ""
@@ -696,16 +675,12 @@ def build(output_workbook: Path, sleep_seconds: float, cache_dir: Path | None = 
     if not total_rows:
         raise RuntimeError("No SF6 combo rows scraped")
 
-    with pd.ExcelWriter(output_workbook, engine="odf") as writer:
-        for display_name in SF6_CHARACTERS:
-            rows = rows_by_character.get(display_name, [])
-            if not rows:
-                continue
-            df = pd.DataFrame(rows)
-            for column in COMBO_COLUMNS:
-                if column not in df.columns:
-                    df[column] = ""
-            df[COMBO_COLUMNS].to_excel(writer, sheet_name=safe_sheet_name(display_name), index=False)
+    sheets = {
+        safe_sheet_name(display_name): rows_by_character.get(display_name, [])
+        for display_name in SF6_CHARACTERS
+        if rows_by_character.get(display_name)
+    }
+    write_ods_sheets(output_workbook, sheets, COMBO_COLUMNS)
 
     print(f"[sf6-combo-scrape] wrote {total_rows} rows to {output_workbook}", flush=True)
 

@@ -1,4 +1,5 @@
 """Chun-Li Serenity Stream stance follow-up result filter."""
+# This filter only resolves Chun-Li stance follow-ups after generic notation matching.
 
 
 def filter_chun_stance_results(results, *, chun_stance_followup_context, normalize_char_name, normalize_num_cmd_token):

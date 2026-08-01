@@ -18,12 +18,18 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.scrape_ggst_dustloop import (  # noqa: E402
+from scripts import scraper_utils
+from scripts.generation_utils import normal_sheet_name, write_ods_sheets, write_python_constants  # noqa: E402
+from scripts.scraper_utils import (  # noqa: E402
+    TWOKO_CHAMPIONS,
+    TWOKO_MOVE_COLUMNS,
     apply_heading_context,
     clean_wiki_text,
     extract_headings,
     extract_templates,
+    file_url_for_name,
     parse_template,
+    resolve_file_urls as shared_resolve_file_urls,
 )
 
 
@@ -31,43 +37,8 @@ API_URL = "https://wiki.play2xko.com/en-us/api.php"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 IMAGE_THUMB_WIDTH = 300
 
-CHAMPIONS = [
-    "Ahri",
-    "Akali",
-    "Blitzcrank",
-    "Braum",
-    "Caitlyn",
-    "Darius",
-    "Ekko",
-    "Illaoi",
-    "Jinx",
-    "Senna",
-    "Teemo",
-    "Thresh",
-    "Vi",
-    "Warwick",
-    "Yasuo",
-]
-
-MOVE_COLUMNS = [
-    "char_key",
-    "char_name",
-    "section",
-    "subsection",
-    "moveName",
-    "numCmd",
-    "dmg",
-    "guardLevel",
-    "startup",
-    "active",
-    "recovery",
-    "onBlock",
-    "onHit",
-    "meterGain",
-    "xx",
-    "invuln",
-    "extraInfo",
-]
+CHAMPIONS = list(TWOKO_CHAMPIONS)
+MOVE_COLUMNS = list(TWOKO_MOVE_COLUMNS)
 
 
 def compact_key(value: object) -> str:
@@ -123,12 +94,7 @@ class WikiFetcher:
 def fetch_url(url: str, sleep_seconds: float = 0.1, fetcher: WikiFetcher | None = None) -> str:
     if fetcher is not None:
         return fetcher.fetch_url(url, sleep_seconds=sleep_seconds)
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        body = response.read().decode("utf-8")
-    if sleep_seconds:
-        time.sleep(sleep_seconds)
-    return body
+    return scraper_utils.fetch_url(url, sleep_seconds=sleep_seconds)
 
 
 def wiki_request(params: dict[str, object], sleep_seconds: float, fetcher: WikiFetcher | None = None) -> dict:
@@ -161,8 +127,6 @@ def fetch_raw_page(page_title: str, sleep_seconds: float, fetcher: WikiFetcher |
     return main_slot.get("content", "") or ""
 
 
-def chunks(values: list[str], size: int) -> list[list[str]]:
-    return [values[index : index + size] for index in range(0, len(values), size)]
 
 
 def file_name_from_wikilink(value: str) -> str:
@@ -186,41 +150,8 @@ def default_file_name(champion: str, move_name: str, input_text: str, suffix: st
 
 
 def resolve_file_urls(filenames: list[str], sleep_seconds: float, fetcher: WikiFetcher | None = None) -> dict[str, str]:
-    results: dict[str, str] = {}
-    unique_names = []
-    seen = set()
-    for filename in filenames:
-        clean_name = str(filename or "").strip().replace("_", " ")
-        if not clean_name or clean_name.lower() in seen:
-            continue
-        seen.add(clean_name.lower())
-        unique_names.append(clean_name)
-
-    for batch in chunks(unique_names, 20):
-        data = wiki_request(
-            {
-                "action": "query",
-                "titles": "|".join(f"File:{name}" for name in batch),
-                "prop": "imageinfo",
-                "iiprop": "url",
-                "iiurlwidth": IMAGE_THUMB_WIDTH,
-                "format": "json",
-            },
-            sleep_seconds,
-            fetcher=fetcher,
-        )
-        for page in (data.get("query", {}).get("pages", {}) or {}).values():
-            title = str(page.get("title", ""))
-            if page.get("missing") or not title.startswith("File:"):
-                continue
-            image_info = (page.get("imageinfo") or [{}])[0]
-            url = image_info.get("thumburl") or image_info.get("url")
-            if not url:
-                continue
-            filename = title.split(":", 1)[1]
-            results[filename.lower()] = url
-            results[filename.replace(" ", "_").lower()] = url
-    return results
+    request_func = lambda _api_url, params, delay: wiki_request(params, delay, fetcher=fetcher)
+    return shared_resolve_file_urls(API_URL, filenames, IMAGE_THUMB_WIDTH, sleep_seconds, request_func)
 
 
 def split_moveinfo_templates(info_raw: str):
@@ -283,21 +214,20 @@ def write_cache(path: Path, media: list[tuple[str, str, str, str]], urls: dict[s
     image_cache: dict[str, dict[str, str]] = {}
     hitbox_cache: dict[str, dict[str, list[str]]] = {}
     for char_key, move_key, media_type, filename in media:
-        url = urls.get(filename.lower()) or urls.get(filename.replace(" ", "_").lower())
+        url = file_url_for_name(urls, filename)
         if not url:
             continue
         normalized_move = compact_key(move_key)
         if media_type == "image":
             image_cache.setdefault(char_key, {})[normalized_move] = url
         elif media_type == "hitbox":
-            hitbox_cache.setdefault(char_key, {}).setdefault(normalized_move, [])
-            if url not in hitbox_cache[char_key][normalized_move]:
-                hitbox_cache[char_key][normalized_move].append(url)
-    path.write_text(
-        "# Generated by scrape_2xko_wiki.py. Do not edit by hand.\n"
-        f"TUCO_MOVE_IMAGE_URLS = {json.dumps(image_cache, indent=2, sort_keys=True)}\n\n"
-        f"TUCO_HITBOX_DATA = {json.dumps(hitbox_cache, indent=2, sort_keys=True)}\n",
-        encoding="utf-8",
+            links = hitbox_cache.setdefault(char_key, {}).setdefault(normalized_move, [])
+            if url not in links:
+                links.append(url)
+    write_python_constants(
+        path,
+        {"TUCO_MOVE_IMAGE_URLS": image_cache, "TUCO_HITBOX_DATA": hitbox_cache},
+        "scrape_2xko_wiki.py",
     )
     return sum(len(moves) for moves in image_cache.values()), sum(len(links) for moves in hitbox_cache.values() for links in moves.values())
 
@@ -321,12 +251,12 @@ def build(output_workbook: Path, output_cache: Path, sleep_seconds: float) -> No
         if not all_rows:
             raise RuntimeError("No 2XKO rows were parsed.")
 
-        with pd.ExcelWriter(output_workbook, engine="odf") as writer:
-            pd.DataFrame(all_rows, columns=MOVE_COLUMNS).to_excel(writer, sheet_name="Moves", index=False)
-            for champion in CHAMPIONS:
-                char_rows = [row for row in all_rows if row.get("char_name") == champion]
-                if char_rows:
-                    pd.DataFrame(char_rows, columns=MOVE_COLUMNS).to_excel(writer, sheet_name=f"{champion}Normal"[:31], index=False)
+        sheets = {"Moves": all_rows}
+        for champion in CHAMPIONS:
+            char_rows = [row for row in all_rows if row.get("char_name") == champion]
+            if char_rows:
+                sheets[normal_sheet_name(champion)] = char_rows
+        write_ods_sheets(output_workbook, sheets, MOVE_COLUMNS)
 
         urls = resolve_file_urls([item[3] for item in all_media], sleep_seconds, fetcher=fetcher)
         image_count, hitbox_count = write_cache(output_cache, all_media, urls)

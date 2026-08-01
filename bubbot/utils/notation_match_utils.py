@@ -1,4 +1,5 @@
 """Prefix-boundary notation matching shared across frame-data parsers."""
+# Prefix matching stops at notation boundaries so one move cannot steal another move's suffix.
 
 from __future__ import annotations
 

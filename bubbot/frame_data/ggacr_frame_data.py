@@ -1,10 +1,9 @@
 """GGACR frame parser, embeds, hitbox/image/notes helpers."""
+# GGACR keeps its own notation and alias rules even where its Dustloop source resembles GGST.
 
-import os
 import re
 
 import discord
-import pandas as pd
 
 from bubbot.data.ggst_aliases import GGST_CHARACTER_ALIASES
 from bubbot.data.ggacr_aliases import (
@@ -21,6 +20,7 @@ from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url
 from bubbot.utils.frame_match_utils import find_matching_rows_standard
 from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
+from bubbot.utils.frame_data_loader import load_normal_frame_data
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
 
@@ -178,35 +178,16 @@ def is_exclusive_character(char_key):
 
 
 def load_frame_data(filename=None):
-    global GGACR_FRAME_DATA
-    GGACR_FRAME_DATA = {}
-    filename = filename or GGACR_FRAME_DATA_FILE
-    if not os.path.exists(filename):
-        print(f"[ggacr] frame data file not found: {filename}", flush=True)
-        return False
-    xls = pd.ExcelFile(filename, engine="odf")
-    loaded = 0
-    for sheet_name in xls.sheet_names:
-        if not sheet_name.endswith("Normal"):
-            continue
-        df = pd.read_excel(xls, sheet_name=sheet_name).fillna("")
-        rows = []
-        for row in df.to_dict("records"):
-            char_key = str(row.get("char_key") or row.get("char_name") or sheet_name[: -len("Normal")]).strip().lower()
-            move_name = str(row.get("moveName", "")).strip()
-            num_cmd = str(row.get("numCmd", "")).strip()
-            if not move_name and not num_cmd:
-                continue
-            row["char_key"] = char_key
-            row["char_name"] = str(row.get("char_name") or sheet_name[: -len("Normal")]).strip()
-            rows.append(row)
-        if rows:
-            GGACR_FRAME_DATA[rows[0]["char_key"]] = rows
-            loaded += 1
+    loaded = load_normal_frame_data(
+        filename or GGACR_FRAME_DATA_FILE,
+        GGACR_FRAME_DATA,
+        GGACR_CHARACTER_ALIASES,
+        "ggacr",
+        alias_variants=(),
+    )
     _bridge_ggst_aliases()
     _mark_exclusive_characters()
-    print(f"[ggacr] Total characters loaded: {loaded}", flush=True)
-    return bool(GGACR_FRAME_DATA)
+    return loaded
 
 
 def find_characters_in_text(text):
@@ -394,7 +375,7 @@ def get_move_image_url(row):
     return resolve_ggacr_media_url(GGACR_MOVE_IMAGE_URLS.get((char_key, num_cmd_key), ""))
 
 
-def get_hitbox_links(row, limit=4):
+def get_hitbox_links(row, limit=None):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
     links = (GGACR_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
@@ -402,7 +383,7 @@ def get_hitbox_links(row, limit=4):
     return clean_links[:limit] if limit is not None else clean_links
 
 
-def get_media_links(row, limit=4):
+def get_media_links(row, limit=None):
     links = get_hitbox_links(row, limit=None)
     image_url = get_move_image_url(row)
     if image_url and image_url not in links:
@@ -465,21 +446,6 @@ def build_frame_embed(row, show_notes=False):
         embed.set_image(url=image_url)
     return embed
 
-
-class GGACRAllHitboxImagesButton(discord.ui.Button):
-    def __init__(self, row):
-        self.hitbox_links = get_media_links(row, limit=None)
-        super().__init__(
-            label="Show All Images",
-            style=discord.ButtonStyle.success,
-            disabled=len(self.hitbox_links) <= 1,
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        if len(self.hitbox_links) <= 1:
-            await interaction.response.defer()
-            return
-        await interaction.response.send_message("\n".join(self.hitbox_links))
 
 
 class GGACRNotesButton(discord.ui.Button):
