@@ -79,19 +79,6 @@ def format_attack_range_for_table(row):
         return range_value
     return RANGE_SCROLLS_MISSING_TABLE_TEXT
 
-def format_frame_data(row):
-    """Format a frame data row into readable text."""
-    atk_range = format_attack_range_for_table(row)
-    return (
-        f"Move: {row['moveName']} ({row['numCmd']})\n"
-        f"Startup: {row['startup']}f | Active: {row['active']}f | Recovery: {row['recovery']}f\n"
-        f"Range: {atk_range}\n"
-        f"On Hit: {row['onHit']} | On Block: {row['onBlock']}\n"
-        f"Damage: {row['dmg']} | Attack Type: {format_guard_value(row['atkLvl'])}\n"
-        f"Notes: {row.get('extraInfo', '')}"
-    )
-
-
 def normalize_image_key(value):
     return compact_key(value)
 
@@ -732,7 +719,7 @@ async def _send_sf6_frame_result_messages(
     return sent_ids
 
 
-async def send_frame_table_response(message, rows, data_text):
+async def send_frame_table_response(message, rows):
     from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
     from bubbot.features.menu_system import build_frame_result_view
 
@@ -763,6 +750,10 @@ async def send_frame_table_response(message, rows, data_text):
         return sent_ids
     except Exception as e:
         print(f"Direct frame embed send failed: {e}", flush=True)
+        try:
+            await message.reply("I couldn't send the frame-data embed. Please try again.")
+        except Exception as reply_error:
+            print(f"Frame embed failure reply failed: {reply_error}", flush=True)
     return []
 
 

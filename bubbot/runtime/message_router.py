@@ -100,7 +100,15 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 client = discord.Client(intents=intents)
-tree = discord.app_commands.CommandTree(client)
+tree = discord.app_commands.CommandTree(
+    client,
+    allowed_contexts=discord.app_commands.AppCommandContext(
+        guild=True,
+        dm_channel=True,
+        private_channel=True,
+    ),
+    allowed_installs=discord.app_commands.AppInstallationType(guild=True, user=True),
+)
 message_context.configure(
     client=client,
     menu_system=menu_system,
@@ -290,10 +298,6 @@ def find_moves_in_text(text):
             "normalize_char_name": normalize_char_name,
             "resolve_character_key": resolve_character_key,
             "normalize_num_cmd_token": normalize_num_cmd_token,
-            "is_missing_attack_range_value": is_missing_attack_range_value,
-            "get_attack_range_details": get_attack_range_details,
-            "format_attack_range_for_table": format_attack_range_for_table,
-            "format_frame_data": format_frame_data,
             "check_punish": check_punish,
         },
         text,
@@ -439,9 +443,6 @@ resolve_hitbox_gif_query_alias = gif_lookup_module.resolve_hitbox_gif_query_alia
 lookup_hitbox_gif_links_from_query = gif_lookup_module.lookup_hitbox_gif_links_from_query
 collect_hitbox_gif_links_from_text = gif_lookup_module.collect_hitbox_gif_links_from_text
 
-get_attack_range_details = frame_output_module.get_attack_range_details
-format_attack_range_for_table = frame_output_module.format_attack_range_for_table
-format_frame_data = frame_output_module.format_frame_data
 format_property_only_lines = frame_output_module.format_property_only_lines
 format_startup_only_reply = frame_output_module.format_startup_only_reply
 format_hitconfirm_only_reply = frame_output_module.format_hitconfirm_only_reply
@@ -526,7 +527,6 @@ def configure_extracted_modules():
         collect_hitbox_gif_links_from_text=gif_lookup_module.collect_hitbox_gif_links_from_text,
         send_frame_table_response=send_frame_table_response,
         send_gif_links_response=send_gif_links_response,
-        format_frame_data=format_frame_data,
         find_moves_in_text=find_moves_in_text,
         _reply_and_log_response=_reply_and_log_response,
         _message_prompt_text=_message_prompt_text,
@@ -661,6 +661,26 @@ async def on_ready():
     _DATA_LOADED = True
     print("[startup] All game data loaded; message handling is now active.", flush=True)
 
+
+@client.event
+async def on_interaction(interaction):
+    """Acknowledge stale Bub components after a restart instead of timing out."""
+    if getattr(interaction, "type", None) != discord.InteractionType.component:
+        return
+    message = getattr(interaction, "message", None)
+    if message is None or getattr(getattr(message, "author", None), "id", None) != getattr(client.user, "id", None):
+        return
+    await asyncio.sleep(1.0)
+    if interaction.response.is_done():
+        return
+    try:
+        await interaction.response.send_message(
+            "This menu was created before Bub restarted. Please open `/bub` again.",
+            ephemeral=True,
+        )
+    except Exception as error:
+        print(f"[menu] stale component response failed: {error}", flush=True)
+
 @client.event
 async def on_message(message):
     try:
@@ -706,6 +726,12 @@ async def _handle_message(message):
             )
         except Exception as log_error:
             print(f"Response log error: {log_error}", flush=True)
+        return
+
+    if await buenavista_extension.maybe_handle_pin_tierlist(
+        message=message,
+        content_no_mentions=content_no_mentions,
+    ):
         return
 
     # Quiz beats frame lookup while a session is active (must be @bub or reply to quiz msg)

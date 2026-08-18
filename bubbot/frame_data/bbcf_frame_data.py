@@ -4,7 +4,12 @@ import re
 
 import discord
 
-from bubbot.data.bbcf_aliases import BBCF_CHARACTER_ALIASES, BBCF_LOOKUP_WORDS, BBCF_MOVE_ALIASES
+from bubbot.data.bbcf_aliases import (
+    BBCF_CHARACTER_ALIASES,
+    BBCF_CHARACTER_MOVE_ALIASES,
+    BBCF_LOOKUP_WORDS,
+    BBCF_MOVE_ALIASES,
+)
 from bubbot.utils.parser_results import parser_result
 from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
@@ -143,6 +148,12 @@ def normalize_move_query(query):
     return text
 
 
+def normalize_character_move_query(char_key, query):
+    normalized = normalize_move_query(query)
+    aliases = BBCF_CHARACTER_MOVE_ALIASES.get(char_key, {})
+    return aliases.get(normalized, aliases.get(normalize_move_token(normalized), normalized))
+
+
 def _normalize_bbcf_notation_spacing(text):
     text = str(text or "").lower()
 
@@ -180,9 +191,17 @@ def _bbcf_notation_query(query_key):
 
 
 def _find_matching_rows_generic(char_key, move_text):
-    query = normalize_move_query(move_text)
+    query = normalize_character_move_query(char_key, move_text)
     query_key = normalize_move_token(query)
     rows = BBCF_FRAME_DATA.get(char_key, []) or []
+    if _bbcf_notation_query(query_key):
+        exact_command_rows = unique_rows(
+            row
+            for row in rows
+            if normalize_move_token(row.get("numCmd", "")) == query_key
+        )
+        if exact_command_rows:
+            return exact_command_rows
     return find_matching_rows_standard(
         rows,
         query,
@@ -197,7 +216,7 @@ def _find_matching_rows_generic(char_key, move_text):
 def _find_mai_followup_rows(char_key, move_text):
     if char_key != "mai_natsume" or not re.search(r"\bfollow\s*ups?\b", str(move_text or "").lower()):
         return []
-    query_key = normalize_move_token(normalize_move_query(move_text))
+    query_key = normalize_move_token(normalize_character_move_query(char_key, move_text))
     if not query_key.startswith("5xa"):
         return []
     rows = BBCF_FRAME_DATA.get(char_key, []) or []

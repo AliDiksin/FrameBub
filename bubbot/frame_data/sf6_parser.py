@@ -2,6 +2,7 @@
 
 import re
 from bubbot.utils.parser_results import parser_result
+from bubbot.utils.character_lookup import find_fuzzy_aliases_in_text
 
 from bubbot.frame_data.sf6_character_aliases import (
     apply_character_specific_result_filters,
@@ -30,12 +31,14 @@ from bubbot.frame_data.sf6_parser_helpers import (
     row_matches_explicit_strength as shared_row_matches_explicit_strength,
     row_matches_requested_level as shared_row_matches_requested_level,
     normalize_button_word_notation,
+    normalize_charge_button_notation,
+    normalize_charge_up_motion_notation,
+    query_has_charge_button_notation,
 )
 from bubbot.frame_data.sf6_special_prompt_rules import (
     should_skip_ambiguous_special_key,
 )
 from bubbot.frame_data.sf6_parser_candidates import collect_sf6_candidates
-from bubbot.frame_data.sf6_parser_output import format_sf6_rows
 from bubbot.frame_data.sf6_parser_postprocess import (
     filter_and_inject_key_moves,
     is_missing_scrolls_query,
@@ -56,10 +59,6 @@ def find_moves_in_text(deps, text):
     normalize_char_name = deps["normalize_char_name"]
     resolve_character_key = deps["resolve_character_key"]
     normalize_num_cmd_token = deps["normalize_num_cmd_token"]
-    is_missing_attack_range_value = deps["is_missing_attack_range_value"]
-    get_attack_range_details = deps["get_attack_range_details"]
-    format_attack_range_for_table = deps["format_attack_range_for_table"]
-    format_frame_data = deps["format_frame_data"]
     check_punish = deps["check_punish"]
     row_is_charged_variant = shared_row_is_charged_variant
     row_is_od_variant = shared_row_is_od_variant
@@ -69,6 +68,9 @@ def find_moves_in_text(deps, text):
     """Extract character/move mentions and return context payload with mode."""
     found_data = []
     text_lower = strip_discord_mentions(text).lower()
+    charge_button_query = query_has_charge_button_notation(text_lower)
+    text_lower = normalize_charge_button_notation(text_lower)
+    text_lower = normalize_charge_up_motion_notation(text_lower)
     text_lower = normalize_jump_normal_text(text_lower)
     text_lower = normalize_button_word_notation(text_lower)
     text_lower = re.sub(r"\bdivekick\b", "dive kick", text_lower)
@@ -85,21 +87,8 @@ def find_moves_in_text(deps, text):
     def tokens_in_text(needle_tokens):
         return tokens_in_haystack(text_tokens, needle_tokens)
 
-    # 1. Identify which characters are mentioned
-    mentioned_chars = []
-
-    # First check for character aliases and normalize them
-    for alias, canonical in CHARACTER_ALIASES.items():
-        alias_tokens = word_tokens(alias)
-        if tokens_in_text(alias_tokens):
-            if canonical in FRAME_DATA and canonical not in mentioned_chars:
-                mentioned_chars.append(canonical)
-
-    # Then check for direct character name matches
-    for char in FRAME_DATA.keys():
-        char_tokens = word_tokens(char)
-        if tokens_in_text(char_tokens) and char not in mentioned_chars:
-            mentioned_chars.append(char)
+    # 1. Identify exact, compact, or clearly misspelled character names.
+    mentioned_chars = find_fuzzy_aliases_in_text(text_lower, CHARACTER_ALIASES, FRAME_DATA.keys())
 
     infer_character_mentions_from_terms(text_lower, FRAME_DATA, mentioned_chars)
     jamie_drink_level = jamie_drink_level_from_text(text_lower) if "jamie" in mentioned_chars else None
@@ -243,12 +232,14 @@ def find_moves_in_text(deps, text):
         or range_alias_query
         or property_match_count > 0
         or target_combo_query
+        or special_grab_query
         or super_level_query
         or gif_query
         or air_throw_move_query
         or jump_normal_move_query
         or directional_normal_move_query
         or grounded_normal_move_query
+        or charge_button_query
     )
     results = []
     tc_selected_combos = set()
@@ -357,6 +348,7 @@ def find_moves_in_text(deps, text):
         air_tatsu_context = candidate_state["air_tatsu_context"]
         zangief_borscht_context = candidate_state["zangief_borscht_context"]
         alex_stance_followup_context = candidate_state["alex_stance_followup_context"]
+        cammy_hooligan_followup_context = candidate_state["cammy_hooligan_followup_context"]
         chun_stance_followup_context = candidate_state["chun_stance_followup_context"]
         ken_run_followup_context = candidate_state["ken_run_followup_context"]
         tc_selected_combos = candidate_state["tc_selected_combos"]
@@ -595,6 +587,7 @@ def find_moves_in_text(deps, text):
             lookup_frame_data=lookup_frame_data,
             row_is_ca_variant=row_is_ca_variant,
             alex_stance_followup_context=alex_stance_followup_context,
+            cammy_hooligan_followup_context=cammy_hooligan_followup_context,
             chun_stance_followup_context=chun_stance_followup_context,
             normalize_num_cmd_token=normalize_num_cmd_token,
         )
@@ -801,6 +794,7 @@ def find_moves_in_text(deps, text):
         gif_query=gif_query,
         property_only_query=property_only_query,
         startup_alias_query=startup_alias_query,
+        charge_button_query=charge_button_query,
     )
     wants_stats = stats_intent.wants_stats
     stats_only = stats_intent.stats_only
@@ -827,9 +821,6 @@ def find_moves_in_text(deps, text):
         tc_prompt_blocks=tc_prompt_blocks,
         special_prompt_blocks=special_prompt_blocks,
     )
-    formatted_blocks.extend(format_sf6_rows(results, format_attack_range_for_table))
-
-
     # 5. Attach TC/special prompts, punish verdict, and mode selection
     if tc_prompt_blocks:
         formatted_blocks.extend(tc_prompt_blocks)
@@ -850,7 +841,7 @@ def find_moves_in_text(deps, text):
         else:
             output = punish_verdict
 
-    has_frame_blocks = bool(formatted_blocks)
+    has_frame_blocks = bool(results or formatted_blocks)
     has_stats_blocks = bool(wants_stats and stats_char_keys)
     if stats_only and has_stats_blocks and not results:
         mode = "stats"

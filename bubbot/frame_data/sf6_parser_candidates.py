@@ -14,6 +14,7 @@ from bubbot.frame_data.sf6_character_aliases import (
     should_append_single_token_candidate,
     should_skip_keyword_input,
 )
+from bubbot.frame_data.sf6_cammy_followups import query_has_hooligan_followup
 from bubbot.frame_data.sf6_parser_helpers import (
     collect_normal_notation_inputs,
     row_is_air_move,
@@ -67,12 +68,30 @@ def collect_sf6_candidates(state):
         move_regex = r"\b([1-9][0-9]*[a-zA-Z]+|stand\s+[a-zA-Z]+|crouch\s+[a-zA-Z]+|(?:neutral\s+|n\s+)?jump\s+[a-zA-Z]+|(?:neutral\s+|n\s+)?jump\s+[1-9][0-9]*[a-zA-Z]+|(?:neutral\s+|n\s+)?j(?:\s+|\.)[a-zA-Z]+|(?:neutral\s+|n\s+)?j(?:\s+|\.)[1-9][0-9]*[a-zA-Z]+|(?:neutral\s+|n\s+)?j\.?[1-9][0-9]*[a-zA-Z]+|(?:lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\s+[a-zA-Z]+(?:\s+[a-zA-Z]+)?|[a-zA-Z]+\s+kick|[a-zA-Z]+\s+punch)\b"
         potential_inputs = re.findall(move_regex, text_lower)
         compact_motion_inputs = []
+        charge_followup_inputs = []
+        for input_text in re.findall(
+            r"\b(28k{1,2}\s*>\s*(?:p{1,2}|k{1,2}))\b",
+            text_lower,
+        ):
+            compact_input = re.sub(r"\s+", "", input_text)
+            if compact_input not in charge_followup_inputs:
+                charge_followup_inputs.append(compact_input)
+        charge_followup_bases = {input_text.split(">", 1)[0] for input_text in charge_followup_inputs}
+        if charge_followup_bases:
+            potential_inputs = [
+                input_text
+                for input_text in potential_inputs
+                if re.sub(r"\s+", "", input_text) not in charge_followup_bases
+            ]
+        compact_motion_inputs.extend(charge_followup_inputs)
         motion_button_matches = re.findall(
             r"\b([1-9][0-9]{1,4})\s*(?:\+)?\s*(lp|mp|hp|lk|mk|hk|pp|kk|p|k)\b",
             text_lower,
         )
         for motion_digits, button_suffix in motion_button_matches:
             compact_motion = f"{motion_digits}{button_suffix}"
+            if compact_motion in charge_followup_bases:
+                continue
             if compact_motion not in compact_motion_inputs:
                 compact_motion_inputs.append(compact_motion)
 
@@ -184,18 +203,23 @@ def collect_sf6_candidates(state):
         alex_stance_followup_context = bool(
             re.search(
                 r"\bstance\s+(?:lp|mp|hp|lk|mk|hk|6p|6|4|lplk|5lplk|2lplk|"
-                r"jab|shoulder|lariat|hop|stomp|throw|command\s+grab|hk\s+hk)\b",
+                r"exit|elbow|forward\s+dash|backward\s+dash|jab|shoulder|lariat|hop|stomp|throw|command\s+grab|hk\s+hk)\b",
                 text_lower,
             )
+        )
+        cammy_hooligan_followup_context = bool(
+            "cammy" in mentioned_chars and query_has_hooligan_followup(text_lower)
         )
         chun_stance_followup_context = bool(
             re.search(
                 r"\b(?:stance|ss|serenity\s+stream|214p)\s+"
                 r"(?:lp|mp|hp|lk|mk|hk|"
-                r"(?:light|medium|heavy|l|m|h)\s+(?:punch|kick))\b"
+                r"(?:light|medium|heavy|l|m|h)\s+(?:punch|kick)|"
+                r"jab|slide|overhead|low(?:\s+poke)?|sweep|launcher)\b"
                 r"|\b214p\s*(?:>|\+)?\s*"
                 r"(?:lp|mp|hp|lk|mk|hk|"
-                r"(?:light|medium|heavy|l|m|h)\s+(?:punch|kick))\b"
+                r"(?:light|medium|heavy|l|m|h)\s+(?:punch|kick)|"
+                r"jab|slide|overhead|low(?:\s+poke)?|sweep|launcher)\b"
                 r"|\b(?:stance|ss)\s+(?:light|medium|heavy|l|m|h)\s+(?:punch|kick)\b",
                 text_lower,
             )
@@ -394,6 +418,7 @@ def collect_sf6_candidates(state):
                         base_name=base_name,
                         air_tatsu_context=air_tatsu_context,
                         ken_run_followup_context=ken_run_followup_context,
+                        alex_stance_followup_context=alex_stance_followup_context,
                     ):
                         continue
                     prompt_key = (char, base_name)
@@ -512,6 +537,8 @@ def collect_sf6_candidates(state):
             (r"\bdown\s*up\+?kk\b", "28kk"),
         ]
         for pattern, token in charge_patterns:
+            if token in charge_followup_bases:
+                continue
             if re.search(pattern, text_lower) and token not in extra_inputs:
                 extra_inputs.append(token)
         combo_text = text_lower.replace("->", ">")
@@ -797,7 +824,7 @@ def collect_sf6_candidates(state):
                 normalized_char = normalize_char_name(char)
                 if normalized_char:
                     char_tokens.add(normalized_char)
-            residual_tokens = [
+            residual_tokens = [] if charge_followup_inputs else [
                 tok for tok in text_tokens
                 if tok not in stop_tokens and tok not in char_tokens
             ]
@@ -843,6 +870,7 @@ def collect_sf6_candidates(state):
         "air_tatsu_context": air_tatsu_context,
         "zangief_borscht_context": zangief_borscht_context,
         "alex_stance_followup_context": alex_stance_followup_context,
+        "cammy_hooligan_followup_context": cammy_hooligan_followup_context,
         "chun_stance_followup_context": chun_stance_followup_context,
         "ken_run_followup_context": ken_run_followup_context,
         "tc_selected_combos": tc_selected_combos,

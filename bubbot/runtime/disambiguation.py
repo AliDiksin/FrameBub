@@ -18,7 +18,7 @@ send_missing_hitbox_gif_reply = None
 normalize_char_name = resolve_character_key = lookup_frame_data = None
 lookup_hitbox_gif_link = collect_hitbox_gif_links_from_text = None
 send_frame_table_response = send_gif_links_response = None
-format_frame_data = find_moves_in_text = None
+find_moves_in_text = None
 _reply_and_log_response = None
 _message_prompt_text = lambda message: str(getattr(message, "content", "") or "")
 has_explicit_gif_lookup_intent = lambda text: False
@@ -338,7 +338,6 @@ def _sf6_prompt_reply_deps():
         "collect_hitbox_gif_links_from_text": collect_hitbox_gif_links_from_text,
         "send_frame_table_response": send_frame_table_response,
         "send_gif_links_response": send_gif_links_response,
-        "format_frame_data": format_frame_data,
         "find_moves_in_text": find_moves_in_text,
         "reply_and_log_response": _reply_and_log_response,
     }
@@ -391,5 +390,4 @@ async def _handle_sf6_prompt_disambiguation_reply(message, content_no_mentions, 
         gif_query=gif_query,
         special_strength_reply_mode=special_strength_reply_mode,
     )
-
 

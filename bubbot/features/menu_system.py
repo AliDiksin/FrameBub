@@ -41,6 +41,13 @@ def configure(**deps):
             "_open_sf6_stats_character_select",
             "_open_game_combos_menu",
             "_open_quiz_difficulty",
+            "_quiz_difficulty_embed",
+            "_combo_character_select_embed",
+            "_combo_section_select_embed",
+            "_combo_subsection_select_embed",
+            "build_readme_embed",
+            "_send_frame_result_message",
+            "_edit_frame_result_message",
         )
         if name in globals()
     }
@@ -50,6 +57,7 @@ def configure(**deps):
         MoveSelectView=menu_selects.MoveSelectView,
     )
     shared.update(facade_helpers)
+    menu_catalog.configure_ui(**shared)
     for module in _MENU_MODULES:
         module.configure(**shared)
     globals().update(shared)

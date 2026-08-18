@@ -121,6 +121,11 @@ def configure(
     send_frame_embeds_with_views = send_frame_embeds_with_views_fn
 
 
+def configure_ui(**dependencies):
+    """Inject facade helpers into functions that remain owned by this module."""
+    globals().update(dependencies)
+
+
 MENU_SELECT_LIMIT = 25
 
 # Full display names for menu dropdown and embed titles (no abbreviations)
@@ -156,6 +161,21 @@ class OwnedView(discord.ui.View):
             ephemeral=True,
         )
         return False
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item, /) -> None:
+        custom_id = getattr(item, "custom_id", None) or type(item).__name__
+        print(
+            f"[menu] interaction error item={custom_id}: {type(error).__name__}: {error}",
+            flush=True,
+        )
+        try:
+            message = "That menu action failed. Please open `/bub` again and retry."
+            if interaction.response.is_done():
+                await interaction.followup.send(message, ephemeral=True)
+            else:
+                await interaction.response.send_message(message, ephemeral=True)
+        except Exception as response_error:
+            print(f"[menu] failed to send interaction error response: {response_error}", flush=True)
 
 
 def _menu_locked_owner_id(view):

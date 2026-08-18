@@ -19,6 +19,7 @@ validation_issues.txt
 manon_framedata.csv
 Copy of SF6 Simple Character Guides.ods
 FAT - SF6 Frame Data.ods.bak
+FAT - SF6 Frame Data.backup.ods
 GGST - Dustloop Frame Data test.ods
 GGST - Dustloop Frame Data.ods
 GGST Frame Data.backup.ods
@@ -59,7 +60,6 @@ nul
 /bubbot/features/bub_llm.py
 /bubbot/features/llm_*.py
 /bubbot/features/buenavista_*.py
-/bubbot/features/voice_*.py
 /bubbot/runtime/buenavista_extension.py
 /regressions/
 
@@ -71,6 +71,7 @@ bubbot/runtime/streetfighterdle_scores.json
 bubbot/features/quiz_leaderboard.json
 /memory.md
 /bubbot/features/memory.md
+/buenavista_pin_tiers.json
 
 # Generated assets and caches
 /.cache/
@@ -84,3 +85,5 @@ bubbot/features/quiz_leaderboard.json
 # Public runtime exceptions
 !bub.service
 !bubbot/data/game_source_info.py
+scripts/install_sf6_sync_cron.sh
+scripts/sync_sf6_google_sheet.py

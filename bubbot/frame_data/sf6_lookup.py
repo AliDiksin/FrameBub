@@ -3,10 +3,14 @@
 import difflib
 import re
 
-from bubbot.frame_data.sf6_parser_helpers import normalize_button_word_notation
-from bubbot.frame_data.sf6_parser_helpers import normalize_directional_normal_notation
-from bubbot.frame_data.sf6_parser_helpers import normalize_grounded_normal_notation
-from bubbot.frame_data.sf6_parser_helpers import token_is_stock_hint
+from bubbot.frame_data.sf6_parser_helpers import (
+    normalize_button_word_notation,
+    normalize_charge_button_notation,
+    normalize_charge_up_motion_notation,
+    normalize_directional_normal_notation,
+    normalize_grounded_normal_notation,
+    token_is_stock_hint,
+)
 
 from bubbot.utils.notation_match_utils import find_rows_by_notation_prefix, looks_like_notation_query
 from bubbot.utils.text_utils import correct_alias_typos
@@ -36,6 +40,8 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     
     data = frame_data[char_key]
     move_input = normalize_jump_normal_text(move_input.lower().strip())
+    move_input = normalize_charge_button_notation(move_input)
+    move_input = normalize_charge_up_motion_notation(move_input)
     move_input = normalize_button_word_notation(move_input)
 
     def normalize_strength_word_shorthand(text):
@@ -437,6 +443,7 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     if (
         move_input not in char_aliases
         and move_input not in input_aliases
+        and ">" not in move_input
         and not re.fullmatch(r"[1-9][0-9]*(?:lp|mp|hp|lk|mk|hk|pp|kk|p|k)", move_input)
     ):
         corrected_move_input = correct_alias_typos(move_input, char_aliases, input_aliases)
@@ -657,7 +664,10 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         num_cmd_normalized = normalize_num_cmd_for_lookup(num_cmd)
         num_cmd_generic = normalize_num_cmd_generic_for_lookup(num_cmd)
         if combo_input and ">" in num_cmd:
-            if re.sub(r"\s+", "", num_cmd) == combo_input:
+            if any(
+                re.sub(r"\s+", "", option) == combo_input
+                for option in num_cmd.split("/")
+            ):
                 return row
         # exact match numCmd (5MP)
         if num_cmd == move_input:
@@ -836,4 +846,3 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
             return fuzzy_alias_row
 
     return None
-

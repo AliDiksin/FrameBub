@@ -76,7 +76,6 @@ async def handle_sf6_message(
     missing_scrolls_query = bool(fd_context_payload.get("missing_scrolls_query"))
     gif_query = bool(fd_context_payload.get("gif_query"))
     explicit_move_attempt = bool(fd_context_payload.get("explicit_move_attempt"))
-    fallback_reply = fd_context_data if fd_context_data else None
 
     def row_matches_requested_strength(row, query_text):
         move_name = str(row.get("moveName", "")).lower().strip()
@@ -172,7 +171,6 @@ async def handle_sf6_message(
                 missing_scrolls_query = bool(rewritten_payload.get("missing_scrolls_query"))
                 gif_query = bool(rewritten_payload.get("gif_query"))
                 explicit_move_attempt = bool(rewritten_payload.get("explicit_move_attempt"))
-                fallback_reply = fd_context_data if fd_context_data else None
                 print(f"[parser-private] rewritten query: {rewritten_lookup_query}", flush=True)
 
     if gif_query and not frame_command_is_addressed:
@@ -232,6 +230,7 @@ async def handle_sf6_message(
     vague_move_query_without_output_intent = False
     implied_rows = []
     implied_data = ""
+    implied_has_special_prompt = False
     if (
         frame_command_is_addressed
         and allow_implied_frame_routing
@@ -298,13 +297,20 @@ async def handle_sf6_message(
             return
 
         if vague_move_query_without_output_intent:
+            if implied_has_special_prompt:
+                try:
+                    sent_prompt = await message.reply(implied_data)
+                    sf6_prompt_replies.remember_special_strength_prompt_mode(sent_prompt.id, "frame")
+                except Exception as reply_error:
+                    if is_deleted_message_reference_error(reply_error):
+                        print("Special strength options implied reply target deleted. Triggering failsafe.", flush=True)
+                        await send_deleted_message_failsafe(message.channel)
+                    else:
+                        print(f"Special strength options implied reply error: {reply_error}", flush=True)
+                return
             default_rows = implied_rows or fd_context_rows
-            default_data = implied_data or fd_context_data
-            frame_sent_ids = await send_frame_table_response(message, default_rows, default_data)
+            frame_sent_ids = await send_frame_table_response(message, default_rows)
             _record_frame_data_ids(frame_sent_ids)
-            if not frame_sent_ids and default_data:
-                sent = await message.reply(default_data)
-                _record_frame_data_ids([sent.id], response_text=default_data)
             return
 
         if (
@@ -320,18 +326,8 @@ async def handle_sf6_message(
             and not super_gain_alias_query
             and not range_alias_query
         ):
-            frame_sent_ids = await send_frame_table_response(message, fd_context_rows, fd_context_data)
+            frame_sent_ids = await send_frame_table_response(message, fd_context_rows)
             _record_frame_data_ids(frame_sent_ids)
-            if not frame_sent_ids and fd_context_data:
-                try:
-                    sent = await message.reply(fd_context_data)
-                    _record_frame_data_ids([sent.id], response_text=fd_context_data)
-                except Exception as reply_error:
-                    if is_deleted_message_reference_error(reply_error):
-                        print("Comparison frame reply target deleted. Triggering failsafe.", flush=True)
-                        await send_deleted_message_failsafe(message.channel)
-                    else:
-                        print(f"Comparison frame reply error: {reply_error}", flush=True)
             return
 
         if combined_frame_gif_request and frame_command_is_addressed:
@@ -364,7 +360,7 @@ async def handle_sf6_message(
 
             frame_table_already_sent = False
             if fd_context_rows:
-                _record_frame_data_ids(await send_frame_table_response(message, fd_context_rows, fd_context_data))
+                _record_frame_data_ids(await send_frame_table_response(message, fd_context_rows))
                 frame_table_already_sent = True
 
                 gif_frame_rows = fd_context_rows
@@ -513,7 +509,7 @@ async def handle_sf6_message(
                     print(f"Special strength options reply error: {reply_error}", flush=True)
             return
         if target_combo_query and fd_context_mode == "frame" and fd_context_rows:
-            _record_frame_data_ids(await send_frame_table_response(message, fd_context_rows, fd_context_data))
+            _record_frame_data_ids(await send_frame_table_response(message, fd_context_rows))
             return
         requested_sf6_property_key = _requested_property_key(content_lower)
         if property_only_query and requested_sf6_property_key and fd_context_mode == "frame" and fd_context_rows:
@@ -589,18 +585,8 @@ async def handle_sf6_message(
             and not range_alias_query
             and not gif_query
         ):
-            frame_sent_ids = await send_frame_table_response(message, fd_context_rows, fd_context_data)
+            frame_sent_ids = await send_frame_table_response(message, fd_context_rows)
             _record_frame_data_ids(frame_sent_ids)
-            if not frame_sent_ids and fd_context_data:
-                try:
-                    sent = await message.reply(fd_context_data)
-                    _record_frame_data_ids([sent.id], response_text=fd_context_data)
-                except Exception as reply_error:
-                    if is_deleted_message_reference_error(reply_error):
-                        print("Direct frame reply target deleted. Triggering failsafe.", flush=True)
-                        await send_deleted_message_failsafe(message.channel)
-                    else:
-                        print(f"Direct frame reply error: {reply_error}", flush=True)
             return
 
         if buenavista_extension.should_handle_frame_context_request(
@@ -620,7 +606,7 @@ async def handle_sf6_message(
                 property_only_query=property_only_query,
                 frame_reply_embeds=frame_reply_embeds,
                 frame_reply_rows=frame_reply_rows,
-                fallback_reply=fallback_reply,
+                fallback_reply=None,
                 strip_discord_mentions=strip_discord_mentions,
                 is_deleted_message_reference_error=is_deleted_message_reference_error,
                 send_frame_embeds_with_views=send_frame_embeds_with_views,
@@ -678,7 +664,7 @@ async def handle_sf6_message(
             content_no_mentions=content_no_mentions,
             content_lower=content_lower,
             replied_context=replied_context,
-            fallback_reply=fallback_reply,
+            fallback_reply=None,
             frame_reply_embeds=frame_reply_embeds,
             frame_reply_rows=frame_reply_rows,
             strip_discord_mentions=strip_discord_mentions,

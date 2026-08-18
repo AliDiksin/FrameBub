@@ -325,6 +325,7 @@ def should_use_sf6_move_image_for_gif(row):
             and row_num_cmd == "5lp>5lp>6lk>5hp"
             and row_move_name_norm == "shun goku satsu"
         )
+        or (char_key == "akuma" and row_num_cmd == "22ppp")
         or (
             str(row.get("moveType", "")).lower() == "throw"
             and (
@@ -920,5 +921,4 @@ def resolve_hitbox_gif_query_alias(char_key, move_query):
         "ex hermit punch": "od drink level 4 freeflow strikes (2)",
     }
     return jamie_gif_aliases.get(query_raw, query_raw)
-
 

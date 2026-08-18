@@ -20,6 +20,45 @@ BUTTON_ALIASES = {
     "hk": "hk", "h k": "hk", "heavy kick": "hk", "roundhouse": "hk",
 }
 
+CHARGE_BUTTON_PATTERN = re.compile(
+    r"(?<![a-z0-9])([1-9][0-9]*)\s*\[\s*(lp|mp|hp|lk|mk|hk|pp|kk|p|k)\s*\]",
+    re.IGNORECASE,
+)
+CHARGE_UP_MOTION_PATTERN = re.compile(r"(?<![0-9])\[\s*2\s*\]\s*8", re.IGNORECASE)
+CHARGE_UP_FOLLOWUP_PATTERN = re.compile(
+    r"(?<![0-9])(28k{1,2})\s*(?:~|>|-)\s*(p{1,2}|k{1,2})\b",
+    re.IGNORECASE,
+)
+COMPACT_CHARGE_UP_FOLLOWUP_PATTERN = re.compile(
+    r"(?<![0-9])(28k{1,2})(p{1,2})\b",
+    re.IGNORECASE,
+)
+
+
+def query_has_charge_button_notation(text):
+    return bool(CHARGE_BUTTON_PATTERN.search(str(text or "")))
+
+
+def normalize_charge_button_notation(text):
+    """Turn Street Fighter hold notation such as ``2[HP]`` into parser tokens."""
+    return CHARGE_BUTTON_PATTERN.sub(
+        lambda match: f"{match.group(1)}{match.group(2).lower()} hold",
+        str(text or ""),
+    )
+
+
+def normalize_charge_up_motion_notation(text):
+    """Normalize down-charge-up notation and its kick follow-ups."""
+    text = CHARGE_UP_MOTION_PATTERN.sub("28", str(text or ""))
+    text = CHARGE_UP_FOLLOWUP_PATTERN.sub(
+        lambda match: f"{match.group(1).lower()}>{match.group(2).lower()}",
+        text,
+    )
+    return COMPACT_CHARGE_UP_FOLLOWUP_PATTERN.sub(
+        lambda match: f"{match.group(1).lower()}>{match.group(2).lower()}",
+        text,
+    )
+
 
 def normalize_button_word_notation(text):
     """Convert full button names such as ``heavy punch`` to ``hp``."""

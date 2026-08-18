@@ -2,6 +2,7 @@
 
 CHARACTER_INPUT_ALIASES = {
         "akuma": {
+            "ppp": "ashura senku (forward)",
             "demon flip": "demon raid",
             "od demon flip": "od demon raid",
             "ex demon flip": "od demon raid",
@@ -251,6 +252,9 @@ CHARACTER_INPUT_ALIASES = {
             "ex oicho throw": "od oicho throw",
         },
         "m.bison": {
+            "stomp": "head press",
+            "od stomp": "od head press",
+            "ex stomp": "od head press",
             "46p": "psycho crusher",
             "46lp": "lp psycho crusher",
             "46mp": "mp psycho crusher",

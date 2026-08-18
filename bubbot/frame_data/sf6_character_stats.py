@@ -128,6 +128,7 @@ def parse_stats_intent(
     gif_query=False,
     property_only_query=False,
     startup_alias_query=False,
+    charge_button_query=False,
 ):
     if not mentioned_chars:
         return StatsIntent(False, tuple(), None, False)
@@ -138,6 +139,8 @@ def parse_stats_intent(
     jump_normal_move_query = _query_has_jump_normal_move_intent(text_lower)
     directional_normal_move_query = query_has_directional_normal_notation(text_lower)
     grounded_normal_move_query = query_has_grounded_normal_notation(text_lower)
+    if charge_button_query and phrase_keys:
+        phrase_keys = tuple(key for key in phrase_keys if key != "health")
     if air_throw_move_query and phrase_keys:
         phrase_keys = tuple(
             key for key in phrase_keys
@@ -158,6 +161,8 @@ def parse_stats_intent(
     if directional_normal_move_query and not broad_stats:
         wants_stats = False
     if grounded_normal_move_query and not broad_stats:
+        wants_stats = False
+    if charge_button_query and not broad_stats:
         wants_stats = False
 
     if (startup_alias_query or property_only_query) and not broad_stats and not phrase_keys:
@@ -297,6 +302,7 @@ def apply_stats_context(
     gif_query=False,
     property_only_query=False,
     startup_alias_query=False,
+    charge_button_query=False,
 ):
     stats_intent = parse_stats_intent(
         text_lower,
@@ -306,6 +312,7 @@ def apply_stats_context(
         gif_query=gif_query,
         property_only_query=property_only_query,
         startup_alias_query=startup_alias_query,
+        charge_button_query=charge_button_query,
     )
     if not stats_intent.wants_stats:
         return stats_intent, results, formatted_blocks

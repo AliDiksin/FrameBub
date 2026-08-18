@@ -122,6 +122,7 @@ def _format_requested_property_reply(rows, property_key, *, game="sf6"):
                     break
             if not value:
                 value = "-"
+        value = discord.utils.escape_markdown(value)
         char_name = str(row.get("char_name") or row.get("char_key") or "Unknown").strip()
         move_name = str(row.get("moveName") or row.get("name") or row.get("numCmd") or "Unknown").strip()
         num_cmd = str(row.get("numCmd") or row.get("input") or "?").strip()
