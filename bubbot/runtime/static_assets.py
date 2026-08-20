@@ -1,7 +1,6 @@
 """Optional local HTTP server for bundled embed assets (source icons, etc.).
 Serves bubbot/assets over aiohttp when BUB_DISABLE_STATIC_ASSETS is unset.
 public_base_url() builds the URL embed footers use for source attribution."""
-# Asset serving is optional; embed callers can fall back to Discord attachments when disabled.
 
 from __future__ import annotations
 

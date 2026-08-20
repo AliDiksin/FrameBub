@@ -20,6 +20,7 @@ MISSING_HITBOX_GIF_TEXT = (
 )
 MISSING_SCROLLS_TEXT = (
     "I don't have the scrolls for that move. "
+    "Please try slash commands or the menu until it gets fixed. "
     f"{FRAME_DATA_ERROR_CONTACT_TEXT}"
 )
 RANGE_SCROLLS_MISSING_TEXT = "the range of that move is not on the supercombo scrolls"
@@ -27,5 +28,4 @@ RANGE_MISSING_PLACEHOLDERS = {"{{{atkrange}}}"}
 
 LOCAL_HITBOX_GIF_ROOT = os.path.join(BASE_DIR, "sf6frames", "files")
 LOCAL_HITBOX_GIF_EXTENSIONS = {".webp", ".gif", ".png", ".jpg", ".jpeg"}
-
 

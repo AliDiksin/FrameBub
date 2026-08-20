@@ -1,5 +1,4 @@
 """Cross-game same-button and side-specific vs/comparison query parsing."""
-# Comparison parsing is game-agnostic; game modules still own row matching and formatting.
 
 import re
 

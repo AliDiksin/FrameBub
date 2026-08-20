@@ -1,5 +1,4 @@
 """Import generated move-image cache modules and merge nested URL dicts."""
-# Generated caches are optional runtime inputs; a missing cache must not block frame-data loading.
 
 import importlib
 

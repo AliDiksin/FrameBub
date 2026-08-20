@@ -1,5 +1,4 @@
 """Dee Jay Jus Cool / sway alias and result filters."""
-# Dee Jay follow-ups are normalized here before the shared SF6 candidate pipeline sees them.
 
 import re
 

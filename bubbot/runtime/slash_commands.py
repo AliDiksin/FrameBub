@@ -1,9 +1,10 @@
 """Public slash command registration and global Discord command tree sync.
 Registers /sf6, cross-game frame lookups, combos, stats, and /bub menu handlers once per tree."""
-# Registration is centralized here; command callbacks delegate to parser and feature modules.
 
+import os
 import re
 
+import aiohttp
 import discord
 
 from bubbot.utils.choice_utils import autocomplete_values, character_choices, move_choices
@@ -13,13 +14,178 @@ from bubbot.frame_data.sf6_character_stats import (
     build_slash_stats_query,
     sf6_stat_slash_autocomplete_values,
 )
-from bubbot.runtime.slash_activity import (
-    _bulk_sync_global_commands_with_activity_entry,
-    _delete_streetfighterdle_activity_entry_command,
-    _register_streetfighterdle_activity_entry_command,
-    sync_public_slash_commands,
-)
 from bubbot.utils.slash_frame_flow import send_slash_frame_result, send_slash_stats_result
+
+
+def _env_int(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+async def _post_activity_entry_command(session, url, payload, authorization_label, authorization_value):
+    headers = {"Authorization": authorization_value, "Content-Type": "application/json"}
+    async with session.post(url, headers=headers, json=payload) as response:
+        body = await response.text()
+        if response.status >= 400:
+            print(
+                f"[streetfighterdle] primary entry command registration failed "
+                f"auth={authorization_label} status={response.status}: {body[:300]}",
+                flush=True,
+            )
+            return False
+    print(
+        f"[streetfighterdle] Primary Activity entry command registered via {authorization_label}.",
+        flush=True,
+    )
+    return True
+
+
+def _streetfighterdle_activity_entry_payload():
+    return {
+        "name": "Streetfighterdle",
+        "description": "Launch Streetfighterdle Activity",
+        "type": 4,
+        "handler": 2,
+        "integration_types": [0],
+        "contexts": [0],
+    }
+
+
+async def _bulk_sync_global_commands_with_activity_entry(client, tree, local_commands):
+    application_id = _env_int("STREETFIGHTERDLE_ACTIVITY_APPLICATION_ID", 0)
+    if not application_id:
+        application_id = getattr(client, "application_id", None) or getattr(getattr(client, "user", None), "id", None)
+    token = os.getenv("DISCORD_TOKEN")
+    if not application_id or not token:
+        return None
+
+    payload = [command.to_dict(tree) for command in local_commands]
+    payload = [command for command in payload if int(command.get("type", 1) or 1) != 4]
+    payload.append(_streetfighterdle_activity_entry_payload())
+    url = f"https://discord.com/api/v10/applications/{application_id}/commands"
+    headers = {"Authorization": f"Bot {token}", "Content-Type": "application/json"}
+    async with aiohttp.ClientSession() as session:
+        async with session.put(url, headers=headers, json=payload) as response:
+            body = await response.text()
+            if response.status >= 400:
+                print(
+                    f"[menu] Global slash/activity command raw sync failed "
+                    f"status={response.status}: {body[:500]}",
+                    flush=True,
+                )
+                return None
+            try:
+                return await response.json(content_type=None)
+            except Exception:
+                print(f"[menu] Global slash/activity command raw sync returned invalid JSON: {body[:500]}", flush=True)
+                return None
+
+
+async def _delete_existing_activity_entry_commands(session, application_id, authorization_label, authorization_value):
+    base_url = f"https://discord.com/api/v10/applications/{application_id}/commands"
+    headers = {"Authorization": authorization_value}
+    async with session.get(base_url, headers=headers) as response:
+        body = await response.text()
+        if response.status >= 400:
+            print(
+                f"[streetfighterdle] primary entry command lookup failed "
+                f"auth={authorization_label} status={response.status}: {body[:300]}",
+                flush=True,
+            )
+            return False
+        try:
+            commands = await response.json(content_type=None)
+        except Exception:
+            print(f"[streetfighterdle] primary entry command lookup returned invalid JSON: {body[:300]}", flush=True)
+            return False
+    deleted_any = False
+    for command in commands or []:
+        if int(command.get("type", 0) or 0) != 4:
+            continue
+        command_id = command.get("id")
+        if not command_id:
+            continue
+        async with session.delete(f"{base_url}/{command_id}", headers=headers) as response:
+            body = await response.text()
+            if response.status >= 400:
+                print(
+                    f"[streetfighterdle] primary entry command delete failed "
+                    f"auth={authorization_label} status={response.status}: {body[:300]}",
+                    flush=True,
+                )
+                return False
+        deleted_any = True
+    if deleted_any:
+        print(f"[streetfighterdle] Deleted existing Primary Activity entry command via {authorization_label}.", flush=True)
+    return True
+
+
+async def _discord_client_credentials_token(session, application_id):
+    client_secret = (
+        os.getenv("DISCORD_CLIENT_SECRET")
+        or os.getenv("DISCORD_APPLICATION_CLIENT_SECRET")
+        or ""
+    ).strip()
+    if not client_secret:
+        return None
+    data = {
+        "grant_type": "client_credentials",
+        "scope": "applications.commands.update",
+    }
+    async with session.post(
+        "https://discord.com/api/v10/oauth2/token",
+        data=data,
+        auth=aiohttp.BasicAuth(str(application_id), client_secret),
+    ) as response:
+        payload = await response.json(content_type=None)
+        if response.status >= 400:
+            print(
+                f"[streetfighterdle] client-credentials token request failed "
+                f"status={response.status}: {str(payload)[:300]}",
+                flush=True,
+            )
+            return None
+    return payload.get("access_token")
+
+
+async def _register_streetfighterdle_activity_entry_command(client):
+    application_id = _env_int("STREETFIGHTERDLE_ACTIVITY_APPLICATION_ID", 0)
+    if not application_id:
+        application_id = getattr(client, "application_id", None) or getattr(getattr(client, "user", None), "id", None)
+    token = os.getenv("DISCORD_TOKEN")
+    if not application_id or not token:
+        return
+    payload = _streetfighterdle_activity_entry_payload()
+    url = f"https://discord.com/api/v10/applications/{application_id}/commands"
+    try:
+        async with aiohttp.ClientSession() as session:
+            if await _post_activity_entry_command(session, url, payload, "bot", f"Bot {token}"):
+                return
+            bearer_token = await _discord_client_credentials_token(session, application_id)
+            if bearer_token:
+                await _post_activity_entry_command(session, url, payload, "client_credentials", f"Bearer {bearer_token}")
+    except Exception as error:
+        print(f"[streetfighterdle] primary entry command registration error: {error}", flush=True)
+
+
+async def _delete_streetfighterdle_activity_entry_command(client):
+    application_id = _env_int("STREETFIGHTERDLE_ACTIVITY_APPLICATION_ID", 0)
+    if not application_id:
+        application_id = getattr(client, "application_id", None) or getattr(getattr(client, "user", None), "id", None)
+    token = os.getenv("DISCORD_TOKEN")
+    if not application_id or not token:
+        return
+    try:
+        async with aiohttp.ClientSession() as session:
+            if await _delete_existing_activity_entry_commands(session, application_id, "bot", f"Bot {token}"):
+                return
+            bearer_token = await _discord_client_credentials_token(session, application_id)
+            if bearer_token:
+                await _delete_existing_activity_entry_commands(session, application_id, "client_credentials", f"Bearer {bearer_token}")
+    except Exception as error:
+        print(f"[streetfighterdle] primary entry command cleanup error: {error}", flush=True)
 
 
 def register_slash_commands(tree, deps):
@@ -32,6 +198,7 @@ def register_slash_commands(tree, deps):
     frame_stats = deps["frame_stats"]
     resolve_character_key = deps["resolve_character_key"]
     find_moves_in_text = deps["find_moves_in_text"]
+    build_frame_embed = deps["build_frame_embed"]
     frame_output_module = deps["frame_output_module"]
     ggst_module = deps["ggst_module"]
     sfv_module = deps["sfv_module"]
@@ -265,60 +432,6 @@ def register_slash_commands(tree, deps):
         )
         return selected_choice_row(move_name, choices), char_key
 
-    def selected_game_row(module, char_name, move_name, rows, *, key_fields, char_state=None):
-        char_key = module.resolve_character_key(char_name)
-        if not char_key:
-            return None, None
-        candidate_rows = list(rows or [])
-        if char_state:
-            state_key = re.sub(r"[^a-z0-9]+", "", str(char_state).lower())
-            candidate_rows = [
-                row
-                for row in candidate_rows
-                if state_key
-                in {
-                    re.sub(r"[^a-z0-9]+", "", str(row.get("state_key", "")).lower()),
-                    re.sub(r"[^a-z0-9]+", "", str(row.get("state_label", "")).lower()),
-                }
-            ]
-        choices = move_choices(candidate_rows, label_fn=move_choice_label, key_fields=key_fields)
-        return selected_choice_row(move_name, choices), char_key
-
-    def ggst_selected_row(char_name, move_name, char_state=None):
-        char_key = ggst_module.resolve_character_key(char_name)
-        if not char_key:
-            return None, None
-        rows = list(ggst_module.GGST_FRAME_DATA.get(char_key, []) or [])
-        rows.extend(ggst_module.GGST_SUPPLEMENTAL_FRAME_DATA.get(char_key, []) or [])
-        for state_rows in (ggst_module.GGST_STATE_FRAME_DATA.get(char_key, {}) or {}).values():
-            rows.extend(state_rows or [])
-        return selected_game_row(
-            ggst_module,
-            char_name,
-            move_name,
-            rows,
-            key_fields=("moveName", "numCmd", "moveType"),
-            char_state=char_state,
-        )
-
-    def sfv_selected_row(char_name, move_name, char_state=None):
-        char_key = sfv_module.resolve_character_key(char_name)
-        if not char_key:
-            return None, None
-        rows = list(sfv_module.SFV_FRAME_DATA.get(char_key, []) or [])
-        for state_rows in (sfv_module.SFV_TRIGGER_FRAME_DATA.get(char_key, {}) or {}).values():
-            rows.extend(state_rows or [])
-        if char_state:
-            char_state = sfv_module.query_requested_state(char_state) or char_state
-        return selected_game_row(
-            sfv_module,
-            char_name,
-            move_name,
-            rows,
-            key_fields=("moveName", "numCmd", "state_label"),
-            char_state=char_state,
-        )
-
     async def send_sf6_slash_stats(interaction, char_name, stat=None):
         char_key = resolve_character_key(char_name)
         stats_row = (frame_stats or {}).get(char_key or "")
@@ -355,6 +468,7 @@ def register_slash_commands(tree, deps):
             move_name=move_name,
             query=query,
             parse_fn=find_moves_in_text,
+            embed_fn=build_frame_embed,
             game="sf6",
             game_label="SF6",
             selected_row=None if char_state else selected_row,
@@ -363,20 +477,8 @@ def register_slash_commands(tree, deps):
         )
 
     async def send_ggst_slash_frame(interaction, char_name, move_name, char_state=None):
-        selected_row, selected_char_key = ggst_selected_row(char_name, move_name, char_state)
         query = f"ggst {char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(
-            interaction,
-            char_name=char_name,
-            move_name=move_name,
-            query=query,
-            parse_fn=ggst_module.find_moves_in_text,
-            game="ggst",
-            game_label="GGST",
-            selected_row=selected_row,
-            selected_char_key=selected_char_key,
-            disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
-        )
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=ggst_module.find_moves_in_text, embed_fn=ggst_module.build_frame_embed, game="ggst", game_label="GGST", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
 
     async def send_sfv_slash_frame(interaction, char_name, move_name, char_state=None):
@@ -385,98 +487,23 @@ def register_slash_commands(tree, deps):
                 char_state = "vt1"
             elif re.search(r"\[\s*v-?trigger\s*2\s*\]", str(move_name or ""), re.IGNORECASE):
                 char_state = "vt2"
-        selected_row, selected_char_key = sfv_selected_row(char_name, move_name, char_state)
         query = f"sfv {char_name} {char_state or ''} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(
-            interaction,
-            char_name=char_name,
-            move_name=move_name,
-            query=query,
-            parse_fn=sfv_module.find_moves_in_text,
-            game="sfv",
-            game_label="SFV",
-            selected_row=selected_row,
-            selected_char_key=selected_char_key,
-            disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
-        )
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=sfv_module.find_moves_in_text, embed_fn=sfv_module.build_frame_embed, game="sfv", game_label="SFV", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
+
     async def send_tuco_slash_frame(interaction, char_name, move_name):
-        char_key = tuco_module.resolve_character_key(char_name)
-        selected_row, selected_char_key = selected_game_row(
-            tuco_module,
-            char_name,
-            move_name,
-            tuco_module.TUCO_FRAME_DATA.get(char_key, []) if char_key else [],
-            key_fields=("moveName", "numCmd"),
-        )
         query = f"2xko {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(
-            interaction,
-            char_name=char_name,
-            move_name=move_name,
-            query=query,
-            parse_fn=tuco_module.find_moves_in_text,
-            game="tuco",
-            game_label="2XKO",
-            selected_row=selected_row,
-            selected_char_key=selected_char_key,
-            disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
-        )
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=tuco_module.find_moves_in_text, embed_fn=tuco_module.build_frame_embed, game="tuco", game_label="2XKO", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_bbcf_slash_frame(interaction, char_name, move_name):
-        char_key = bbcf_module.resolve_character_key(char_name)
-        selected_row, selected_char_key = selected_game_row(
-            bbcf_module,
-            char_name,
-            move_name,
-            bbcf_module.BBCF_FRAME_DATA.get(char_key, []) if char_key else [],
-            key_fields=("moveName", "numCmd", "moveType"),
-        )
         query = f"bbcf {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(
-            interaction,
-            char_name=char_name,
-            move_name=move_name,
-            query=query,
-            parse_fn=bbcf_module.find_moves_in_text,
-            game="bbcf",
-            game_label="BBCF",
-            selected_row=selected_row,
-            selected_char_key=selected_char_key,
-            disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
-        )
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=bbcf_module.find_moves_in_text, embed_fn=bbcf_module.build_frame_embed, game="bbcf", game_label="BBCF", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_ggacr_slash_frame(interaction, char_name, move_name):
-        char_key = ggacr_module.resolve_character_key(char_name)
-        selected_row, selected_char_key = selected_game_row(
-            ggacr_module,
-            char_name,
-            move_name,
-            ggacr_module.GGACR_FRAME_DATA.get(char_key, []) if char_key else [],
-            key_fields=("moveName", "numCmd", "moveType"),
-        )
         query = f"ggacr {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(
-            interaction,
-            char_name=char_name,
-            move_name=move_name,
-            query=query,
-            parse_fn=ggacr_module.find_moves_in_text,
-            game="ggacr",
-            game_label="GGACR",
-            selected_row=selected_row,
-            selected_char_key=selected_char_key,
-            disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
-        )
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=ggacr_module.find_moves_in_text, embed_fn=ggacr_module.build_frame_embed, game="ggacr", game_label="GGACR", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_cotw_slash_frame(interaction, char_name, move_name):
-        char_key = cotw_module.resolve_character_key(char_name)
-        selected_row, selected_char_key = selected_game_row(
-            cotw_module,
-            char_name,
-            move_name,
-            cotw_module.COTW_FRAME_DATA.get(char_key, []) if char_key else [],
-            key_fields=("moveName", "numCmd", "moveType"),
-        )
         query = f"cotw {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
         await send_slash_frame_result(
             interaction,
@@ -484,58 +511,19 @@ def register_slash_commands(tree, deps):
             move_name=move_name,
             query=query,
             parse_fn=cotw_module.find_moves_in_text,
+            embed_fn=cotw_module.build_frame_embed,
             game="cotw",
             game_label="COTW",
-            selected_row=selected_row,
-            selected_char_key=selected_char_key,
             disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
         )
 
     async def send_third_strike_slash_frame(interaction, char_name, move_name):
-        char_key = third_strike_module.resolve_character_key(char_name)
-        selected_row, selected_char_key = selected_game_row(
-            third_strike_module,
-            char_name,
-            move_name,
-            third_strike_module.THIRD_STRIKE_FRAME_DATA.get(char_key, []) if char_key else [],
-            key_fields=("moveName", "numCmd", "version", "moveType"),
-        )
         query = f"3s {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(
-            interaction,
-            char_name=char_name,
-            move_name=move_name,
-            query=query,
-            parse_fn=third_strike_module.find_moves_in_text,
-            game="third_strike",
-            game_label="Third Strike",
-            selected_row=selected_row,
-            selected_char_key=selected_char_key,
-            disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
-        )
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=third_strike_module.find_moves_in_text, embed_fn=third_strike_module.build_frame_embed, game="third_strike", game_label="Third Strike", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_mk1_slash_frame(interaction, char_name, move_name):
-        char_key = mk1_module.resolve_character_key(char_name)
-        selected_row, selected_char_key = selected_game_row(
-            mk1_module,
-            char_name,
-            move_name,
-            mk1_module.MK1_FRAME_DATA.get(char_key, []) if char_key else [],
-            key_fields=("moveName", "numCmd", "moveType"),
-        )
         query = f"mk1 {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
-        await send_slash_frame_result(
-            interaction,
-            char_name=char_name,
-            move_name=move_name,
-            query=query,
-            parse_fn=mk1_module.find_moves_in_text,
-            game="mk1",
-            game_label="MK1",
-            selected_row=selected_row,
-            selected_char_key=selected_char_key,
-            disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"),
-        )
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=mk1_module.find_moves_in_text, embed_fn=mk1_module.build_frame_embed, game="mk1", game_label="MK1", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
     async def send_slash_combos(interaction, game, char_name, difficulty=None, position=None, group=None):
         query_parts = [game, char_name, group or "", difficulty or "", position or "", "combos"]
@@ -810,3 +798,66 @@ def register_slash_commands(tree, deps):
     async def mk1_combo_position_autocomplete(interaction: discord.Interaction, current: str):
         return slash_choices(autocomplete_values(current, ["midscreen", "corner"]))
 
+async def sync_public_slash_commands(client, tree):
+    """
+    Sync global slash commands and clear stale guild-scoped copies.
+
+    Duplicate /command entries in Discord usually mean the same commands were
+    synced globally and to a guild during an earlier deploy, not duplicate
+    registrations in our CommandTree.
+    """
+    local_commands = list(tree.get_commands())
+    local_names = [cmd.name for cmd in local_commands]
+    if len(local_names) != len(set(local_names)):
+        print(f"[menu] WARNING: duplicate slash names in local tree: {local_names}", flush=True)
+
+    guild_ids_to_clear = set()
+    channel_id = os.getenv("CHANNEL_ID")
+    if channel_id:
+        try:
+            channel = client.get_channel(int(channel_id))
+            if channel and getattr(channel, "guild", None):
+                guild_ids_to_clear.add(int(channel.guild.id))
+        except (TypeError, ValueError):
+            pass
+    for env_name in ("DISCORD_GUILD_ID", "GUILD_ID"):
+        raw_guild_id = os.getenv(env_name)
+        if not raw_guild_id:
+            continue
+        try:
+            guild_ids_to_clear.add(int(raw_guild_id))
+        except ValueError:
+            print(f"[menu] Ignoring invalid {env_name}={raw_guild_id!r}", flush=True)
+
+    for guild_id in sorted(guild_ids_to_clear):
+        guild_obj = discord.Object(id=guild_id)
+        tree.clear_commands(guild=guild_obj)
+        await tree.sync(guild=guild_obj)
+        print(f"[menu] Cleared guild-scoped slash commands for guild {guild_id}", flush=True)
+
+    raw_synced = await _bulk_sync_global_commands_with_activity_entry(client, tree, local_commands)
+    if raw_synced is not None:
+        synced_names = sorted(
+            f"{command.get('name')}" + (" (activity)" if int(command.get("type", 1) or 1) == 4 else "")
+            for command in raw_synced
+            if command.get("name")
+        )
+        print(
+            f"[menu] Global slash/activity commands synced ({len(synced_names)}): "
+            + ", ".join(f"/{name}" for name in synced_names),
+            flush=True,
+        )
+        return raw_synced
+
+    await _delete_streetfighterdle_activity_entry_command(client)
+    synced = await tree.sync()
+    synced_names = sorted(cmd.name for cmd in synced)
+    print(
+        f"[menu] Global slash commands synced ({len(synced_names)}): "
+        + ", ".join(f"/{name}" for name in synced_names),
+        flush=True,
+    )
+    if len(synced_names) != len(set(synced_names)):
+        print("[menu] WARNING: Discord sync returned duplicate command names", flush=True)
+    await _register_streetfighterdle_activity_entry_command(client)
+    return synced

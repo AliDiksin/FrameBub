@@ -1,16 +1,12 @@
 """BBCF frame parser, embeds, hitbox/image/notes helpers."""
 
+import os
 import re
 
 import discord
+import pandas as pd
 
-from bubbot.data.bbcf_aliases import (
-    BBCF_CHARACTER_ALIASES,
-    BBCF_CHARACTER_MOVE_ALIASES,
-    BBCF_LOOKUP_WORDS,
-    BBCF_MOVE_ALIASES,
-)
-from bubbot.utils.parser_results import parser_result
+from bubbot.data.bbcf_aliases import BBCF_CHARACTER_ALIASES, BBCF_LOOKUP_WORDS, BBCF_MOVE_ALIASES
 from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
@@ -20,7 +16,6 @@ from bubbot.utils.frame_match_utils import find_matching_rows_standard
 from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
-from bubbot.utils.frame_data_loader import load_normal_frame_data
 
 
 BBCF_FRAME_DATA_FILE = "BBCF Frame Data.ods"
@@ -112,13 +107,36 @@ def display_char_name(char_key):
 
 
 def load_frame_data(filename=None):
-    return load_normal_frame_data(
-        filename or BBCF_FRAME_DATA_FILE,
-        BBCF_FRAME_DATA,
-        BBCF_CHARACTER_ALIASES,
-        "bbcf",
-        alias_variants=("key", "space", "name"),
-    )
+    global BBCF_FRAME_DATA
+    BBCF_FRAME_DATA = {}
+    filename = filename or BBCF_FRAME_DATA_FILE
+    if not os.path.exists(filename):
+        print(f"[bbcf] frame data file not found: {filename}", flush=True)
+        return False
+    xls = pd.ExcelFile(filename, engine="odf")
+    loaded = 0
+    for sheet_name in xls.sheet_names:
+        if not sheet_name.endswith("Normal"):
+            continue
+        df = pd.read_excel(xls, sheet_name=sheet_name).fillna("")
+        rows = []
+        for row in df.to_dict("records"):
+            char_key = str(row.get("char_key") or row.get("char_name") or sheet_name[: -len("Normal")]).strip().lower()
+            move_name = str(row.get("moveName", "")).strip()
+            num_cmd = str(row.get("numCmd", "")).strip()
+            if not move_name and not num_cmd:
+                continue
+            row["char_key"] = char_key
+            row["char_name"] = str(row.get("char_name") or sheet_name[: -len("Normal")]).strip()
+            rows.append(row)
+        if rows:
+            BBCF_FRAME_DATA[rows[0]["char_key"]] = rows
+            BBCF_CHARACTER_ALIASES.setdefault(rows[0]["char_key"], rows[0]["char_key"])
+            BBCF_CHARACTER_ALIASES.setdefault(rows[0]["char_key"].replace("_", " "), rows[0]["char_key"])
+            BBCF_CHARACTER_ALIASES.setdefault(str(rows[0]["char_name"]).lower(), rows[0]["char_key"])
+            loaded += 1
+    print(f"[bbcf] Total characters loaded: {loaded}", flush=True)
+    return bool(BBCF_FRAME_DATA)
 
 
 def find_characters_in_text(text):
@@ -146,12 +164,6 @@ def normalize_move_query(query):
             return BBCF_MOVE_ALIASES[corrected_compact]
         return corrected_text
     return text
-
-
-def normalize_character_move_query(char_key, query):
-    normalized = normalize_move_query(query)
-    aliases = BBCF_CHARACTER_MOVE_ALIASES.get(char_key, {})
-    return aliases.get(normalized, aliases.get(normalize_move_token(normalized), normalized))
 
 
 def _normalize_bbcf_notation_spacing(text):
@@ -191,17 +203,9 @@ def _bbcf_notation_query(query_key):
 
 
 def _find_matching_rows_generic(char_key, move_text):
-    query = normalize_character_move_query(char_key, move_text)
+    query = normalize_move_query(move_text)
     query_key = normalize_move_token(query)
     rows = BBCF_FRAME_DATA.get(char_key, []) or []
-    if _bbcf_notation_query(query_key):
-        exact_command_rows = unique_rows(
-            row
-            for row in rows
-            if normalize_move_token(row.get("numCmd", "")) == query_key
-        )
-        if exact_command_rows:
-            return exact_command_rows
     return find_matching_rows_standard(
         rows,
         query,
@@ -216,7 +220,7 @@ def _find_matching_rows_generic(char_key, move_text):
 def _find_mai_followup_rows(char_key, move_text):
     if char_key != "mai_natsume" or not re.search(r"\bfollow\s*ups?\b", str(move_text or "").lower()):
         return []
-    query_key = normalize_move_token(normalize_character_move_query(char_key, move_text))
+    query_key = normalize_move_token(normalize_move_query(move_text))
     if not query_key.startswith("5xa"):
         return []
     rows = BBCF_FRAME_DATA.get(char_key, []) or []
@@ -324,35 +328,35 @@ def find_moves_in_text(text):
     if comparison_result and comparison_result.get("needs_disambiguation"):
         char_key = comparison_result["char_key"]
         matches = comparison_result["rows"]
-        return parser_result(
-            "options",
-            matches,
-            build_disambiguation_prompt(char_key, matches),
-            gif_query=hitbox_query,
-            frame_query=frame_query,
-            game_query=game_query,
-            notes_query=notes_query,
-            needs_disambiguation=True,
-            char_found=True,
-            char_key=char_key,
-            wants_comparison=True,
-        )
+        return {
+            "mode": "options",
+            "rows": matches,
+            "data": build_disambiguation_prompt(char_key, matches),
+            "gif_query": hitbox_query,
+            "frame_query": frame_query,
+            "game_query": game_query,
+            "notes_query": notes_query,
+            "needs_disambiguation": True,
+            "char_found": True,
+            "char_key": char_key,
+            "wants_comparison": True,
+        }
     if comparison_result:
         rows = comparison_result["rows"]
-        return parser_result(
-            "gif" if hitbox_query else "frame",
-            rows,
-            "\n\n".join(format_frame_data(row, include_notes=notes_query) for row in rows),
-            gif_query=hitbox_query,
-            frame_query=frame_query,
-            game_query=game_query,
-            notes_query=notes_query,
-            char_found=True,
-            char_key=comparison_result.get("char_key") or matched_char_key,
-            wants_comparison=True,
-            explicit_move_attempt=True,
-            missing_scrolls_query=False,
-        )
+        return {
+            "mode": "gif" if hitbox_query else "frame",
+            "rows": rows,
+            "data": "\n\n".join(format_frame_data(row, include_notes=notes_query) for row in rows),
+            "gif_query": hitbox_query,
+            "frame_query": frame_query,
+            "game_query": game_query,
+            "notes_query": notes_query,
+            "char_found": True,
+            "char_key": comparison_result.get("char_key") or matched_char_key,
+            "wants_comparison": True,
+            "explicit_move_attempt": True,
+            "missing_scrolls_query": False,
+        }
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip() if start >= 0 and end >= 0 else lowered
         matches = []
@@ -368,38 +372,36 @@ def find_moves_in_text(text):
                 rows.extend(matches)
                 quiz_answer_too_broad = True
                 break
-            return parser_result(
-                "options",
-                matches,
-                build_disambiguation_prompt(char_key, matches),
-                gif_query=hitbox_query,
-                frame_query=frame_query,
-                game_query=game_query,
-                notes_query=notes_query,
-                needs_disambiguation=True,
-                char_found=True,
-                char_key=char_key,
-            )
+            return {
+                "mode": "options",
+                "rows": matches,
+                "data": build_disambiguation_prompt(char_key, matches),
+                "gif_query": hitbox_query,
+                "frame_query": frame_query,
+                "game_query": game_query,
+                "notes_query": notes_query,
+                "needs_disambiguation": True,
+                "char_found": True,
+                "char_key": char_key,
+            }
         if matches:
             rows.append(matches[0])
             break
-    return parser_result(
-        "gif" if hitbox_query else "frame" if rows else "none",
-        rows,
-        "\n\n".join(format_frame_data(row, include_notes=notes_query) for row in rows),
-        gif_query=hitbox_query,
-        frame_query=frame_query,
-        game_query=game_query,
-        notes_query=notes_query,
-        char_found=bool(char_matches),
-        char_key=matched_char_key,
-        wants_comparison=is_comparison_query(lowered, char_matches),
-        explicit_move_attempt=bool(
-            char_matches and (frame_query or hitbox_query or game_query or query_has_bbcf_notation(lowered))
-        ),
-        missing_scrolls_query=bool(char_matches and not rows and (frame_query or hitbox_query or game_query)),
-        quiz_answer_too_broad=quiz_answer_too_broad,
-    )
+    return {
+        "mode": "gif" if hitbox_query else "frame" if rows else "none",
+        "rows": rows,
+        "data": "\n\n".join(format_frame_data(row, include_notes=notes_query) for row in rows),
+        "gif_query": hitbox_query,
+        "frame_query": frame_query,
+        "game_query": game_query,
+        "notes_query": notes_query,
+        "char_found": bool(char_matches),
+        "char_key": matched_char_key,
+        "wants_comparison": is_comparison_query(lowered, char_matches),
+        "explicit_move_attempt": bool(char_matches and (frame_query or hitbox_query or game_query or query_has_bbcf_notation(lowered))),
+        "missing_scrolls_query": bool(char_matches and not rows and (frame_query or hitbox_query or game_query)),
+        "quiz_answer_too_broad": quiz_answer_too_broad,
+        }
 
 
 # Discord embed output
@@ -418,7 +420,7 @@ def get_move_image_url(row):
     )
 
 
-def get_hitbox_links(row, limit=None):
+def get_hitbox_links(row, limit=4):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
     links = (BBCF_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
@@ -426,7 +428,7 @@ def get_hitbox_links(row, limit=None):
     return clean_links[:limit] if limit is not None else clean_links
 
 
-def get_media_links(row, limit=None):
+def get_media_links(row, limit=4):
     links = get_hitbox_links(row, limit=None)
     image_url = get_move_image_url(row)
     if image_url and image_url not in links:
@@ -487,8 +489,50 @@ def build_frame_embed(row, show_notes=False):
     return embed
 
 
+class BBCFHitboxButton(discord.ui.Button):
+    def __init__(self, row, showing_hitbox=False):
+        self.frame_row = row
+        self.hitbox_links = get_hitbox_links(row)
+        self.original_image_url = get_move_image_url(row)
+        self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
+        super().__init__(
+            label="Hide Image" if self.showing_hitbox else "Show Hitbox",
+            style=discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary,
+            disabled=not self.hitbox_links,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if not self.hitbox_links:
+            await interaction.response.send_message(
+                f"I have BBCF frame data for this move but no hitbox image link yet. "
+                f"{FRAME_DATA_ERROR_CONTACT_TEXT}",
+                ephemeral=True,
+            )
+            return
+        self.showing_hitbox = not self.showing_hitbox
+        self.label = "Hide Image" if self.showing_hitbox else "Show Hitbox"
+        self.style = discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary
+        embed = self.view.build_embed() if hasattr(self.view, "build_embed") else build_frame_embed(self.frame_row)
+        image_url = self.hitbox_links[0] if self.showing_hitbox else self.original_image_url
+        if image_url:
+            embed.set_image(url=image_url)
+        await interaction.response.edit_message(embed=embed, view=self.view)
 
 
+class BBCFAllHitboxImagesButton(discord.ui.Button):
+    def __init__(self, row):
+        self.hitbox_links = get_media_links(row, limit=None)
+        super().__init__(
+            label="Show All Images",
+            style=discord.ButtonStyle.success,
+            disabled=len(self.hitbox_links) <= 1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if len(self.hitbox_links) <= 1:
+            await interaction.response.defer()
+            return
+        await interaction.response.send_message("\n".join(self.hitbox_links))
 
 
 class BBCFNotesButton(discord.ui.Button):
