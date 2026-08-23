@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import aiohttp
 import discord
+import pandas as pd
 
 from bubbot.data.cotw_aliases import COTW_CHARACTER_ALIASES, COTW_MOVE_ALIASES
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
@@ -16,7 +17,6 @@ from bubbot.utils.frame_match_utils import find_matching_rows_standard
 from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
-from bubbot.utils.frame_data_loader import load_normal_frame_data
 
 
 COTW_FRAME_DATA_FILE = "COTW Frame Data.ods"
@@ -90,13 +90,35 @@ def display_char_name(char_key):
 
 
 def load_frame_data(filename=None):
-    return load_normal_frame_data(
-        filename or COTW_FRAME_DATA_FILE,
-        COTW_FRAME_DATA,
-        COTW_CHARACTER_ALIASES,
-        "cotw",
-        alias_variants=("space", "name"),
-    )
+    global COTW_FRAME_DATA
+    COTW_FRAME_DATA = {}
+    filename = filename or COTW_FRAME_DATA_FILE
+    if not os.path.exists(filename):
+        print(f"[cotw] frame data file not found: {filename}", flush=True)
+        return False
+    xls = pd.ExcelFile(filename, engine="odf")
+    loaded = 0
+    for sheet_name in xls.sheet_names:
+        if not sheet_name.endswith("Normal"):
+            continue
+        df = pd.read_excel(xls, sheet_name=sheet_name).fillna("")
+        rows = []
+        for row in df.to_dict("records"):
+            char_key = str(row.get("char_key") or row.get("char_name") or sheet_name[: -len("Normal")]).strip().lower()
+            move_name = str(row.get("moveName", "")).strip()
+            num_cmd = str(row.get("numCmd", "")).strip()
+            if not move_name and not num_cmd:
+                continue
+            row["char_key"] = char_key
+            row["char_name"] = str(row.get("char_name") or sheet_name[: -len("Normal")]).strip()
+            rows.append(row)
+        if rows:
+            COTW_FRAME_DATA[rows[0]["char_key"]] = rows
+            COTW_CHARACTER_ALIASES.setdefault(rows[0]["char_key"].replace("_", " "), rows[0]["char_key"])
+            COTW_CHARACTER_ALIASES.setdefault(str(rows[0]["char_name"]).lower(), rows[0]["char_key"])
+            loaded += 1
+    print(f"[cotw] Total characters loaded: {loaded}", flush=True)
+    return bool(COTW_FRAME_DATA)
 
 
 def find_characters_in_text(text):

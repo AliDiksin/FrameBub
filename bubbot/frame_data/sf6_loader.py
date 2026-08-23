@@ -1,4 +1,4 @@
-"""Load SF6 ODS frame data: Jamie drink sheets, attack ranges, local GIF index refresh."""
+"""Load SF6 ODS frame data: character-sheet ranges, Jamie drink sheets, local GIF index refresh."""
 
 import os
 import re
@@ -59,125 +59,33 @@ def merge_jamie_drink_level_sheets(xls, frame_data):
             previous_signatures[row_key] = row_signature
 
 
-# Attack range token normalization
+def apply_local_data_corrections(frame_data):
+    # Google currently reports 4000 for both OD Siberian Express distance variants.
+    for row in frame_data.get("zangief", []):
+        input_value = re.sub(r"\s+", "", str(row.get("numCmd", "")).lower())
+        if input_value in {"624kk(near)", "624kk(far)"}:
+            row["SelfSoH"] = "2500, 4000"
 
 
-def normalize_range_cmd_token(value):
-    raw_text = str(value or "").lower()
-    is_air_context = bool(
-        "(air" in raw_text
-        or raw_text.startswith("j.")
-        or raw_text.startswith("j ")
-        or raw_text.startswith("j")
-        or "jump" in raw_text
-    )
-    text = raw_text
-    text = text.replace("->", ">")
-    text = text.replace("~", ">")
-    text = text.replace("|", "/")
-    text = re.sub(r"\bor\b", "/", text)
-    text = re.sub(r"\([^)]*\)", "", text)
-    text = re.sub(r"\s+", "", text)
-    text = re.sub(r"[^a-z0-9>/+]", "", text)
-    text = text.replace("+", "")
-    text = re.sub(r"^j42684268", "j720", text)
-    text = re.sub(r"^42684268", "720", text)
-    text = re.sub(r"^j4268", "j360", text)
-    text = re.sub(r"^4268", "360", text)
-    if is_air_context and re.match(r"^(360|720)", text):
-        text = f"j{text}"
-    return text
-
-
-def build_range_cmd_tokens(value):
-    normalized = normalize_range_cmd_token(value)
-    if not normalized:
-        return []
-    tokens = []
-    for part in normalized.split("/"):
-        token = part.strip()
-        if not token:
-            continue
-        if token not in tokens:
-            tokens.append(token)
-        if token.startswith("5") and len(token) > 1:
-            token_without_five = token[1:]
-            if token_without_five and token_without_five not in tokens:
-                tokens.append(token_without_five)
-    return tokens
-
-
-# Backfill atkRange from RangeData sheet
-
-
-def hydrate_range_data(xls, frame_data, range_data, character_lookup, normalize_char_name, is_missing_attack_range_value, build_num_cmd_candidates_for_gif):
-    def choose_preferred_range(values):
-        cleaned_values = [str(value).strip() for value in values if str(value).strip()]
-        if not cleaned_values:
-            return ""
-        for value in cleaned_values:
-            if not is_missing_attack_range_value(value):
-                return value
-        return ""
-
-    range_sheet_name = next((name for name in xls.sheet_names if name.lower() in {"range", "ranges"}), None)
-    if range_sheet_name:
-        range_df = pd.read_excel(xls, sheet_name=range_sheet_name, dtype=str).fillna("")
-        for range_row in range_df.to_dict("records"):
-            char_raw = str(range_row.get("chara", "")).strip()
-            input_raw = str(range_row.get("input", "")).strip()
-            atk_range_raw = str(range_row.get("atkRange", "")).strip()
-            if not char_raw or not input_raw:
-                continue
-            char_key = character_lookup.get(normalize_char_name(char_raw))
-            if not char_key:
-                continue
-            for token in build_range_cmd_tokens(input_raw):
-                range_data.setdefault(char_key, {}).setdefault(token, []).append(atk_range_raw)
-    else:
-        print("Range sheet not found: ranges")
-
-    for char_key, records in frame_data.items():
-        char_ranges = range_data.get(char_key, {})
-        for row in records:
-            row_tokens = []
-            for token in build_range_cmd_tokens(row.get("numCmd", "")):
-                if token not in row_tokens:
-                    row_tokens.append(token)
-            for token in build_num_cmd_candidates_for_gif(row):
-                for variant in build_range_cmd_tokens(token):
-                    if variant not in row_tokens:
-                        row_tokens.append(variant)
-
-            selected_range = ""
-            for token in row_tokens:
-                if token not in char_ranges:
-                    continue
-                selected_range = choose_preferred_range(char_ranges[token])
-                if selected_range:
-                    break
-            row["atkRange"] = selected_range
-
-
-# Main ODS load: normals, stats, ranges, gif refresh
+# Main ODS load: normals, stats, local GIF refresh
 
 
 def load_frame_data(deps):
     frame_data = deps["FRAME_DATA"]
     frame_stats = deps["FRAME_STATS"]
     hitbox_gif_data = deps["HITBOX_GIF_DATA"]
-    range_data = deps["RANGE_DATA"]
     character_aliases = deps["CHARACTER_ALIASES"]
     normalize_char_name = deps["normalize_char_name"]
     is_missing_attack_range_value = deps["is_missing_attack_range_value"]
-    build_num_cmd_candidates_for_gif = deps["build_num_cmd_candidates_for_gif"]
     configure_extracted_modules = deps["configure_extracted_modules"]
     load_local_hitbox_gif_data = deps["load_local_hitbox_gif_data"]
     quiz_module = deps["quiz_module"]
     frame_output_module = deps["frame_output_module"]
 
     filename = "FAT - SF6 Frame Data.ods"
-    quiz_module.reset_quiz_caches()
+    quiz_module.QUIZ_CHARACTER_TERMS_CACHE = None
+    quiz_module.QUIZ_MOVE_NAME_TERMS_CACHE = None
+    quiz_module.QUIZ_CHARACTER_CENSOR_PATTERNS_CACHE = None
     if not os.path.exists(filename):
         print(f"File not found: {filename}")
         return
@@ -189,7 +97,6 @@ def load_frame_data(deps):
         frame_data.clear()
         frame_stats.clear()
         hitbox_gif_data.clear()
-        range_data.clear()
 
         for sheet_name in xls.sheet_names:
             if sheet_name.endswith("Normal"):
@@ -205,6 +112,7 @@ def load_frame_data(deps):
                 frame_stats[char_name] = dict(zip(df["name"], df["stat"]))
 
         merge_jamie_drink_level_sheets(xls, frame_data)
+        apply_local_data_corrections(frame_data)
 
         print(f"Total characters loaded: {len(frame_data)}")
         print(f"Total stats loaded: {len(frame_stats)}")
@@ -216,22 +124,11 @@ def load_frame_data(deps):
                 character_lookup[normalize_char_name(alias)] = canonical
                 character_lookup[normalize_char_name(canonical)] = canonical
 
-        hydrate_range_data(
-            xls,
-            frame_data,
-            range_data,
-            character_lookup,
-            normalize_char_name,
-            is_missing_attack_range_value,
-            build_num_cmd_candidates_for_gif,
-        )
-
         configure_extracted_modules()
         hitbox_gif_data.update(load_local_hitbox_gif_data(character_lookup))
         configure_extracted_modules()
 
         print(f"Total hitbox gif links loaded: {sum(len(entries) for entries in hitbox_gif_data.values())}")
-        print(f"Total range inputs loaded: {sum(len(entries) for entries in range_data.values())}")
 
         quiz_module.configure(
             FRAME_DATA=frame_data,

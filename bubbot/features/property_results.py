@@ -34,7 +34,7 @@ PROPERTY_VALUE_ALIASES = [
     ("gatling", "Gatling", ("gatling",), r"\bgatling\b"),
     ("invuln", "Invuln", ("invuln", "invul"), r"\binvuln(?:erability)?\b|\binvul\b"),
     ("attribute", "Attribute", ("attribute",), r"\battribute\b"),
-    ("range", "Range", ("atkRange", "range"), r"\b(?:range|length)\b"),
+    ("range", "Range", ("range",), r"\b(?:range|length)\b"),
     ("hitconfirm", "Hit Confirm Window", ("hcWinSpCa", "hcWinTc", "hcWinNotes"), r"\bhit\s*-?\s*confirm\b|\bhitconfirm\b|\bhc\b|\bconfirm\s+(?:window|timing)\b|\bconfirmable\b"),
     ("super_gain", "Super Gain", ("SelfSoH", "SelfSoB"), r"\bsuper\s*gain\b|\bsuper\s*meter\s*gain\b|\bsuper\s*build\b|\bsa\s*gain\b"),
     ("meter_gain", "Meter Gain", ("meterGain",), r"\bmeter\s*gain\b"),
@@ -90,7 +90,7 @@ def _format_requested_property_reply(rows, property_key, *, game="sf6"):
     _key, label, fields, _pattern = config
     lines = []
     for row in rows:
-        if property_key == "range" and row.get("atkRange") is not None:
+        if property_key == "range" and row.get("range") is not None:
             range_reply = format_range_only_reply([row])
             if range_reply:
                 lines.append(range_reply)

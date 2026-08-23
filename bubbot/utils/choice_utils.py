@@ -1,5 +1,4 @@
 """Autocomplete ordering and generic character/move choice builders."""
-# Choice order is stable for autocomplete and bounded by Discord's select-option limit.
 
 import difflib
 

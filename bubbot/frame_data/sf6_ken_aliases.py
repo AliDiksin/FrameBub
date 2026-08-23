@@ -1,5 +1,4 @@
 """Ken Jinrai, run, and Dragonlash alias and result filters."""
-# Ken's Jinrai/run aliases are data exceptions, not global notation aliases.
 
 import re
 

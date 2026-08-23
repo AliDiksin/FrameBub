@@ -1,5 +1,4 @@
 """Shared multi-row matching: notation prefix, exact keys, name haystack, fuzzy."""
-# Matching stages are ordered from exact notation to fuzzy text so precise input always wins.
 
 from __future__ import annotations
 

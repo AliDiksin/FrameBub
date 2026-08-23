@@ -108,13 +108,6 @@ BBCF_MOVE_ALIASES = {
     "godpress": "63214C",
 }
 
-BBCF_CHARACTER_MOVE_ALIASES = {
-    "hazama": {
-        "houtenjin": "236236B",
-        "houten jin": "236236B",
-    },
-}
-
 
 BBCF_LOOKUP_WORDS = {
     "bbcf",

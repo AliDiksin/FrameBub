@@ -1,5 +1,4 @@
 """SF6 character-specific alias dispatcher, stocked aliases, stance/grab row collectors, Viper filters."""
-# Character-specific collection stays behind this dispatcher instead of spreading rules through the parser.
 
 import re
 
@@ -604,21 +603,20 @@ def collect_character_specific_rows(
                 ("command grab", ""), ("spd", ""), ("360", ""),
             ]
             for pattern, strength in spd_patterns:
-                if not re.search(rf"(?<![a-z0-9]){re.escape(pattern)}(?![a-z0-9])", text_lower):
-                    continue
-                if not strength and query_has_explicit_strength:
-                    continue
-                move_names = (
-                    [f"{strength} command grab", f"{strength} screw piledriver", f"{strength} mexican typhoon"]
-                    if strength
-                    else ["command grab", "screw piledriver", "mexican typhoon"]
-                )
-                for move_name in move_names:
-                    row = lookup_frame_data(char, move_name)
-                    if row and row not in results:
-                        results.append(row)
-                        break
-                break
+                if pattern in text_lower:
+                    if not strength and query_has_explicit_strength:
+                        continue
+                    move_names = (
+                        [f"{strength} command grab", f"{strength} screw piledriver", f"{strength} mexican typhoon"]
+                        if strength
+                        else ["command grab", "screw piledriver", "mexican typhoon"]
+                    )
+                    for move_name in move_names:
+                        row = lookup_frame_data(char, move_name)
+                        if row and row not in results:
+                            results.append(row)
+                            break
+                    break
 
         if char == "zangief" and zangief_borscht_context:
             borscht_lookup = "od borscht dynamite" if (

@@ -67,7 +67,7 @@ def load_move_image_urls(module_name=SF6_MOVE_IMAGES_MODULE):
 
 
 def get_attack_range_details(row):
-    raw_value = str(row.get("atkRange", "")).strip()
+    raw_value = str(row.get("range", "")).strip()
     if is_missing_attack_range_value(raw_value):
         return "", False
     return raw_value, True
@@ -78,6 +78,19 @@ def format_attack_range_for_table(row):
     if has_numeric_range:
         return range_value
     return RANGE_SCROLLS_MISSING_TABLE_TEXT
+
+def format_frame_data(row):
+    """Format a frame data row into readable text."""
+    atk_range = format_attack_range_for_table(row)
+    return (
+        f"Move: {row['moveName']} ({row['numCmd']})\n"
+        f"Startup: {row['startup']}f | Active: {row['active']}f | Recovery: {row['recovery']}f\n"
+        f"Range: {atk_range}\n"
+        f"On Hit: {row['onHit']} | On Block: {row['onBlock']}\n"
+        f"Damage: {row['dmg']} | Attack Type: {format_guard_value(row['atkLvl'])}\n"
+        f"Notes: {row.get('extraInfo', '')}"
+    )
+
 
 def normalize_image_key(value):
     return compact_key(value)
@@ -719,7 +732,7 @@ async def _send_sf6_frame_result_messages(
     return sent_ids
 
 
-async def send_frame_table_response(message, rows):
+async def send_frame_table_response(message, rows, data_text):
     from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
     from bubbot.features.menu_system import build_frame_result_view
 
@@ -750,10 +763,6 @@ async def send_frame_table_response(message, rows):
         return sent_ids
     except Exception as e:
         print(f"Direct frame embed send failed: {e}", flush=True)
-        try:
-            await message.reply("I couldn't send the frame-data embed. Please try again.")
-        except Exception as reply_error:
-            print(f"Frame embed failure reply failed: {reply_error}", flush=True)
     return []
 
 
@@ -761,25 +770,21 @@ async def send_gif_links_response(message, gif_links, wants_comparison=False):
     if not gif_links:
         return []
     try:
-        if wants_comparison:
-            asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=None)
-            if asset_paths:
-                sent_ids = []
-                for batch_start in range(0, len(asset_paths), DISCORD_ATTACHMENT_LIMIT):
-                    batch_paths = asset_paths[batch_start : batch_start + DISCORD_ATTACHMENT_LIMIT]
-                    files = [discord.File(path, filename=os.path.basename(path)) for path in batch_paths]
-                    if batch_start == 0:
-                        sent = await message.reply(files=files)
-                    else:
-                        sent = await message.channel.send(files=files)
-                    sent_ids.append(sent.id)
-                return sent_ids
-            sent = await message.reply("\n".join(gif_links))
+        asset_limit = len(gif_links) if wants_comparison else 1
+        asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=asset_limit)
+        if asset_paths:
+            if wants_comparison and len(asset_paths) > 1:
+                sent = await message.reply(
+                    files=[discord.File(path, filename=os.path.basename(path)) for path in asset_paths]
+                )
+            else:
+                sent = await message.reply(
+                    file=discord.File(asset_paths[0], filename=os.path.basename(asset_paths[0]))
+                )
             return [sent.id]
 
-        asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=1)
-        if asset_paths:
-            sent = await message.reply(file=discord.File(asset_paths[0], filename=os.path.basename(asset_paths[0])))
+        if wants_comparison and len(gif_links) > 1:
+            sent = await message.reply("\n".join(gif_links))
         else:
             sent = await message.reply(gif_links[0])
         return [sent.id]

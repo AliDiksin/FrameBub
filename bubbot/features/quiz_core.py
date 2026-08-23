@@ -397,7 +397,7 @@ def build_quiz_question_text(round_num, total_rounds, row, mode="hard"):
     damage    = _fmt_quiz_field(row, "dmg")
     guard     = _fmt_quiz_field(row, "atkLvl")
     cancel    = clean_embed_value(row.get("xx", ""), default="-", strip_brackets=True) or "-"
-    atk_range = _fmt_quiz_field(row, "atkRange")
+    atk_range = _fmt_quiz_field(row, "range")
     # Use existing is_missing_attack_range_value to suppress placeholder text
     if is_missing_attack_range_value(atk_range):
         atk_range = "-"
