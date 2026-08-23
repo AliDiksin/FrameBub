@@ -97,7 +97,6 @@ bubbot/
   data/             # Alias maps, generated image caches
   utils/            # Shared text, comparison, Discord helpers
 scripts/            # Cache builders and scrapers
-regressions/        # Focused regression tests
 mk1/                # MK1 JSON source data
 *.ods               # Frame data source files (one per game)
 ```
