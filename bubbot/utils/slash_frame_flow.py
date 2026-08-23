@@ -1,4 +1,5 @@
 """Shared slash-command helpers for framedata and stats embed responses."""
+# Slash handlers pass selected rows directly to avoid reparsing labels and creating ambiguity prompts.
 
 async def send_slash_frame_result(
     interaction,
@@ -7,7 +8,6 @@ async def send_slash_frame_result(
     move_name,
     query,
     parse_fn,
-    embed_fn,
     game,
     game_label,
     selected_row=None,

@@ -529,25 +529,6 @@ class SFVNotesButton(discord.ui.Button):
         await interaction.response.edit_message(embed=view.build_embed(), view=view, attachments=view.initial_files())
 
 
-class SFVHitboxButton(discord.ui.Button):
-    def __init__(self, row):
-        super().__init__(label="Show Hitbox", style=discord.ButtonStyle.primary)
-        self.frame_row = row
-
-    async def callback(self, interaction):
-        links = get_hitbox_links(self.frame_row)
-        if not links:
-            image_url = get_move_image_url(self.frame_row)
-            if image_url:
-                await interaction.response.send_message(
-                    "No dedicated SFV hitbox image is cached for this move, so here is the SuperCombo move image.\n"
-                    f"{image_url}",
-                    ephemeral=True,
-                )
-                return
-            await interaction.response.send_message("No SFV image link is cached for this move yet.", ephemeral=True)
-            return
-        await interaction.response.send_message("\n".join(links), ephemeral=True)
 
 
 async def send_frame_response(message, rows):

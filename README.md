@@ -1,80 +1,107 @@
-# FrameBub
+# FrameBub - Fighting Game Frame Data Bot
 
-FrameBub is a Discord bot for natural-language frame-data lookups, hitbox media, combos, quizzes, menus, reminders, and optional private LLM/voice features.
+A Discord bot that provides instant frame data, hitbox images, combo routes, and quiz challenges for 8 fighting games using natural language queries or interactive menus.
+
+## Features
+
+- **Natural Language Lookup** - Ask questions like `what is the framedata for ryu's fireball? ` or `Ryu vs ken 5hp` in plain English
+- **8 Supported Games** - SF6, SFV, GGST, 2XKO, BBCF, COTW, Third Strike, and MK1 with more to come
+- **Hitbox & GIF Images** - Toggle hitbox images and gifs.
+- **Compare Moves** - Press Compare to pick a second move and view both side by side
+- **Interactive Menu** - `/bub` opens a character and move selector for every game
+- **Slash Commands** - Dedicated `/sf6`, `/ggst`, `/sfv`, `/2xko`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1` commands
+- **Quiz Mode** - Test your knowledge with easy, medium, and hard frame data quizzes across all games
+- **Reminders** - Set reminders with timezone support
+- **Notes Toggle** - View move-specific notes from community wikis and frame data sources
 
 ## Supported Games
 
-- Street Fighter 6
-- Street Fighter V
-- Guilty Gear Strive
-- Guilty Gear Accent Core Plus R
-- 2XKO
-- BlazBlue Central Fiction
-- Fatal Fury: City of the Wolves
-- Street Fighter III: Third Strike
-- Mortal Kombat 1
+| Game | Source | Notes |
+|------|--------|-------|
+| Street Fighter 6 | FAT ODS | Local hitbox GIFs, SuperCombo images |
+| Street Fighter V | FAT ODS | V-Trigger separated rows, SuperCombo images |
+| Guilty Gear Strive | Dustloop ODS | Hitbox images, state-specific moves (Installs, Blood, etc.) |
+| 2XKO | Community ODS | Wiki-sourced images and hitboxes |
+| BlazBlue Central Fiction | Dustloop ODS | Hitbox images, move notes |
+| City of the Wolves | DreamCancel ODS | Regular move images (no hitbox images available) |
+| Third Strike | SuperCombo ODS | Hitbox images, versioned moves |
+| Mortal Kombat 1 | Kombat Akademy | Playable characters, Kameos, combo routes |
 
-Shared Guilty Gear characters default to Strive. Explicit +R tags and +R-exclusive characters select Accent Core.
+## Screenshots
 
-## Architecture
+| Natural Language | Menu System | Frame Data Table |
+|:---:|:---:|:---:|
+| <img width="400" alt="Natural language queries" src="https://github.com/user-attachments/assets/83ffd010-2605-4d66-97ae-09f8ed18bff9" /> | <img width="400" alt="Bub menu" src="https://github.com/user-attachments/assets/099056f2-a4f4-480f-97d6-c7f1f064b977" /> | <img width="400" alt="Frame data table" src="https://github.com/user-attachments/assets/afe309e9-efb6-4efb-854a-f57b1cd575f6" /> |
+| <img width="400" alt="Natural language query 2" src="https://github.com/user-attachments/assets/eb99c148-fcb1-4db9-9db7-a43b26fafb9c" /> | <img width="400" alt="Menu game select" src="https://github.com/user-attachments/assets/dadbef81-8e10-4f51-8ba1-2b24f7e2584e" /> | <img width="400" alt="Frame data table 2" src="https://github.com/user-attachments/assets/d6d93bf6-ff69-467e-a328-70a74c9e55c1" /> |
+| <img width="400" alt="Natural language query 3" src="https://github.com/user-attachments/assets/7105b5dc-d411-4096-8427-1b31b46e5880" /> | <img width="400" alt="Menu character select" src="https://github.com/user-attachments/assets/1d54d8b2-e13a-46ee-b553-dc6504e03214" /> | <img width="400" alt="Frame data table 3" src="https://github.com/user-attachments/assets/5cbe2769-0886-4926-9ef9-bf8c2fb253c8" /> |
 
-- `bot.py`: compatibility launcher.
-- `bubbot/runtime/`: Discord client, startup, message routing, slash commands, static assets, and optional private orchestration.
-- `bubbot/frame_data/`: per-game loaders, parsers, matching, embeds, media, stats, and combos.
-- `bubbot/features/`: menus, quiz, reminders, glossary, reports, optional LLM, and voice.
-- `bubbot/data/`: aliases, source metadata, glossary data, and generated image caches.
-- `bubbot/utils/`: shared matching, formatting, source attribution, logging, and slash helpers.
-- `scripts/`: data maintenance, local wiki export, and deployment operations.
+## Quick Reference
 
-Frame-data workbooks and `mk1/*.json` are resolved from the current working directory. Run commands from the repository root.
-
-## Local Setup
-
-In the OpenCode environment, bootstrap with the container Python rather than PATH's host Python:
-
-```sh
-/usr/bin/python3.13 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+### Natural Language Examples
+```
+@bub ryu 5hp framedata
+@bub ken fireball gif
+@bub mai ex fan
+@bub delete carl 5c framedata
+@bub 3s urien 5hp and 2mk
+@bub mk1 sub 1 framedata
+@bub ahri 5l vs ken 5p
 ```
 
-On Linux, `openwakeword` may need `--no-deps` when `tflite-runtime` has no compatible wheel.
+### Slash Commands
+| Command | Example |
+|---------|---------|
+| `/sf6` | `char_name: Ryu` `move_name: 236LP` |
+| `/ggst` | `char_name: Ky` `move_name: 5H` |
+| `/sfv` | `char_name: Ryu` `move_name: 5MP` |
+| `/2xko` | `char_name: Ahri` `move_name: 5L` |
+| `/bbcf` | `char_name: Ragna` `move_name: 5B` |
+| `/cotw` | `char_name: Ronaldo` `move_name: Far C` |
+| `/third-strike` | `char_name: Urien` `move_name: 5HP` |
+| `/mk1` | `char_name: Sub-Zero` `move_name: 1` |
 
-## Verification
+## Setup
 
-There is no configured test, lint, formatter, or typecheck suite. The focused wiring check is:
+### Prerequisites
+- Python 3.9+
+- Discord bot token
+- ODS frame data files (included in repo)
 
-```sh
-.venv/bin/python -c 'import bot; assert bot.client and bot.tree and callable(bot.main)'
+### Installation
+```bash
+git clone <repo-url>
+cd bub-but
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+pip install -r requirements.txt
 ```
 
-This imports configuration but does not call `client.run`. Do not use `python bot.py` as a smoke test; it connects to Discord, synchronizes commands, starts background services, and writes runtime state.
-
-## Live Deployment
-
-The live service runs on Fedora from `/var/lib/bub`. Deploy verified code with:
-
-```sh
-scripts/deploy_live.sh
+### Configuration
+Create a `.env` file:
+```
+DISCORD_TOKEN=your_bot_token_here
 ```
 
-The script stages and import-checks code, protects live secrets/state/workbooks, backs up replaced files, and restarts only after a real deployable change. Useful options:
-
-```sh
-scripts/deploy_live.sh --dry-run
-scripts/deploy_live.sh --no-restart
-scripts/deploy_live.sh --include-workbooks
+### Running
+```bash
+python bot.py
 ```
 
-Workbook deployment is opt-in because the live SF6 workbook is managed by `/etc/cron.d/bub-sf6-sync`.
+## Project Structure
 
-## LLM Wiki
-
-Refresh the sanitized source mirror after code changes:
-
-```sh
-/usr/bin/python3.13 scripts/sync_llm_wiki_sources.py
+```
+bubbot/
+  runtime/          # Bot entrypoint, message routing, slash commands
+  frame_data/       # Per-game parsers, embeds, and lookup helpers
+  features/         # Quiz, menu, reminders
+  data/             # Alias maps, generated image caches
+  utils/            # Shared text, comparison, Discord helpers
+scripts/            # Cache builders and scrapers
+regressions/        # Focused regression tests
+mk1/                # MK1 JSON source data
+*.ods               # Frame data source files (one per game)
 ```
 
-The mirror excludes credentials, logs, runtime state, workbooks, media, caches, and generated move-image tables.
+## License
 
-See `AGENTS.md` for live safety and workflow details.
+MIT

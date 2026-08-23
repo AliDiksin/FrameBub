@@ -1,10 +1,8 @@
 """2XKO frame parser, embeds, hitbox/image helpers."""
 
-import os
 import re
 
 import discord
-import pandas as pd
 
 from bubbot.data.tuco_aliases import TUCO_CHARACTER_ALIASES, TUCO_LOOKUP_WORDS, TUCO_MOVE_ALIASES
 from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
@@ -19,6 +17,7 @@ from bubbot.utils.discord_formatting import (
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.frame_match_utils import find_matching_rows_standard
 from bubbot.utils.notation_match_utils import looks_like_notation_query
+from bubbot.utils.frame_data_loader import load_normal_frame_data
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
 
@@ -94,35 +93,13 @@ def display_char_name(char_key):
 
 
 def load_frame_data(filename=None):
-    global TUCO_FRAME_DATA
-    TUCO_FRAME_DATA = {}
-    filename = filename or TUCO_FRAME_DATA_FILE
-    if not os.path.exists(filename):
-        print(f"[2xko] frame data file not found: {filename}", flush=True)
-        return False
-    xls = pd.ExcelFile(filename, engine="odf")
-    loaded = 0
-    for sheet_name in xls.sheet_names:
-        if not sheet_name.endswith("Normal"):
-            continue
-        df = pd.read_excel(xls, sheet_name=sheet_name).fillna("")
-        rows = []
-        for row in df.to_dict("records"):
-            char_key = str(row.get("char_key") or row.get("char_name") or sheet_name[: -len("Normal")]).strip().lower()
-            move_name = str(row.get("moveName", "")).strip()
-            num_cmd = str(row.get("numCmd", "")).strip()
-            if not move_name and not num_cmd:
-                continue
-            row["char_key"] = char_key
-            row["char_name"] = str(row.get("char_name") or sheet_name[: -len("Normal")]).strip()
-            rows.append(row)
-        if rows:
-            TUCO_FRAME_DATA[rows[0]["char_key"]] = rows
-            TUCO_CHARACTER_ALIASES.setdefault(rows[0]["char_key"], rows[0]["char_key"])
-            TUCO_CHARACTER_ALIASES.setdefault(str(rows[0]["char_name"]).lower(), rows[0]["char_key"])
-            loaded += 1
-    print(f"[2xko] Total characters loaded: {loaded}", flush=True)
-    return bool(TUCO_FRAME_DATA)
+    return load_normal_frame_data(
+        filename or TUCO_FRAME_DATA_FILE,
+        TUCO_FRAME_DATA,
+        TUCO_CHARACTER_ALIASES,
+        "2xko",
+        alias_variants=("key", "name"),
+    )
 
 
 def find_characters_in_text(text):
@@ -315,7 +292,7 @@ def get_move_image_url(row):
     return TUCO_MOVE_IMAGE_URLS.get((str(row.get("char_key", "")).strip().lower(), normalize_move_token(row.get("numCmd", ""))))
 
 
-def get_hitbox_links(row, limit=4):
+def get_hitbox_links(row, limit=None):
     char_key = str(row.get("char_key", "")).strip().lower()
     num_cmd_key = normalize_move_token(row.get("numCmd", ""))
     links = (TUCO_HITBOX_DATA.get(char_key, {}) or {}).get(num_cmd_key, [])
@@ -323,7 +300,7 @@ def get_hitbox_links(row, limit=4):
     return clean_links[:limit] if limit is not None else clean_links
 
 
-def get_media_links(row, limit=4):
+def get_media_links(row, limit=None):
     links = get_hitbox_links(row, limit=None)
     image_url = get_move_image_url(row)
     if image_url and image_url not in links:
@@ -358,34 +335,6 @@ def build_frame_embed(row, show_notes=False):
     return embed
 
 
-class TUCOHitboxButton(discord.ui.Button):
-    def __init__(self, row, showing_hitbox=False):
-        self.frame_row = row
-        self.hitbox_links = get_hitbox_links(row)
-        self.original_image_url = get_move_image_url(row)
-        self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
-        super().__init__(
-            label="Hide Image" if self.showing_hitbox else "Show Hitbox",
-            style=discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary,
-            disabled=not self.hitbox_links,
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        if not self.hitbox_links:
-            await interaction.response.send_message(
-                f"I have 2XKO frame data for this move but no hitbox image link yet. "
-                f"{FRAME_DATA_ERROR_CONTACT_TEXT}",
-                ephemeral=True,
-            )
-            return
-        self.showing_hitbox = not self.showing_hitbox
-        self.label = "Hide Image" if self.showing_hitbox else "Show Hitbox"
-        self.style = discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary
-        embed = self.view.build_embed() if hasattr(self.view, "build_embed") else build_frame_embed(self.frame_row)
-        image_url = self.hitbox_links[0] if self.showing_hitbox else self.original_image_url
-        if image_url:
-            embed.set_image(url=image_url)
-        await interaction.response.edit_message(embed=embed, view=self.view)
 
 
 class TUCONotesButton(discord.ui.Button):

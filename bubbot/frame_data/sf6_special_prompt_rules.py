@@ -1,4 +1,5 @@
 """SF6 character-specific special prompt skip/selection rules."""
+# These rules decide when a special-strength prompt is useful; they never perform row lookup.
 
 
 def should_skip_special_prompt_base(
@@ -7,12 +8,15 @@ def should_skip_special_prompt_base(
     base_name,
     air_tatsu_context,
     ken_run_followup_context,
+    alex_stance_followup_context=False,
 ):
     if char == "akuma" and base_name == "demon flip":
         return True
     if air_tatsu_context and char in {"ryu", "ken", "akuma"} and base_name in {"tatsu", "air tatsu"}:
         return True
     if ken_run_followup_context and char == "ken" and base_name in {"dp", "tatsu", "dragonlash"}:
+        return True
+    if alex_stance_followup_context and char == "alex" and base_name == "command grab":
         return True
     return False
 

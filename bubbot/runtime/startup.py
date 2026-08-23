@@ -1,6 +1,7 @@
 """Discord on_ready bootstrap: static assets, slash sync, schedulers, data load, module configure.
 Called from message_router once the bot connects; deps dict carries injected callables and state.
 Returns the reminder loop task handle when created or reused."""
+# Load data before dependency injection so every extracted module sees complete runtime tables.
 
 async def handle_ready(deps):
     import asyncio as _asyncio
@@ -42,6 +43,7 @@ async def handle_ready(deps):
 
     await buenavista_extension.start_background_tasks(client=client)
 
+    await reminder_manager.load()
     reminder_task_handle = deps.get("reminder_task_handle")
     if reminder_task_handle is None or reminder_task_handle.done():
         reminder_task_handle = _asyncio.create_task(reminder_manager.reminder_loop())

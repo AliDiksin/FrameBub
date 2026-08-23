@@ -1,4 +1,5 @@
 """SF6 Target Combo and Special Strength disambiguation reply parsing."""
+# Prompt mode is bounded state keyed by Discord message ID, not global parser state.
 
 import re
 
@@ -33,9 +34,6 @@ def parse_special_option_line(option_line):
         if option_name and option_cmd:
             return option_name, option_cmd
         return None, None
-    colon_match = re.fullmatch(r"(.+?):\s*`([^`]+)`", line)
-    if colon_match:
-        return colon_match.group(1).strip(), colon_match.group(2).strip()
     if not line.endswith(")"):
         return None, None
 
@@ -136,8 +134,8 @@ async def handle_target_combo_reply(deps, message, replied_context, content_no_m
     if "Target Combo Options" in tc_data:
         await message.reply(tc_data)
         return True
-    if tc_payload.get("mode") == "frame" and tc_rows and tc_data:
-        await send_frame_table_response(message, tc_rows, tc_data)
+    if tc_payload.get("mode") == "frame" and tc_rows:
+        await send_frame_table_response(message, tc_rows)
         return True
     return False
 
@@ -162,7 +160,6 @@ async def handle_special_strength_reply(
     collect_hitbox_gif_links_from_text = deps["collect_hitbox_gif_links_from_text"]
     send_frame_table_response = deps["send_frame_table_response"]
     send_gif_links_response = deps["send_gif_links_response"]
-    format_frame_data = deps["format_frame_data"]
     find_moves_in_text = deps["find_moves_in_text"]
     reply_and_log_response = deps.get("reply_and_log_response")
 
@@ -304,7 +301,7 @@ async def handle_special_strength_reply(
                         else:
                             await send_missing_gif_reply([direct_row])
                     elif special_request_mode == "both":
-                        await send_frame_table_response(message, [direct_row], format_frame_data(direct_row))
+                        await send_frame_table_response(message, [direct_row])
                         gif_links = []
                         direct_link = lookup_hitbox_gif_link(direct_row)
                         if direct_link:
@@ -320,7 +317,7 @@ async def handle_special_strength_reply(
                         else:
                             await send_missing_gif_reply([direct_row], include_framedata_button=False)
                     else:
-                        await send_frame_table_response(message, [direct_row], format_frame_data(direct_row))
+                        await send_frame_table_response(message, [direct_row])
                     return True
         special_query = f"{char_hint} {selected_value}".strip()
         special_query_lower = special_query.lower()
@@ -376,7 +373,7 @@ async def handle_special_strength_reply(
         await send_missing_gif_reply(special_rows)
         return True
     if special_request_mode == "both" and special_rows:
-        await send_frame_table_response(message, special_rows, special_data)
+        await send_frame_table_response(message, special_rows)
         gif_links = []
         if len(special_rows) == 1:
             direct_link = lookup_hitbox_gif_link(special_rows[0])
@@ -393,8 +390,8 @@ async def handle_special_strength_reply(
             return True
         await send_missing_gif_reply(special_rows, include_framedata_button=False)
         return True
-    if special_payload.get("mode") == "frame" and special_rows and special_data:
-        await send_frame_table_response(message, special_rows, special_data)
+    if special_payload.get("mode") == "frame" and special_rows:
+        await send_frame_table_response(message, special_rows)
         return True
     await message.reply(replied_context)
     return True
