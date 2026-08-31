@@ -21,7 +21,7 @@ from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url
 from bubbot.utils.frame_match_utils import find_matching_rows_standard
 from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
 
 
 GGACR_FRAME_DATA_FILE = "GGACR Frame Data.ods"
@@ -215,6 +215,7 @@ def find_characters_in_text(text):
 
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
+    text = strip_query_terms(text)
     text = strip_ggacr_game_tags(text)
     text = re.sub(
         r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|damage|dmg|guard|tension|gbp|gbm|prorate|cancel(?:l?able)?|invuln(?:erability)?|invul|attribute)\b",
@@ -286,7 +287,7 @@ def build_disambiguation_prompt(char_key, rows):
 
 
 def find_moves_in_text(text):
-    lowered = str(text or "").lower()
+    lowered = normalize_query_terms(text)
     hitbox_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     game_query = query_has_explicit_ggacr_tag(lowered)

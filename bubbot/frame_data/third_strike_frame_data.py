@@ -15,14 +15,14 @@ from bubbot.data.third_strike_aliases import (
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
-from bubbot.utils.frame_match_utils import match_rows_by_fuzzy_keys, normalized_query_words
+from bubbot.utils.frame_match_utils import filter_rows_by_strength, match_rows_by_fuzzy_keys, normalized_query_words, parse_strength_qualifier
 from bubbot.utils.notation_match_utils import (
     find_rows_by_notation_prefix,
     looks_like_notation_query,
     notation_prefix_matches_row_key,
 )
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
 
 
 THIRD_STRIKE_FRAME_DATA_FILE = "Third Strike Frame Data.ods"
@@ -199,6 +199,7 @@ def strip_genei_jin_terms(value):
 
 def normalize_move_query(query, char_key=None):
     text = str(query or "").lower().strip()
+    text = strip_query_terms(text)
     text = re.sub(r"<@!?\d+>", " ", text)
     text = re.sub(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|pictures?|notes?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
@@ -401,8 +402,7 @@ def _third_strike_notation_query(query_key):
     return looks_like_notation_query(query_key, "third_strike")
 
 
-def find_matching_rows(char_key, move_text):
-    query = normalize_move_query(move_text, char_key=char_key)
+def _find_matching_rows_unfiltered(char_key, move_text, query):
     query_key = normalize_move_token(query)
     if not query_key:
         return []
@@ -475,6 +475,18 @@ def find_matching_rows(char_key, move_text):
     return apply_match_preferences(char_key, unique_rows(fuzzy), move_text, query)
 
 
+def find_matching_rows(char_key, move_text):
+    query = normalize_move_query(move_text, char_key=char_key)
+    base_query, strengths, embedded_notation = parse_strength_qualifier(query)
+    candidates = [query, base_query] if embedded_notation else [base_query]
+    for candidate in candidates:
+        matches = _find_matching_rows_unfiltered(char_key, move_text, candidate)
+        matches = filter_rows_by_strength(matches, strengths)
+        if matches:
+            return matches
+    return []
+
+
 def build_disambiguation_prompt(char_key, rows):
     lines = [f"Multiple Third Strike moves match {display_char_name(char_key)}. Reply with the option number:"]
     for index, row in enumerate(rows, start=1):
@@ -510,7 +522,7 @@ def find_single_character_multi_move_rows(char_key, move_text):
 
 
 def find_moves_in_text(text):
-    lowered = str(text or "").lower()
+    lowered = normalize_query_terms(text)
     image_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     game_query = bool(re.search(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", lowered))

@@ -21,20 +21,23 @@ from bubbot.frame_data.sf6_character_aliases import (
     should_append_single_token_candidate,
     should_skip_keyword_input,
 )
-from bubbot.frame_data.sf6_character_stats import apply_stats_context
+from bubbot.frame_data.sf6_character_stats import apply_stats_context, match_stat_keys_in_text
 from bubbot.frame_data.sf6_parser_helpers import collect_normal_notation_inputs
 from bubbot.frame_data.sf6_parser_helpers import normalize_button_word_notation
 from bubbot.frame_data.sf6_parser_helpers import normalize_charge_button_notation
 from bubbot.frame_data.sf6_parser_helpers import normalize_charge_up_motion_notation
+from bubbot.frame_data.sf6_parser_helpers import normalize_direction_word_motion_notation
 from bubbot.frame_data.sf6_parser_helpers import query_has_directional_normal_notation
 from bubbot.frame_data.sf6_parser_helpers import query_has_charge_button_notation
 from bubbot.frame_data.sf6_parser_helpers import query_has_grounded_normal_notation
+from bubbot.frame_data.sf6_parser_helpers import query_mentions_loaded_move_name
 from bubbot.frame_data.sf6_special_prompt_rules import (
     choose_character_special_variant,
     should_skip_ambiguous_special_key,
     should_skip_special_prompt_base,
 )
 from bubbot.utils.character_lookup import find_fuzzy_aliases_in_text
+from bubbot.utils.text_utils import normalize_query_terms
 
 
 def find_moves_in_text(deps, text):
@@ -57,12 +60,13 @@ def find_moves_in_text(deps, text):
     check_punish = deps["check_punish"]
     """Extract character/move mentions and return context payload with mode."""
     found_data = []
-    text_lower = strip_discord_mentions(text).lower()
+    text_lower = normalize_query_terms(strip_discord_mentions(text).lower())
     charge_button_query = query_has_charge_button_notation(text_lower)
     text_lower = normalize_charge_button_notation(text_lower)
     text_lower = normalize_charge_up_motion_notation(text_lower)
     text_lower = normalize_jump_normal_text(text_lower)
     text_lower = normalize_button_word_notation(text_lower)
+    text_lower = normalize_direction_word_motion_notation(text_lower)
     text_lower = re.sub(r"\bdivekick\b", "dive kick", text_lower)
     tc_prompt_blocks = []
     special_prompt_blocks = []
@@ -97,6 +101,55 @@ def find_moves_in_text(deps, text):
 
     infer_character_mentions_from_terms(text_lower, FRAME_DATA, mentioned_chars)
     jamie_drink_level = jamie_drink_level_from_text(text_lower) if "jamie" in mentioned_chars else None
+
+    move_query_stop_tokens = {
+        "frame", "frames", "framedata", "data", "startup", "recovery", "active",
+        "on", "hit", "block", "compare", "comparison", "versus", "vs", "which",
+        "is", "faster", "better", "tc", "target", "combo", "combos", "how", "fast",
+        "quick", "speed", "of", "the", "a", "an", "for", "with", "please", "show",
+        "tell", "me", "about", "can", "i", "punish", "punishable", "stats",
+        "send", "post", "drop", "give", "link", "gif", "gifs", "hitbox", "hitboxes",
+        "advantage", "counter", "pc", "ch", "range", "length", "super", "art",
+        "level", "lvl", "lv", "sa1", "sa2", "sa3", "lv1", "lv2", "lv3",
+        "lvl1", "lvl2", "lvl3",
+    }
+
+    def remove_token_sequence(tokens, sequence):
+        sequence_length = len(sequence)
+        for index in range(len(tokens) - sequence_length + 1):
+            if tokens[index:index + sequence_length] == sequence:
+                return tokens[:index] + tokens[index + sequence_length:]
+        return tokens
+
+    def residual_move_candidate(char):
+        residual_tokens = [token for token in text_tokens if token not in move_query_stop_tokens]
+        character_names = [str(char)]
+        character_names.extend(
+            alias
+            for alias, canonical in CHARACTER_ALIASES.items()
+            if normalize_char_name(canonical) == normalize_char_name(char)
+        )
+        name_sequences = sorted(
+            (re.findall(r"[a-z0-9]+", name.lower()) for name in character_names),
+            key=len,
+            reverse=True,
+        )
+        for sequence in name_sequences:
+            if sequence:
+                residual_tokens = remove_token_sequence(residual_tokens, sequence)
+        return " ".join(residual_tokens).strip(), residual_tokens
+
+    if "jamie" in mentioned_chars:
+        move_query_stop_tokens.update(
+            {
+                "drink",
+                "drinks",
+                *(f"d{level}" for level in range(0, 5)),
+                *(f"dl{level}" for level in range(0, 5)),
+            }
+        )
+        if jamie_drink_level is not None:
+            move_query_stop_tokens.add(str(jamie_drink_level))
 
     frame_keywords = [
         "frame data",
@@ -222,6 +275,26 @@ def find_moves_in_text(deps, text):
             text_lower,
         )
     )
+    named_move_query = any(
+        query_mentions_loaded_move_name(
+            residual_move_candidate(char)[1],
+            FRAME_DATA.get(char, ()),
+        )
+        for char in mentioned_chars
+    )
+    stats_keys_in_query = match_stat_keys_in_text(text_lower)
+    resolved_move_query = False
+    resolved_query_rows = {}
+    for char in mentioned_chars:
+        residual_candidate, residual_tokens = residual_move_candidate(char)
+        if not residual_candidate:
+            continue
+        if len(residual_tokens) == 1 and stats_keys_in_query:
+            continue
+        resolved_row = lookup_frame_data(char, residual_candidate)
+        if resolved_row:
+            resolved_query_rows[char] = resolved_row
+            resolved_move_query = True
     wants_comparison = (
         any(kw in text_lower for kw in comparison_keywords)
         or re.search(r"\bvs\b", text_lower)
@@ -244,6 +317,8 @@ def find_moves_in_text(deps, text):
         or directional_normal_move_query
         or grounded_normal_move_query
         or charge_button_query
+        or named_move_query
+        or resolved_move_query
     )
     results = []
     tc_selected_combos = set()
@@ -422,11 +497,18 @@ def find_moves_in_text(deps, text):
                 for field in ("moveName", "cmnName", "numCmd", "plnCmd")
             )
             row_text_compact = re.sub(r"[^a-z0-9]", "", row_text)
+            row_tokens = re.findall(r"[a-z0-9]+", row_text)
             for token in significant_tokens:
                 token_compact = re.sub(r"[^a-z0-9]", "", token)
                 if not token_compact:
                     continue
                 if token in row_text or token_compact in row_text_compact:
+                    continue
+                if len(token_compact) >= 4 and any(
+                    len(row_token) >= 4
+                    and difflib.SequenceMatcher(None, token_compact, row_token).ratio() >= 0.84
+                    for row_token in row_tokens
+                ):
                     continue
                 return False
             return True
@@ -1200,18 +1282,6 @@ def find_moves_in_text(deps, text):
 
         explicit_move_attempt = bool(potential_inputs or extra_inputs)
         if mentioned_chars:
-            stop_tokens = {
-                "frame", "frames", "framedata", "data", "startup", "recovery", "active",
-                "on", "hit", "block", "compare", "comparison", "versus", "vs", "which",
-                "is", "faster", "better", "tc", "target", "combo", "combos", "how", "fast",
-                "quick", "speed", "of", "the", "a", "an", "for", "with", "please", "show",
-                "tell", "me", "about", "can", "i", "punish", "punishable", "stats",
-                "send", "post", "drop", "give", "link",
-                "gif", "gifs", "hitbox", "hitboxes",
-                "advantage", "counter", "punish", "pc", "ch",
-                "range", "length", "super", "art", "level", "lvl", "lv",
-                "sa1", "sa2", "sa3", "lv1", "lv2", "lv3", "lvl1", "lvl2", "lvl3",
-            }
             char_tokens = set()
             for char in mentioned_chars:
                 char_tokens.update(re.findall(r"[a-z0-9]+", str(char).lower()))
@@ -1220,7 +1290,7 @@ def find_moves_in_text(deps, text):
                     char_tokens.add(normalized_char)
             residual_tokens = [
                 tok for tok in text_tokens
-                if tok not in stop_tokens and tok not in char_tokens
+                if tok not in move_query_stop_tokens and tok not in char_tokens
             ]
             if residual_tokens:
                 explicit_move_attempt = True
@@ -1613,6 +1683,16 @@ def find_moves_in_text(deps, text):
                     filtered_results.append(row)
                 results = filtered_results
 
+    if query_has_explicit_strength and len(mentioned_chars) == 1 and not wants_comparison:
+        resolved_row = resolved_query_rows.get(mentioned_chars[0])
+        if (
+            resolved_row
+            and row_matches_explicit_strength(resolved_row, text_lower)
+            and row_matches_query_move_terms(resolved_row)
+        ):
+            results = [resolved_row]
+            special_prompt_blocks = []
+
     if special_prompt_blocks and (
         allow_explicit_special_prompt
         or
@@ -1679,6 +1759,7 @@ def find_moves_in_text(deps, text):
         property_only_query=property_only_query,
         startup_alias_query=startup_alias_query,
         charge_button_query=charge_button_query,
+        move_results_found=bool(results),
     )
     wants_stats = stats_intent.wants_stats
     stats_only = stats_intent.stats_only

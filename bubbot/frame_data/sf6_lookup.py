@@ -7,6 +7,7 @@ from bubbot.frame_data.sf6_parser_helpers import (
     normalize_button_word_notation,
     normalize_charge_button_notation,
     normalize_charge_up_motion_notation,
+    normalize_direction_word_motion_notation,
     normalize_directional_normal_notation,
     normalize_grounded_normal_notation,
 )
@@ -35,12 +36,30 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     char_key = character.lower()
     if char_key not in frame_data:
         return None
-    
+
     data = frame_data[char_key]
+    char_aliases = character_input_aliases.get(char_key, {})
+
+    def resolve_input_alias_chain(raw_value):
+        current = str(raw_value or "").strip().lower()
+        seen_alias_values = set()
+        while current and current not in seen_alias_values:
+            seen_alias_values.add(current)
+            next_value = None
+            if current in char_aliases:
+                next_value = str(char_aliases[current]).strip().lower()
+            elif current in input_aliases:
+                next_value = str(input_aliases[current]).strip().lower()
+            if not next_value or next_value == current:
+                break
+            current = next_value
+        return current
+
     move_input = normalize_jump_normal_text(move_input.lower().strip())
     move_input = normalize_charge_button_notation(move_input)
     move_input = normalize_charge_up_motion_notation(move_input)
     move_input = normalize_button_word_notation(move_input)
+    move_input = normalize_direction_word_motion_notation(move_input)
 
     move_input = normalize_directional_normal_notation(move_input)
 
@@ -346,7 +365,25 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
 
         return normalized
 
+    def resolve_strength_qualified_alias(raw_input):
+        normalized = re.sub(r"\s+", " ", str(raw_input or "")).strip().lower()
+        strength_pattern = r"lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h|od|ex"
+        prefix_match = re.fullmatch(rf"({strength_pattern})\s+(.+)", normalized)
+        suffix_match = re.fullmatch(rf"(.+)\s+({strength_pattern})", normalized)
+        if prefix_match:
+            strength_token, alias_text = prefix_match.groups()
+            resolved_alias = resolve_input_alias_chain(alias_text)
+            if resolved_alias != alias_text and not re.match(r"^[0-9]", resolved_alias):
+                return f"{strength_token} {resolved_alias}"
+        elif suffix_match:
+            alias_text, strength_token = suffix_match.groups()
+            resolved_alias = resolve_input_alias_chain(alias_text)
+            if resolved_alias != alias_text and not re.match(r"^[0-9]", resolved_alias):
+                return f"{strength_token} {resolved_alias}"
+        return normalized
+
     pre_strength_alias_input = move_input
+    move_input = resolve_strength_qualified_alias(move_input)
     move_input = normalize_motion_strength_aliases(move_input)
     move_input = resolve_strength_special_input(move_input)
 
@@ -423,27 +460,17 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         normalized = re.sub(r"\s+", "", normalized)
         return re.sub(r"[^a-z0-9>]", "", normalized)
     
-    char_aliases = character_input_aliases.get(char_key, {})
+    loaded_name_aliases = {}
+    for row in data:
+        for field in ("moveName", "cmnName"):
+            loaded_name = str(row.get(field, "")).lower().strip()
+            if loaded_name:
+                loaded_name_aliases[loaded_name] = loaded_name
     alias_lookup_candidates = []
     for candidate in (pre_strength_alias_input, move_input):
         candidate = str(candidate or "").strip().lower()
         if candidate and candidate not in alias_lookup_candidates:
             alias_lookup_candidates.append(candidate)
-
-    def resolve_input_alias_chain(raw_value):
-        current = str(raw_value or "").strip().lower()
-        seen_alias_values = set()
-        while current and current not in seen_alias_values:
-            seen_alias_values.add(current)
-            next_value = None
-            if current in char_aliases:
-                next_value = str(char_aliases[current]).strip().lower()
-            elif current in input_aliases:
-                next_value = str(input_aliases[current]).strip().lower()
-            if not next_value or next_value == current:
-                break
-            current = next_value
-        return current
 
     for candidate in alias_lookup_candidates:
         resolved_candidate = resolve_input_alias_chain(candidate)
@@ -456,7 +483,12 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         and move_input not in input_aliases
         and not re.fullmatch(r"[1-9][0-9]*(?:lp|mp|hp|lk|mk|hk|pp|kk|p|k)", move_input)
     ):
-        corrected_move_input = correct_alias_typos(move_input, char_aliases, input_aliases)
+        corrected_move_input = correct_alias_typos(
+            move_input,
+            char_aliases,
+            input_aliases,
+            loaded_name_aliases,
+        )
         if corrected_move_input != move_input:
             corrected_move_input = normalize_motion_strength_aliases(corrected_move_input)
             corrected_move_input = resolve_strength_special_input(corrected_move_input)

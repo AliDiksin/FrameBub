@@ -9,6 +9,7 @@ import discord
 from bubbot.data.game_source_info import (
     GameSourceInfo,
     bundled_icon_path,
+    get_additional_frame_source_info,
     get_combo_source_info,
     get_frame_source_info,
     resolve_attachment_icon_url,
@@ -64,10 +65,17 @@ def apply_game_source_footer(
     existing = ""
     if embed.footer and embed.footer.text:
         existing = str(embed.footer.text).strip()
-    source_credit = _format_footer_source(source)
-    footer_text = source_credit
-    if existing and source.name.lower() not in existing.lower():
-        footer_text = f"{existing} · {source_credit}"
+    sources = (source,)
+    if kind == "frame":
+        sources += get_additional_frame_source_info(game)
+    source_credits = tuple(_format_footer_source(item) for item in sources)
+    footer_text = " · ".join(source_credits)
+    if existing:
+        missing_credits = tuple(
+            credit for item, credit in zip(sources, source_credits)
+            if item.name.lower() not in existing.lower()
+        )
+        footer_text = " · ".join((existing, *missing_credits))
     kwargs = {"text": truncate_value(footer_text, 2048)}
     if prefer_attachment_icon and bundled_icon_path(source_key_for_game(game, kind=kind)):
         icon_url = resolve_attachment_icon_url(game, kind=kind)

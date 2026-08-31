@@ -30,6 +30,8 @@ COTW_FRAME_DATA = {}
 COTW_CHARACTER_ALIASES = {}
 THIRD_STRIKE_FRAME_DATA = {}
 THIRD_STRIKE_CHARACTER_ALIASES = {}
+USFIV_FRAME_DATA = {}
+USFIV_CHARACTER_ALIASES = {}
 MK1_FRAME_DATA = {}
 MK1_CHARACTER_ALIASES = {}
 
@@ -42,6 +44,7 @@ build_bbcf_frame_embed = None
 build_ggacr_frame_embed = None
 build_cotw_frame_embed = None
 build_third_strike_frame_embed = None
+build_usfiv_frame_embed = None
 send_frame_embeds_with_views = None
 
 
@@ -67,6 +70,8 @@ def configure(
     cotw_character_aliases=None,
     third_strike_frame_data=None,
     third_strike_character_aliases=None,
+    usfiv_frame_data=None,
+    usfiv_character_aliases=None,
     mk1_frame_data=None,
     mk1_character_aliases=None,
     quiz_module_ref=None,
@@ -78,10 +83,11 @@ def configure(
     build_ggacr_frame_embed_fn=None,
     build_cotw_frame_embed_fn=None,
     build_third_strike_frame_embed_fn=None,
+    build_usfiv_frame_embed_fn=None,
     send_frame_embeds_with_views_fn=None,
 ):
-    global FRAME_DATA, FRAME_STATS, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, GGACR_FRAME_DATA, GGACR_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES
-    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_sfv_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_ggacr_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, send_frame_embeds_with_views
+    global FRAME_DATA, FRAME_STATS, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, GGACR_FRAME_DATA, GGACR_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, USFIV_FRAME_DATA, USFIV_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES
+    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_sfv_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_ggacr_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, build_usfiv_frame_embed, send_frame_embeds_with_views
     FRAME_DATA = frame_data or {}
     FRAME_STATS = frame_stats or {}
     CHARACTER_ALIASES = character_aliases or {}
@@ -102,6 +108,8 @@ def configure(
     COTW_CHARACTER_ALIASES = cotw_character_aliases or {}
     THIRD_STRIKE_FRAME_DATA = third_strike_frame_data or {}
     THIRD_STRIKE_CHARACTER_ALIASES = third_strike_character_aliases or {}
+    USFIV_FRAME_DATA = usfiv_frame_data or {}
+    USFIV_CHARACTER_ALIASES = usfiv_character_aliases or {}
     MK1_FRAME_DATA = mk1_frame_data or {}
     MK1_CHARACTER_ALIASES = mk1_character_aliases or {}
     quiz_module = quiz_module_ref
@@ -113,6 +121,7 @@ def configure(
     build_ggacr_frame_embed = build_ggacr_frame_embed_fn
     build_cotw_frame_embed = build_cotw_frame_embed_fn
     build_third_strike_frame_embed = build_third_strike_frame_embed_fn
+    build_usfiv_frame_embed = build_usfiv_frame_embed_fn
     send_frame_embeds_with_views = send_frame_embeds_with_views_fn
 
 
@@ -128,6 +137,7 @@ MENU_GAMES = (
     ("mk1", "Mortal Kombat 1", 0x7E1616),
     ("sf6", "Street Fighter 6", 0x3998C6),
     ("third_strike", "Street Fighter III: 3rd Strike", 0xC0392B),
+    ("usf4", "Ultra Street Fighter IV", 0x8E2727),
     ("sfv", "Street Fighter V", 0xD0342C),
 )
 _MENU_GAME_LABELS = {key: label for key, label, _colour in MENU_GAMES}
@@ -344,6 +354,10 @@ def _third_strike_character_list():
     return character_choices(THIRD_STRIKE_FRAME_DATA)
 
 
+def _usfiv_character_list():
+    return character_choices(USFIV_FRAME_DATA)
+
+
 def _mk1_character_list():
     from bubbot.frame_data.mk1_frame_data import display_char_name
 
@@ -370,6 +384,7 @@ _GAME_ONLY_MENTION_PATTERNS = (
         "third_strike",
         re.compile(r"^(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)$", re.IGNORECASE),
     ),
+    ("usf4", re.compile(r"^(?:usf4|usfiv|sf4|ultra\s*street\s*fighter\s*(?:4|iv)|street\s*fighter\s*(?:4|iv))$", re.IGNORECASE)),
     ("mk1", re.compile(r"^(?:mk1|mortal\s+kombat(?:\s*(?:1|one))?)$", re.IGNORECASE)),
 )
 
@@ -414,6 +429,8 @@ def _character_list(game):
         return _cotw_character_list()
     if game == "third_strike":
         return _third_strike_character_list()
+    if game == "usf4":
+        return _usfiv_character_list()
     if game == "mk1":
         return _mk1_character_list()
     return []
@@ -488,6 +505,10 @@ def _third_strike_move_list(char_key):
     return move_choices(THIRD_STRIKE_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "version", "moveType"))
 
 
+def _usfiv_move_list(char_key):
+    return move_choices(USFIV_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "version", "moveType"))
+
+
 def _mk1_move_list(char_key):
     return move_choices(MK1_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "moveType"))
 
@@ -509,6 +530,8 @@ def _move_list(game, char_key):
         return _cotw_move_list(char_key)
     if game == "third_strike":
         return _third_strike_move_list(char_key)
+    if game == "usf4":
+        return _usfiv_move_list(char_key)
     if game == "mk1":
         return _mk1_move_list(char_key)
     return []
@@ -1604,9 +1627,18 @@ class FrameResultView(OwnedView):
         self.show_stats = False
         if game == "sf6":
             from bubbot.frame_data.frame_output import SF6NotesButton, SF6ShowStatsButton
-            from bubbot.frame_data.gif_lookup import get_existing_local_gif_asset_paths, get_frame_row_gif_links
+            from bubbot.frame_data.gif_lookup import (
+                get_existing_local_gif_asset_paths,
+                get_first_remote_gif_url,
+                get_frame_row_gif_links,
+            )
             self.gif_links = list(get_frame_row_gif_links(row) or [])
-            asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=1) if self.gif_links else []
+            self.default_gif_url = get_first_remote_gif_url(self.gif_links)
+            asset_paths = (
+                get_existing_local_gif_asset_paths(self.gif_links, limit=1)
+                if self.gif_links and not self.default_gif_url
+                else []
+            )
             self.default_gif_asset_path = asset_paths[0] if asset_paths else None
             self.character_stats = FRAME_STATS.get(char_key) or {}
             self.stats_button = SF6ShowStatsButton(disabled=not self.character_stats)
@@ -1649,6 +1681,11 @@ class FrameResultView(OwnedView):
                 self.add_item(self.all_hitbox_images_button)
             self.notes_button = ThirdStrikeNotesButton(row)
             self.add_item(self.notes_button)
+        elif game == "usf4":
+            from bubbot.frame_data.usfiv_frame_data import USFIVNotesButton
+
+            self.notes_button = USFIVNotesButton(row)
+            self.add_item(self.notes_button)
         elif game == "mk1":
             from bubbot.frame_data.mk1_frame_data import MK1NotesButton
             self.notes_button = MK1NotesButton(row)
@@ -1685,6 +1722,15 @@ class FrameResultView(OwnedView):
                     build_character_stats_embed(self.char_key, self.character_stats),
                     self.game,
                 )
+            if getattr(self, "default_gif_url", ""):
+                return apply_game_source_footer(
+                    build_sf6_frame_embed(
+                        self.row,
+                        image_url_override=self.default_gif_url,
+                        show_notes=getattr(self, "show_notes", False),
+                    ),
+                    self.game,
+                )
             if getattr(self, "default_gif_asset_path", None):
                 filename = os.path.basename(self.default_gif_asset_path)
                 return apply_game_source_footer(
@@ -1711,6 +1757,8 @@ class FrameResultView(OwnedView):
             from bubbot.frame_data.ggacr_frame_data import build_frame_embed
         elif self.game == "third_strike":
             from bubbot.frame_data.third_strike_frame_data import build_frame_embed
+        elif self.game == "usf4":
+            from bubbot.frame_data.usfiv_frame_data import build_frame_embed
         elif self.game == "mk1":
             from bubbot.frame_data.mk1_frame_data import build_frame_embed
         else:

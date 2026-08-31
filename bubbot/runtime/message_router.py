@@ -35,6 +35,7 @@ import bubbot.frame_data.bbcf_frame_data as bbcf_module
 import bubbot.frame_data.ggacr_frame_data as ggacr_module
 import bubbot.frame_data.cotw_frame_data as cotw_module
 import bubbot.frame_data.third_strike_frame_data as third_strike_module
+import bubbot.frame_data.usfiv_frame_data as usfiv_module
 import bubbot.frame_data.mk1_frame_data as mk1_module
 import bubbot.frame_data.combo_data as combo_data_module
 import bubbot.features.menu_system as menu_system
@@ -71,7 +72,7 @@ from bubbot.utils.response_log import (
     notify_owner,
     log_record,
 )
-from bubbot.utils.text_utils import compact_key, contains_token_sequence, word_tokens
+from bubbot.utils.text_utils import compact_key, contains_token_sequence, normalize_query_terms, word_tokens
 from bubbot.runtime.buenavista_extension import buenavista_extension
 from collections import deque
 from bubbot.runtime.slash_commands import register_slash_commands
@@ -189,7 +190,7 @@ def _is_frame_data_embed(embed):
     if "input" in field_names and "startup" in field_names and {"on hit", "on block"} & field_names:
         return True
     title = str(getattr(embed, "title", "") or "").strip().lower()
-    if title.startswith(("ggst - ", "ggacr - ", "2xko - ", "bbcf - ", "cotw - ", "third strike - ", "mk1 - ")):
+    if title.startswith(("ggst - ", "ggacr - ", "2xko - ", "bbcf - ", "cotw - ", "third strike - ", "ultra street fighter iv - ", "mk1 - ")):
         return bool(field_names & {"startup", "input", "on hit", "on block"})
     return False
 
@@ -231,7 +232,7 @@ def _message_looks_like_frame_data_output(message):
 
 
 _NUMBERED_DISAMBIGUATION_PROMPT_RE = re.compile(
-    r"(?:Special Strength Options|Target Combo Options|Multiple (?:SFV|GGST|2XKO|BBCF|COTW|Third Strike|MK1) moves match)"
+    r"(?:Special Strength Options|Target Combo Options|Multiple (?:SFV|GGST|2XKO|BBCF|COTW|Third Strike|USF4|MK1) moves match)"
 )
 
 
@@ -327,11 +328,12 @@ async def _send_main_menu_for_plain_mention(message):
 
 
 def has_explicit_gif_lookup_intent(text):
-    cleaned = strip_url_like_text(strip_discord_mentions(text).lower())
+    cleaned = normalize_query_terms(strip_url_like_text(strip_discord_mentions(text).lower()))
     return bool(
         re.search(r"\bgif(?:s)?\b", cleaned)
         or re.search(r"\bhit\s*box(?:es)?\b", cleaned)
         or re.search(r"\bhitbox(?:es)?\b", cleaned)
+        or re.search(r"\b(?:image|picture)(?:s)?\b", cleaned)
     )
 
 
@@ -411,6 +413,12 @@ DISAMBIGUATION_GAME_CONFIGS = [
         "prefix": "3s",
         "module": third_strike_module,
         "prompt_re": re.compile(r"Multiple Third Strike moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
+    },
+    {
+        "label": "USF4",
+        "prefix": "usf4",
+        "module": usfiv_module,
+        "prompt_re": re.compile(r"Multiple USF4 moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
     {
         "label": "MK1",
@@ -543,7 +551,7 @@ async def _fetch_referenced_message(message):
 
 
 def _reply_output_mode_from_source_text(source_text):
-    source_lower = strip_discord_mentions(source_text or "").lower()
+    source_lower = normalize_query_terms(strip_discord_mentions(source_text or "").lower())
     wants_hitbox = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", source_lower))
     wants_frames = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data|notes?)\b", source_lower)) or not wants_hitbox
     if wants_hitbox and wants_frames:
@@ -596,7 +604,7 @@ _PROPERTY_REQUEST_PRIORITY = (
 
 
 def _requested_property_key(text):
-    lowered = str(text or "").lower()
+    lowered = normalize_query_terms(text)
     if re.search(r"\b(?:all|full)\s+(?:frame\s*)?data\b|\btable\b", lowered):
         return None
     for key in _PROPERTY_REQUEST_PRIORITY:
@@ -682,6 +690,8 @@ def _game_key_for_frame_module(module):
         return "cotw"
     if module is third_strike_module:
         return "third_strike"
+    if module is usfiv_module:
+        return "usf4"
     if module is mk1_module:
         return "mk1"
     return "sf6"
@@ -851,11 +861,12 @@ class PropertyCompareSelect(discord.ui.Select):
 
 
 async def _send_cross_game_lookup_response(message, module, rows, payload, query_text):
-    if payload.get("gif_query") and payload.get("frame_query"):
+    media_query = bool(payload.get("gif_query") or has_explicit_gif_lookup_intent(query_text))
+    if media_query and payload.get("frame_query"):
         _record_frame_data_ids(await module.send_frame_response(message, rows))
         _record_frame_data_ids(await module.send_hitbox_response(message, rows))
         return True
-    if payload.get("gif_query"):
+    if media_query:
         _record_frame_data_ids(await module.send_hitbox_response(message, rows))
         return True
     property_key = _requested_property_key(query_text)
@@ -864,6 +875,16 @@ async def _send_cross_game_lookup_response(message, module, rows, payload, query
         return True
     _record_frame_data_ids(await module.send_frame_response(message, rows))
     return True
+
+
+def _has_explicit_game_conflict(current_payload, game_payloads, *, explicit_sf6_query=False):
+    return bool(
+        explicit_sf6_query
+        or any(
+            payload is not current_payload and payload.get("game_query")
+            for payload in game_payloads
+        )
+    )
 
 
 async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
@@ -1013,7 +1034,12 @@ intents.message_content = True
 intents.members = True
 intents.voice_states = True
 client = discord.Client(intents=intents)
-tree = discord.app_commands.CommandTree(client)
+# Do not rely on the application's portal defaults for bot-DM command availability.
+tree = discord.app_commands.CommandTree(
+    client,
+    allowed_contexts=discord.app_commands.AppCommandContext(guild=True, dm_channel=True, private_channel=True),
+    allowed_installs=discord.app_commands.AppInstallationType(guild=True, user=True),
+)
 
 
 def truncate_message(text, limit=1800):
@@ -1101,6 +1127,19 @@ def resolve_character_key(name: str):
 
 def text_mentions_character_from_aliases(text, aliases, valid_keys):
     return text_mentions_alias(text, aliases, valid_keys)
+
+
+def _preferred_character_game_matches(text, game_alias_specs):
+    exact_matches = tuple(
+        bool(find_aliases_in_text(text, aliases, valid_keys))
+        for aliases, valid_keys in game_alias_specs
+    )
+    if any(exact_matches):
+        return exact_matches
+    return tuple(
+        text_mentions_character_from_aliases(text, aliases, valid_keys)
+        for aliases, valid_keys in game_alias_specs
+    )
 
 
 def resolve_character_from_aliases_in_text(text, aliases, valid_keys):
@@ -1447,6 +1486,7 @@ async def on_ready():
             "ggacr_module": ggacr_module,
             "cotw_module": cotw_module,
             "third_strike_module": third_strike_module,
+            "usfiv_module": usfiv_module,
             "mk1_module": mk1_module,
             "combo_data_module": combo_data_module,
             "FRAME_DATA": FRAME_DATA,
@@ -1601,6 +1641,11 @@ async def _handle_message(message):
             third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
             third_strike_module.THIRD_STRIKE_FRAME_DATA.keys(),
         )
+        usfiv_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            usfiv_module.USFIV_CHARACTER_ALIASES,
+            usfiv_module.USFIV_FRAME_DATA.keys(),
+        )
         explicit_ggacr_moves_query = ggacr_module.query_has_explicit_ggacr_tag(content_lower)
         explicit_ggst_moves_query = bool(
             re.search(r"\b(?:ggst|strive|guilty\s+gear|guilty)\b", content_lower)
@@ -1611,6 +1656,10 @@ async def _handle_message(message):
         explicit_bbcf_moves_query = bool(re.search(r"\b(?:bbcf|blazblue|central\s*fiction)\b", content_lower))
         explicit_cotw_moves_query = bool(re.search(r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b", content_lower))
         explicit_third_strike_moves_query = bool(re.search(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", content_lower))
+        explicit_usfiv_moves_query = usfiv_module.query_has_usf4_game_tag(content_lower)
+        if explicit_usfiv_moves_query and usfiv_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "usf4", usfiv_char_key, owner_id=message.author.id)
+            return
         if explicit_third_strike_moves_query and third_strike_char_key:
             await menu_system.send_character_moves_menu(message.channel, "third_strike", third_strike_char_key, owner_id=message.author.id)
             return
@@ -1883,35 +1932,31 @@ async def _handle_message(message):
         except Exception as e:
             print(f"Third Strike reply logic error: {e}", flush=True)
 
-    sf6_exact_character_query = text_mentions_character_from_aliases(
+    (
+        sf6_exact_character_query,
+        ggst_exact_character_query,
+        sfv_exact_character_query,
+        tuco_exact_character_query,
+        bbcf_exact_character_query,
+        ggacr_exact_character_query,
+        cotw_exact_character_query,
+        third_strike_exact_character_query,
+        usfiv_exact_character_query,
+        mk1_exact_character_query,
+    ) = _preferred_character_game_matches(
         content_lower,
-        CHARACTER_ALIASES,
-        FRAME_DATA.keys(),
-    )
-    ggst_exact_character_query = text_mentions_character_from_aliases(
-        content_lower,
-        ggst_module.GGST_CHARACTER_ALIASES,
-        ggst_module.GGST_FRAME_DATA.keys(),
-    )
-    sfv_exact_character_query = text_mentions_character_from_aliases(
-        content_lower,
-        sfv_module.SFV_CHARACTER_ALIASES,
-        sfv_module.SFV_FRAME_DATA.keys(),
-    )
-    tuco_exact_character_query = text_mentions_character_from_aliases(
-        content_lower,
-        tuco_module.TUCO_CHARACTER_ALIASES,
-        tuco_module.TUCO_FRAME_DATA.keys(),
-    )
-    bbcf_exact_character_query = text_mentions_character_from_aliases(
-        content_lower,
-        bbcf_module.BBCF_CHARACTER_ALIASES,
-        bbcf_module.BBCF_FRAME_DATA.keys(),
-    )
-    ggacr_exact_character_query = text_mentions_character_from_aliases(
-        content_lower,
-        ggacr_module.GGACR_CHARACTER_ALIASES,
-        ggacr_module.GGACR_FRAME_DATA.keys(),
+        (
+            (CHARACTER_ALIASES, FRAME_DATA.keys()),
+            (ggst_module.GGST_CHARACTER_ALIASES, ggst_module.GGST_FRAME_DATA.keys()),
+            (sfv_module.SFV_CHARACTER_ALIASES, sfv_module.SFV_FRAME_DATA.keys()),
+            (tuco_module.TUCO_CHARACTER_ALIASES, tuco_module.TUCO_FRAME_DATA.keys()),
+            (bbcf_module.BBCF_CHARACTER_ALIASES, bbcf_module.BBCF_FRAME_DATA.keys()),
+            (ggacr_module.GGACR_CHARACTER_ALIASES, ggacr_module.GGACR_FRAME_DATA.keys()),
+            (cotw_module.COTW_CHARACTER_ALIASES, cotw_module.COTW_FRAME_DATA.keys()),
+            (third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES, third_strike_module.THIRD_STRIKE_FRAME_DATA.keys()),
+            (usfiv_module.USFIV_CHARACTER_ALIASES, usfiv_module.USFIV_FRAME_DATA.keys()),
+            (mk1_module.MK1_CHARACTER_ALIASES, mk1_module.MK1_FRAME_DATA.keys()),
+        ),
     )
     explicit_ggacr_query = ggacr_module.query_has_explicit_ggacr_tag(content_lower)
     ggacr_exclusive_character_query = bool(
@@ -1923,21 +1968,6 @@ async def _handle_message(message):
                 ggacr_module.GGACR_FRAME_DATA.keys(),
             )
         )
-    )
-    cotw_exact_character_query = text_mentions_character_from_aliases(
-        content_lower,
-        cotw_module.COTW_CHARACTER_ALIASES,
-        cotw_module.COTW_FRAME_DATA.keys(),
-    )
-    third_strike_exact_character_query = text_mentions_character_from_aliases(
-        content_lower,
-        third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
-        third_strike_module.THIRD_STRIKE_FRAME_DATA.keys(),
-    )
-    mk1_exact_character_query = text_mentions_character_from_aliases(
-        content_lower,
-        mk1_module.MK1_CHARACTER_ALIASES,
-        mk1_module.MK1_FRAME_DATA.keys(),
     )
     message_replies_to_bot = False
     if message.reference:
@@ -1977,12 +2007,35 @@ async def _handle_message(message):
     bbcf_payload = bbcf_module.find_moves_in_text(content_lower)
     cotw_payload = cotw_module.find_moves_in_text(content_lower)
     third_strike_payload = third_strike_module.find_moves_in_text(content_lower)
+    usfiv_payload = usfiv_module.find_moves_in_text(content_lower)
     mk1_payload = mk1_module.find_moves_in_text(content_lower)
+    game_payloads = (
+        ggacr_payload,
+        ggst_payload,
+        sfv_payload,
+        tuco_payload,
+        bbcf_payload,
+        cotw_payload,
+        third_strike_payload,
+        usfiv_payload,
+        mk1_payload,
+    )
+    explicit_sf6_query = bool(re.search(r"\b(?:sf6|street\s*fighter\s*6)\b", content_lower))
+    media_query = has_explicit_gif_lookup_intent(content_lower)
+
+    def has_explicit_game_conflict(payload):
+        return _has_explicit_game_conflict(
+            payload,
+            game_payloads,
+            explicit_sf6_query=explicit_sf6_query,
+        )
+
     requested_property_key = _requested_property_key(content_lower)
     ggst_rows = ggst_payload.get("rows", [])
     ggst_lookup_intent = bool(
         ggst_payload.get("frame_query")
         or ggst_payload.get("gif_query")
+        or media_query
         or ggst_payload.get("game_query")
         or requested_property_key
     )
@@ -1992,39 +2045,87 @@ async def _handle_message(message):
         and not explicit_ggacr_query
         or (
             ggst_exact_character_query
+            and not has_explicit_game_conflict(ggst_payload)
             and not sf6_exact_character_query
             and not explicit_ggacr_query
             and not ggacr_exclusive_character_query
         )
     )
     ggacr_rows = ggacr_payload.get("rows", [])
+    usfiv_rows = usfiv_payload.get("rows", [])
+    explicit_other_game_query = has_explicit_game_conflict(usfiv_payload)
+    usfiv_exclusive_character_query = bool(
+        usfiv_exact_character_query
+        and not explicit_other_game_query
+        and not any(
+            (
+                sf6_exact_character_query,
+                ggst_exact_character_query,
+                sfv_exact_character_query,
+                tuco_exact_character_query,
+                bbcf_exact_character_query,
+                ggacr_exact_character_query,
+                cotw_exact_character_query,
+                third_strike_exact_character_query,
+                mk1_exact_character_query,
+            )
+        )
+    )
+    usfiv_lookup_intent = bool(
+        usfiv_payload.get("frame_query")
+        or usfiv_payload.get("gif_query")
+        or media_query
+        or usfiv_payload.get("game_query")
+        or usfiv_payload.get("notes_query")
+        or requested_property_key
+        or usfiv_module.query_has_usf4_notation(content_lower)
+    )
+    usfiv_route_allowed = bool(usfiv_payload.get("game_query") or usfiv_exclusive_character_query)
+    if frame_command_is_addressed and usfiv_route_allowed and usfiv_lookup_intent and usfiv_rows:
+        if usfiv_payload.get("needs_disambiguation"):
+            await message.reply(usfiv_payload.get("data", "Please specify which USF4 move you mean."))
+        else:
+            await _send_cross_game_lookup_response(message, usfiv_module, usfiv_rows, usfiv_payload, content_lower)
+        return
+    elif frame_command_is_addressed and usfiv_route_allowed and usfiv_lookup_intent and usfiv_payload.get("needs_disambiguation"):
+        await message.reply(usfiv_payload.get("data", "Please specify which USF4 move you mean."))
+        return
+    elif frame_command_is_addressed and usfiv_route_allowed and usfiv_lookup_intent and usfiv_payload.get("missing_scrolls_query"):
+        await _reply_and_log_response(message, MISSING_SCROLLS_TEXT, "missing_scrolls")
+        return
     ggacr_lookup_intent = bool(
         ggacr_payload.get("frame_query")
         or ggacr_payload.get("gif_query")
+        or media_query
         or ggacr_payload.get("game_query")
         or ggacr_payload.get("notes_query")
         or requested_property_key
     )
     ggacr_route_allowed = bool(
         ggacr_payload.get("game_query")
-        or ggacr_exclusive_character_query
         or (
-            ggacr_exact_character_query
-            and explicit_ggacr_query
-            and ggacr_module.query_has_ggacr_notation(content_lower)
-        )
-        or (
-            ggacr_exact_character_query
-            and ggacr_rows
-            and explicit_ggacr_query
-            and not sf6_exact_character_query
-            and not ggst_exact_character_query
-            and not sfv_exact_character_query
-            and not tuco_exact_character_query
-            and not bbcf_exact_character_query
-            and not cotw_exact_character_query
-            and not third_strike_exact_character_query
-            and not mk1_exact_character_query
+            not has_explicit_game_conflict(ggacr_payload)
+            and (
+                ggacr_exclusive_character_query
+                or (
+                    ggacr_exact_character_query
+                    and explicit_ggacr_query
+                    and ggacr_module.query_has_ggacr_notation(content_lower)
+                )
+                or (
+                    ggacr_exact_character_query
+                    and ggacr_rows
+                    and explicit_ggacr_query
+                    and not sf6_exact_character_query
+                    and not ggst_exact_character_query
+                    and not sfv_exact_character_query
+                    and not tuco_exact_character_query
+                    and not bbcf_exact_character_query
+                    and not cotw_exact_character_query
+                    and not third_strike_exact_character_query
+                    and not mk1_exact_character_query
+                )
+            )
         )
     )
     if frame_command_is_addressed and ggacr_route_allowed and ggacr_lookup_intent and ggacr_rows:
@@ -2078,6 +2179,7 @@ async def _handle_message(message):
     sfv_lookup_intent = bool(
         sfv_payload.get("frame_query")
         or sfv_payload.get("gif_query")
+        or media_query
         or sfv_payload.get("game_query")
         or sfv_payload.get("notes_query")
         or requested_property_key
@@ -2086,26 +2188,31 @@ async def _handle_message(message):
     sfv_route_allowed = bool(
         sfv_payload.get("game_query")
         or (
-            sfv_character_query
-            and sfv_module.query_has_sfv_notation(content_lower)
-            and not sf6_exact_character_query
-            and not ggst_exact_character_query
-            and not tuco_exact_character_query
-            and not bbcf_exact_character_query
-            and not cotw_exact_character_query
-            and not third_strike_exact_character_query
-            and not mk1_exact_character_query
-        )
-        or (
-            sfv_character_query
-            and sfv_rows
-            and not sf6_exact_character_query
-            and not ggst_exact_character_query
-            and not tuco_exact_character_query
-            and not bbcf_exact_character_query
-            and not cotw_exact_character_query
-            and not third_strike_exact_character_query
-            and not mk1_exact_character_query
+            not has_explicit_game_conflict(sfv_payload)
+            and (
+                (
+                    sfv_character_query
+                    and sfv_module.query_has_sfv_notation(content_lower)
+                    and not sf6_exact_character_query
+                    and not ggst_exact_character_query
+                    and not tuco_exact_character_query
+                    and not bbcf_exact_character_query
+                    and not cotw_exact_character_query
+                    and not third_strike_exact_character_query
+                    and not mk1_exact_character_query
+                )
+                or (
+                    sfv_character_query
+                    and sfv_rows
+                    and not sf6_exact_character_query
+                    and not ggst_exact_character_query
+                    and not tuco_exact_character_query
+                    and not bbcf_exact_character_query
+                    and not cotw_exact_character_query
+                    and not third_strike_exact_character_query
+                    and not mk1_exact_character_query
+                )
+            )
         )
     )
     if frame_command_is_addressed and sfv_route_allowed and sfv_lookup_intent and sfv_rows:
@@ -2125,12 +2232,19 @@ async def _handle_message(message):
     tuco_lookup_intent = bool(
         tuco_payload.get("frame_query")
         or tuco_payload.get("gif_query")
+        or media_query
         or tuco_payload.get("game_query")
         or requested_property_key
     )
     tuco_route_allowed = bool(
         tuco_payload.get("game_query")
-        or (tuco_exact_character_query and not sf6_exact_character_query and not ggst_exact_character_query and not sfv_exact_character_query)
+        or (
+            not has_explicit_game_conflict(tuco_payload)
+            and tuco_exact_character_query
+            and not sf6_exact_character_query
+            and not ggst_exact_character_query
+            and not sfv_exact_character_query
+        )
     )
     if frame_command_is_addressed and tuco_route_allowed and tuco_lookup_intent and tuco_rows:
         if tuco_payload.get("needs_disambiguation"):
@@ -2149,6 +2263,7 @@ async def _handle_message(message):
     bbcf_lookup_intent = bool(
         bbcf_payload.get("frame_query")
         or bbcf_payload.get("gif_query")
+        or media_query
         or bbcf_payload.get("game_query")
         or bbcf_payload.get("notes_query")
         or requested_property_key
@@ -2156,18 +2271,23 @@ async def _handle_message(message):
     bbcf_route_allowed = bool(
         bbcf_payload.get("game_query")
         or (
-            bbcf_exact_character_query
-            and bbcf_module.query_has_bbcf_notation(content_lower)
-            and not third_strike_module.query_has_third_strike_notation(content_lower)
-        )
-        or (
-            bbcf_exact_character_query
-            and bbcf_rows
-            and not sf6_exact_character_query
-            and not ggst_exact_character_query
-            and not sfv_exact_character_query
-            and not tuco_exact_character_query
-            and not third_strike_exact_character_query
+            not has_explicit_game_conflict(bbcf_payload)
+            and (
+                (
+                    bbcf_exact_character_query
+                    and bbcf_module.query_has_bbcf_notation(content_lower)
+                    and not third_strike_module.query_has_third_strike_notation(content_lower)
+                )
+                or (
+                    bbcf_exact_character_query
+                    and bbcf_rows
+                    and not sf6_exact_character_query
+                    and not ggst_exact_character_query
+                    and not sfv_exact_character_query
+                    and not tuco_exact_character_query
+                    and not third_strike_exact_character_query
+                )
+            )
         )
     )
     if frame_command_is_addressed and bbcf_route_allowed and bbcf_lookup_intent and bbcf_rows:
@@ -2187,6 +2307,7 @@ async def _handle_message(message):
     cotw_lookup_intent = bool(
         cotw_payload.get("frame_query")
         or cotw_payload.get("gif_query")
+        or media_query
         or cotw_payload.get("game_query")
         or cotw_payload.get("notes_query")
         or requested_property_key
@@ -2194,16 +2315,21 @@ async def _handle_message(message):
     cotw_route_allowed = bool(
         cotw_payload.get("game_query")
         or (
-            cotw_exact_character_query
-            and cotw_module.query_has_cotw_notation(content_lower)
-        )
-        or (
-            cotw_exact_character_query
-            and cotw_rows
-            and not sf6_exact_character_query
-            and not ggst_exact_character_query
-            and not tuco_exact_character_query
-            and not bbcf_exact_character_query
+            not has_explicit_game_conflict(cotw_payload)
+            and (
+                (
+                    cotw_exact_character_query
+                    and cotw_module.query_has_cotw_notation(content_lower)
+                )
+                or (
+                    cotw_exact_character_query
+                    and cotw_rows
+                    and not sf6_exact_character_query
+                    and not ggst_exact_character_query
+                    and not tuco_exact_character_query
+                    and not bbcf_exact_character_query
+                )
+            )
         )
     )
     if frame_command_is_addressed and cotw_route_allowed and cotw_lookup_intent and cotw_rows:
@@ -2223,6 +2349,7 @@ async def _handle_message(message):
     third_strike_lookup_intent = bool(
         third_strike_payload.get("frame_query")
         or third_strike_payload.get("gif_query")
+        or media_query
         or third_strike_payload.get("game_query")
         or third_strike_payload.get("notes_query")
         or requested_property_key
@@ -2231,20 +2358,25 @@ async def _handle_message(message):
     third_strike_route_allowed = bool(
         third_strike_payload.get("game_query")
         or (
-            third_strike_exact_character_query
-            and third_strike_module.query_has_third_strike_notation(content_lower)
-            and not sf6_exact_character_query
-        )
-        or (
-            third_strike_exact_character_query
-            and third_strike_rows
-            and not sf6_exact_character_query
-            and not ggst_exact_character_query
-            and not tuco_exact_character_query
-            and not bbcf_exact_character_query
-            and not cotw_exact_character_query
-            and not mk1_exact_character_query
-            and not bbcf_module.query_has_bbcf_notation(content_lower)
+            not has_explicit_game_conflict(third_strike_payload)
+            and (
+                (
+                    third_strike_exact_character_query
+                    and third_strike_module.query_has_third_strike_notation(content_lower)
+                    and not sf6_exact_character_query
+                )
+                or (
+                    third_strike_exact_character_query
+                    and third_strike_rows
+                    and not sf6_exact_character_query
+                    and not ggst_exact_character_query
+                    and not tuco_exact_character_query
+                    and not bbcf_exact_character_query
+                    and not cotw_exact_character_query
+                    and not mk1_exact_character_query
+                    and not bbcf_module.query_has_bbcf_notation(content_lower)
+                )
+            )
         )
     )
     if frame_command_is_addressed and third_strike_route_allowed and third_strike_lookup_intent and third_strike_rows:
@@ -2264,6 +2396,7 @@ async def _handle_message(message):
     mk1_lookup_intent = bool(
         mk1_payload.get("frame_query")
         or mk1_payload.get("gif_query")
+        or media_query
         or mk1_payload.get("game_query")
         or mk1_payload.get("notes_query")
         or requested_property_key
@@ -2272,20 +2405,25 @@ async def _handle_message(message):
     mk1_route_allowed = bool(
         mk1_payload.get("game_query")
         or (
-            mk1_exact_character_query
-            and mk1_module.query_has_mk1_notation(content_lower)
-            and not sf6_exact_character_query
-        )
-        or (
-            mk1_exact_character_query
-            and mk1_rows
-            and not sf6_exact_character_query
-            and not ggst_exact_character_query
-            and not sfv_exact_character_query
-            and not tuco_exact_character_query
-            and not bbcf_exact_character_query
-            and not cotw_exact_character_query
-            and not third_strike_exact_character_query
+            not has_explicit_game_conflict(mk1_payload)
+            and (
+                (
+                    mk1_exact_character_query
+                    and mk1_module.query_has_mk1_notation(content_lower)
+                    and not sf6_exact_character_query
+                )
+                or (
+                    mk1_exact_character_query
+                    and mk1_rows
+                    and not sf6_exact_character_query
+                    and not ggst_exact_character_query
+                    and not sfv_exact_character_query
+                    and not tuco_exact_character_query
+                    and not bbcf_exact_character_query
+                    and not cotw_exact_character_query
+                    and not third_strike_exact_character_query
+                )
+            )
         )
     )
     if frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_rows:
@@ -2299,6 +2437,19 @@ async def _handle_message(message):
         return
     elif frame_command_is_addressed and mk1_route_allowed and mk1_lookup_intent and mk1_payload.get("missing_scrolls_query"):
         await _reply_and_log_response(message, MISSING_SCROLLS_TEXT, "missing_scrolls")
+        return
+
+    if (
+        frame_command_is_addressed
+        and usfiv_route_allowed
+        and not usfiv_lookup_intent
+        and allow_implied_frame_routing
+        and (usfiv_rows or usfiv_payload.get("needs_disambiguation"))
+    ):
+        if usfiv_payload.get("needs_disambiguation"):
+            await message.reply(usfiv_payload.get("data", "Please specify which USF4 move you mean."))
+        else:
+            _record_frame_data_ids(await usfiv_module.send_frame_response(message, usfiv_rows))
         return
 
     if (
@@ -2433,7 +2584,11 @@ async def _handle_message(message):
     missing_scrolls_query = bool(fd_context_payload.get("missing_scrolls_query"))
     gif_query = bool(fd_context_payload.get("gif_query"))
     explicit_move_attempt = bool(fd_context_payload.get("explicit_move_attempt"))
-    fallback_reply = fd_context_data if fd_context_data else None
+    fallback_reply = (
+        None
+        if fd_context_mode == "frame" and fd_context_rows
+        else (fd_context_data if fd_context_data else None)
+    )
 
     def row_matches_requested_strength(row, query_text):
         move_name = str(row.get("moveName", "")).lower().strip()
@@ -2529,7 +2684,11 @@ async def _handle_message(message):
                 missing_scrolls_query = bool(rewritten_payload.get("missing_scrolls_query"))
                 gif_query = bool(rewritten_payload.get("gif_query"))
                 explicit_move_attempt = bool(rewritten_payload.get("explicit_move_attempt"))
-                fallback_reply = fd_context_data if fd_context_data else None
+                fallback_reply = (
+                    None
+                    if fd_context_mode == "frame" and fd_context_rows
+                    else (fd_context_data if fd_context_data else None)
+                )
                 print(f"[parser-private] rewritten query: {rewritten_lookup_query}", flush=True)
 
     if gif_query and not frame_command_is_addressed:
@@ -2659,9 +2818,6 @@ async def _handle_message(message):
             default_data = implied_data or fd_context_data
             frame_sent_ids = await send_frame_table_response(message, default_rows, default_data)
             _record_frame_data_ids(frame_sent_ids)
-            if not frame_sent_ids and default_data:
-                sent = await message.reply(default_data)
-                _record_frame_data_ids([sent.id], response_text=default_data)
             return
 
         if (
@@ -2679,16 +2835,6 @@ async def _handle_message(message):
         ):
             frame_sent_ids = await send_frame_table_response(message, fd_context_rows, fd_context_data)
             _record_frame_data_ids(frame_sent_ids)
-            if not frame_sent_ids and fd_context_data:
-                try:
-                    sent = await message.reply(fd_context_data)
-                    _record_frame_data_ids([sent.id], response_text=fd_context_data)
-                except Exception as reply_error:
-                    if is_deleted_message_reference_error(reply_error):
-                        print("Comparison frame reply target deleted. Triggering failsafe.", flush=True)
-                        await send_deleted_message_failsafe(message.channel)
-                    else:
-                        print(f"Comparison frame reply error: {reply_error}", flush=True)
             return
 
         if combined_frame_gif_request and frame_command_is_addressed:
@@ -2948,16 +3094,6 @@ async def _handle_message(message):
         ):
             frame_sent_ids = await send_frame_table_response(message, fd_context_rows, fd_context_data)
             _record_frame_data_ids(frame_sent_ids)
-            if not frame_sent_ids and fd_context_data:
-                try:
-                    sent = await message.reply(fd_context_data)
-                    _record_frame_data_ids([sent.id], response_text=fd_context_data)
-                except Exception as reply_error:
-                    if is_deleted_message_reference_error(reply_error):
-                        print("Direct frame reply target deleted. Triggering failsafe.", flush=True)
-                        await send_deleted_message_failsafe(message.channel)
-                    else:
-                        print(f"Direct frame reply error: {reply_error}", flush=True)
             return
 
         if buenavista_extension.should_handle_frame_context_request(
@@ -3071,6 +3207,7 @@ register_slash_commands(
         "ggacr_module": ggacr_module,
         "cotw_module": cotw_module,
         "third_strike_module": third_strike_module,
+        "usfiv_module": usfiv_module,
         "mk1_module": mk1_module,
         "combo_data_module": combo_data_module,
         "menu_system": menu_system,

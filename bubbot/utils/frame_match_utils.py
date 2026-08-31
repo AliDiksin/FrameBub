@@ -12,6 +12,93 @@ from bubbot.utils.notation_match_utils import (
 )
 
 
+STRENGTH_ALIASES = (
+    ("light punch", frozenset({"LP"})),
+    ("medium punch", frozenset({"MP"})),
+    ("heavy punch", frozenset({"HP"})),
+    ("light kick", frozenset({"LK"})),
+    ("medium kick", frozenset({"MK"})),
+    ("heavy kick", frozenset({"HK"})),
+    ("light", frozenset({"LP", "LK"})),
+    ("medium", frozenset({"MP", "MK"})),
+    ("heavy", frozenset({"HP", "HK"})),
+    ("lp", frozenset({"LP"})),
+    ("mp", frozenset({"MP"})),
+    ("hp", frozenset({"HP"})),
+    ("lk", frozenset({"LK"})),
+    ("mk", frozenset({"MK"})),
+    ("hk", frozenset({"HK"})),
+    ("ex", frozenset({"EX"})),
+    ("od", frozenset({"EX"})),
+    ("l", frozenset({"LP", "LK"})),
+    ("m", frozenset({"MP", "MK"})),
+    ("h", frozenset({"HP", "HK"})),
+)
+
+
+def parse_strength_qualifier(query: str) -> tuple[str, Optional[frozenset[str]], bool]:
+    """Return a strength-free query, requested row strengths, and embedded-notation flag."""
+    text = re.sub(r"\s+", " ", str(query or "").lower()).strip()
+    for alias, strengths in STRENGTH_ALIASES:
+        prefix = f"{alias} "
+        suffix = f" {alias}"
+        if text.startswith(prefix):
+            return text[len(prefix) :].strip(), strengths, False
+        if text.endswith(suffix):
+            return text[: -len(suffix)].strip(), strengths, False
+
+    notation = re.fullmatch(r"((?:j)?[1-9][0-9]{0,5})(lp|mp|hp|lk|mk|hk)", text)
+    if notation:
+        motion, button = notation.groups()
+        return f"{motion}{button[-1]}", frozenset({button.upper()}), True
+    return text, None, False
+
+
+def row_strengths(row: dict) -> frozenset[str]:
+    """Extract an explicit strength, preferring version/name data over grouped commands."""
+    marker_re = re.compile(r"(?<![A-Z0-9])(LP|MP|HP|LK|MK|HK|EX|OD)(?![A-Z0-9])", re.IGNORECASE)
+    compact_buttons_re = re.compile(r"(?<![A-Z])((?:(?:LP|MP|HP|LK|MK|HK)){2,})(?![A-Z])", re.IGNORECASE)
+
+    def markers_in(value, *, command=False):
+        text = str(value or "")
+        markers = [marker.upper() for marker in marker_re.findall(text)]
+        for compact_buttons in compact_buttons_re.findall(text):
+            markers.extend(re.findall(r"LP|MP|HP|LK|MK|HK", compact_buttons.upper()))
+        if command and re.search(r"(?:^|[0-9])(?:PP|KK)(?![A-Z0-9])", text, re.IGNORECASE):
+            markers.append("EX")
+        return frozenset("EX" if marker == "OD" else marker for marker in markers)
+
+    version_markers = markers_in(row.get("version", ""))
+    if version_markers:
+        return version_markers
+
+    name_markers = frozenset().union(*(markers_in(row.get(field, "")) for field in ("moveName", "cmnName")))
+    if name_markers:
+        return name_markers
+
+    for field in ("numCmd", "nickname", "plnCmd"):
+        value = str(row.get(field, ""))
+        markers = set(markers_in(value, command=field in {"numCmd", "plnCmd"}))
+        markers.update(marker.upper() for marker in re.findall(r"[1-9][0-9]*(LP|MP|HP|LK|MK|HK)(?![A-Z0-9])", value, re.IGNORECASE))
+        if markers:
+            return frozenset(markers)
+    return frozenset()
+
+
+def filter_rows_by_strength(rows: Iterable[dict], strengths: Optional[frozenset[str]]) -> list[dict]:
+    """Narrow strength-aware rows, retaining shared rows that encode no strength."""
+    row_list = list(rows or [])
+    if not strengths:
+        return row_list
+    marked_rows = [(row, row_strengths(row)) for row in row_list]
+    matching = [row for row, markers in marked_rows if markers & strengths]
+    if matching:
+        return matching
+    if any(markers for _row, markers in marked_rows):
+        return []
+    return row_list
+
+
 def normalized_query_words(query: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(query or "").lower()).strip()
 

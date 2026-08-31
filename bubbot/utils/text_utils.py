@@ -89,7 +89,7 @@ def alias_word_vocabulary(*alias_maps, min_word_len=4):
     return sorted(words)
 
 
-def correct_alias_typos(text, *alias_maps, min_word_len=4, cutoff=0.8):
+def correct_alias_typos(text, *alias_maps, min_word_len=4, cutoff=0.8, ambiguity_margin=None):
     """Correct one-token typos against alias words without touching short buttons."""
     words = alias_word_vocabulary(*alias_maps, min_word_len=min_word_len)
     if not words:
@@ -101,12 +101,114 @@ def correct_alias_typos(text, *alias_maps, min_word_len=4, cutoff=0.8):
             corrected_tokens.append(token)
             continue
         matches = difflib.get_close_matches(token, words, n=2, cutoff=cutoff)
-        if len(matches) == 1:
+        clear_winner = bool(
+            ambiguity_margin is not None
+            and len(matches) > 1
+            and difflib.SequenceMatcher(None, token, matches[0]).ratio()
+            - difflib.SequenceMatcher(None, token, matches[1]).ratio()
+            >= ambiguity_margin
+        )
+        if len(matches) == 1 or clear_winner:
             corrected_tokens.append(matches[0])
             changed = True
         else:
             corrected_tokens.append(token)
     return " ".join(corrected_tokens) if changed else text
+
+
+QUERY_TERM_ALIASES = (
+    ("framedata", ("frame data", "framedata")),
+    ("gif", ("gif", "gifs", "hit box", "hit boxes", "hitbox", "hitboxes", "image", "images", "picture", "pictures")),
+    ("notes", ("note", "notes")),
+    ("startup", ("start up", "startup", "how fast", "how quick", "speed of")),
+    ("active", ("active", "active frame", "active frames")),
+    ("recovery", ("recovery",)),
+    ("total", ("total", "total frame", "total frames")),
+    ("on hit", ("on hit", "hit advantage")),
+    ("on block", ("on block", "plus on block", "minus on block", "block advantage")),
+    ("flawless block", ("flawless block",)),
+    ("block damage", ("block damage",)),
+    ("rev damage", ("rev damage",)),
+    ("guard damage", ("guard damage",)),
+    ("chip damage", ("chip damage",)),
+    ("drive damage", ("drive chip", "drive dmg", "drive damage")),
+    ("damage", ("damage", "dmg")),
+    ("guard", ("guard",)),
+    ("attack level", ("attack level", "atk lvl", "atk level")),
+    ("cancel", ("cancel", "cancelable", "cancellable")),
+    ("gatling", ("gatling",)),
+    ("invuln", ("invuln", "invulnerability", "invul")),
+    ("attribute", ("attribute",)),
+    ("range", ("range", "length")),
+    ("hitconfirm", ("hit confirm", "hit-confirm", "hitconfirm", "confirm window", "confirm timing", "confirmable")),
+    ("super gain", ("super gain", "super meter gain", "super build", "sa gain")),
+    ("meter gain", ("meter gain",)),
+    ("stun", ("hitstun", "blockstun", "stun")),
+    ("risc gain", ("risc gain", "risc")),
+    ("proration", ("proration", "prorate")),
+    ("knockdown advantage", ("knockdown advantage", "knockdown adv", "kda")),
+    ("punish counter", ("punish counter",)),
+    ("counter hit advantage", ("counter hit advantage", "counter hit adv")),
+    ("counter hit", ("counter hit",)),
+    ("frame advantage", ("frame advantage", "frame adv")),
+    ("versus", ("versus",)),
+    ("compare", ("compare", "comparison", "which is faster", "which is better")),
+)
+
+_QUERY_TERM_LOOKUP = {}
+for _canonical_term, _term_aliases in QUERY_TERM_ALIASES:
+    for _term_alias in _term_aliases:
+        _QUERY_TERM_LOOKUP[_term_alias] = _canonical_term
+        _QUERY_TERM_LOOKUP[compact_key(_term_alias)] = _canonical_term
+
+_QUERY_TERM_TYPO_WORDS = {
+    word
+    for alias in _QUERY_TERM_LOOKUP
+    for word in word_tokens(alias)
+    if word not in {"frame", "data"}
+}
+_QUERY_TERM_TYPO_WORDS = {
+    word
+    for word in _QUERY_TERM_TYPO_WORDS
+    if not (
+        (word.endswith("s") and word[:-1] in _QUERY_TERM_TYPO_WORDS)
+        or (word.endswith("es") and word[:-2] in _QUERY_TERM_TYPO_WORDS)
+    )
+}
+_QUERY_TERM_TYPO_ALIASES = {word: word for word in _QUERY_TERM_TYPO_WORDS}
+_STRIPPABLE_QUERY_TERMS = sorted({canonical for canonical, _aliases in QUERY_TERM_ALIASES}, key=len, reverse=True)
+_QUERY_TERM_PATTERN = re.compile(
+    r"(?<![a-z0-9])(?:"
+    + "|".join(re.escape(alias) for alias in sorted(_QUERY_TERM_LOOKUP, key=len, reverse=True))
+    + r")(?![a-z0-9])"
+)
+_STRIPPABLE_QUERY_TERM_PATTERN = re.compile(
+    r"(?<![a-z0-9])(?:"
+    + "|".join(re.escape(term) for term in _STRIPPABLE_QUERY_TERMS)
+    + r")(?![a-z0-9])"
+)
+
+
+def normalize_query_terms(text):
+    """Canonicalize compact and conservatively misspelled frame-query terms."""
+    normalized = str(text or "").lower()
+    normalized = correct_alias_typos(
+        normalized,
+        _QUERY_TERM_TYPO_ALIASES,
+        ambiguity_margin=0.05,
+    )
+    normalized = _QUERY_TERM_PATTERN.sub(
+        lambda match: _QUERY_TERM_LOOKUP[match.group(0)],
+        normalized,
+    )
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def strip_query_terms(text):
+    """Remove shared routing terms before game-specific move matching."""
+    stripped = normalize_query_terms(text)
+    stripped = _STRIPPABLE_QUERY_TERM_PATTERN.sub(" ", stripped)
+    return re.sub(r"\s+", " ", stripped).strip()
 
 
 def query_suffix_candidates(text):

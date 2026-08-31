@@ -2,7 +2,7 @@
 
 import re
 
-from bubbot.utils.text_utils import query_suffix_candidates
+from bubbot.utils.text_utils import normalize_query_terms, query_suffix_candidates
 
 
 COMPARISON_RE = re.compile(r"\b(?:vs|versus|compare|comparison|and)\b")
@@ -10,7 +10,11 @@ SPLIT_RE = re.compile(r"\b(?:vs|versus|and)\b")
 
 
 def is_comparison_query(text, char_matches):
-    return len(char_matches or []) >= 2 and bool(COMPARISON_RE.search(str(text or "").lower()))
+    lowered = normalize_query_terms(text)
+    unique_matches = unique_char_matches(char_matches)
+    if len(unique_matches) >= 2:
+        return bool(COMPARISON_RE.search(lowered))
+    return len(unique_matches) == 1 and bool(re.search(r"\b(?:vs|versus)\b", lowered))
 
 
 def unique_char_matches(char_matches):
@@ -50,10 +54,35 @@ def find_comparison_rows(
     `find_rows_for_char(char_key, move_text)` must return that game's normal
     matching rows for one character and one move query.
     """
-    lowered = str(text or "").lower()
+    lowered = normalize_query_terms(text)
     ordered_matches = unique_char_matches(char_matches)
     if not is_comparison_query(lowered, ordered_matches):
         return None
+
+    if len(ordered_matches) == 1:
+        char_key = ordered_matches[0][0]
+        sides = [part.strip() for part in SPLIT_RE.split(lowered) if part.strip()]
+        if len(sides) < 2:
+            return None
+        rows = []
+        for side in sides:
+            side_matches = unique_char_matches(find_characters_in_text(side))
+            side_move_text = remove_match_spans(side, side_matches)
+            query = strip_comparison_terms(side_move_text)
+            matches = []
+            for query_candidate in query_suffix_candidates(query):
+                matches = find_rows_for_char(char_key, query_candidate) or []
+                if matches:
+                    break
+            if len(matches) > 1:
+                return {"needs_disambiguation": True, "char_key": char_key, "rows": matches}
+            if not matches:
+                return None
+            if matches[0] not in rows:
+                rows.append(matches[0])
+        if len(rows) < 2:
+            return None
+        return {"rows": rows, "char_key": char_key}
 
     rows_by_char = {}
     disambiguation = None

@@ -269,10 +269,17 @@ def build_frame_embed(row, image_url_override=None, show_notes=False):
     char_name = clean_embed_value(row.get("char_name", "Unknown"), default="Unknown")
     move_name = clean_embed_value(row.get("moveName", "Unknown"), default="Unknown")
     num_cmd = clean_embed_value(row.get("numCmd", "?"), default="?")
+    drink_level_suffix = ""
+    if str(row.get("char_name", "")).strip().lower() == "jamie":
+        try:
+            drink_level = int(row.get("_jamie_drink_level", 0) or 0)
+        except (TypeError, ValueError):
+            drink_level = 0
+        drink_level_suffix = f" (drink level {drink_level})"
 
     embed = discord.Embed(
         title=truncate_embed_value(char_name, 256),
-        description=truncate_embed_value(f"{move_name} ({num_cmd})", 4096),
+        description=truncate_embed_value(f"{move_name} ({num_cmd}){drink_level_suffix}", 4096),
         colour=0x3998C6,
     )
 
@@ -516,10 +523,13 @@ class FrameDataGifButton(discord.ui.Button):
 
 
 async def _edit_frame_data_view(interaction, view, attachments):
-    await interaction.response.edit_message(
+    await interaction.response.defer()
+    existing_attachments = list(getattr(getattr(interaction, "message", None), "attachments", []) or [])
+    next_attachments = existing_attachments if attachments and existing_attachments else attachments
+    await interaction.edit_original_response(
         embed=view.build_embed(),
         view=view,
-        attachments=attachments,
+        attachments=next_attachments,
     )
 
 
@@ -732,18 +742,49 @@ async def _send_sf6_frame_result_messages(
     return sent_ids
 
 
-async def send_frame_table_response(message, rows, data_text):
+async def _send_frame_embed_only(message, embed, *, view=None, files=None, reply=False):
+    primary_send = message.reply if reply else message.channel.send
+    full_kwargs = {"embed": embed}
+    if view is not None:
+        full_kwargs["view"] = view
+    if files:
+        full_kwargs["files"] = files
+
+    attempts = [(primary_send, full_kwargs)]
+    if files:
+        retry_kwargs = {"embed": embed, "view": view} if view is not None else {"embed": embed}
+        attempts.append((primary_send, retry_kwargs))
+    if view is not None:
+        attempts.append((primary_send, {"embed": embed}))
+    if reply:
+        if view is not None:
+            attempts.append((message.channel.send, {"embed": embed, "view": view}))
+        attempts.append((message.channel.send, {"embed": embed}))
+
+    errors = []
+    for send, kwargs in attempts:
+        try:
+            return await send(**kwargs)
+        except Exception as error:
+            errors.append(str(error))
+    print(f"Frame embed send failed after {len(attempts)} attempts: {' | '.join(errors)}", flush=True)
+    return None
+
+
+async def send_frame_table_response(message, rows, data_text=None):
     from bubbot.features.failed_prompt_report import stamp_report_context_on_sent
     from bubbot.features.menu_system import build_frame_result_view
 
     unique_rows = iter_unique_frame_rows(rows or [])
     if not unique_rows:
         return []
-    try:
-        sent_ids = []
-        owner_id = getattr(message.author, "id", None)
-        prompt = str(getattr(message, "content", "") or "")
-        for index, row in enumerate(unique_rows):
+    sent_ids = []
+    owner_id = getattr(message.author, "id", None)
+    prompt = str(getattr(message, "content", "") or "")
+    for index, row in enumerate(unique_rows):
+        view = None
+        files = []
+        try:
             view = build_frame_result_view(
                 "sf6",
                 row,
@@ -753,23 +794,48 @@ async def send_frame_table_response(message, rows, data_text):
                 prompt=prompt,
             )
             embed = view.build_embed()
-            files = view.initial_files()
-            if index == 0:
-                sent = await message.reply(embed=embed, view=view, files=files)
-            else:
-                sent = await message.channel.send(embed=embed, view=view, files=files)
-            stamp_report_context_on_sent(view, sent)
+            try:
+                files = view.initial_files()
+            except Exception as file_error:
+                print(f"Frame embed attachment load failed: {file_error}", flush=True)
+        except Exception as view_error:
+            print(f"Frame result view build failed; sending base embed: {view_error}", flush=True)
+            view = None
+            files = []
+            try:
+                embed = build_frame_embed(row)
+            except Exception as embed_error:
+                print(f"Frame embed build failed: {embed_error}", flush=True)
+                continue
+
+        sent = await _send_frame_embed_only(
+            message,
+            embed,
+            view=view,
+            files=files,
+            reply=index == 0,
+        )
+        if sent is not None:
+            if view is not None:
+                stamp_report_context_on_sent(view, sent)
             sent_ids.append(sent.id)
-        return sent_ids
-    except Exception as e:
-        print(f"Direct frame embed send failed: {e}", flush=True)
-    return []
+    return sent_ids
 
 
 async def send_gif_links_response(message, gif_links, wants_comparison=False):
     if not gif_links:
         return []
     try:
+        remote_links = [
+            str(link).strip()
+            for link in gif_links
+            if str(link or "").strip().lower().startswith(("https://", "http://"))
+        ]
+        if remote_links:
+            links_to_send = remote_links if wants_comparison else remote_links[:1]
+            sent = await message.reply("\n".join(links_to_send))
+            return [sent.id]
+
         asset_limit = len(gif_links) if wants_comparison else 1
         asset_paths = get_existing_local_gif_asset_paths(gif_links, limit=asset_limit)
         if asset_paths:

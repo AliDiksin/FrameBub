@@ -6,6 +6,11 @@ import re
 from bubbot.utils.character_lookup import find_aliases_in_text
 from bubbot.utils.text_utils import compact_key, remove_first_token_sequence as remove_first_token_sequence_shared
 
+try:
+    from bubbot.data.sf6_ufd_gif_urls import SF6_UFD_GIF_URLS
+except ImportError:
+    SF6_UFD_GIF_URLS = {}
+
 CHARACTER_ALIASES = {}
 FRAME_DATA = {}
 HITBOX_GIF_DATA = {}
@@ -21,12 +26,55 @@ find_moves_in_text = None
 lookup_frame_data = None
 get_sf6_move_image_url = None
 
+JAMIE_DRINK_LEVEL_QUERY_RE = re.compile(
+    r"(?:\b(?:dl|d)\s*([0-4])\b"
+    r"|\bdrinks?\s*(?:level\s*)?([0-4])\b"
+    r"|\b(?:level|lvl|lv)\s*([0-4])\b)",
+    re.IGNORECASE,
+)
+
 
 # Runtime dependency injection
 
 
 def configure(**deps):
     globals().update(deps)
+
+
+def drink_level_from_text(value):
+    match = JAMIE_DRINK_LEVEL_QUERY_RE.search(str(value or ""))
+    if not match:
+        return None
+    return next(int(group) for group in match.groups() if group is not None)
+
+
+def remove_drink_level_from_text(value):
+    return re.sub(r"\s+", " ", JAMIE_DRINK_LEVEL_QUERY_RE.sub(" ", str(value or ""))).strip()
+
+
+def normalize_drink_level(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def filter_drink_level_gif_candidates(char_key, requested_level, candidates):
+    if char_key != "jamie" or requested_level is None or not candidates:
+        return candidates
+
+    level_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.get("drink_level") is not None
+        and candidate["drink_level"] <= requested_level
+    ]
+    if level_candidates:
+        selected_level = max(candidate["drink_level"] for candidate in level_candidates)
+        return [candidate for candidate in level_candidates if candidate["drink_level"] == selected_level]
+
+    base_candidates = [candidate for candidate in candidates if candidate.get("drink_level") is None]
+    return base_candidates or candidates
 
 
 def compact_move_token(value):
@@ -74,10 +122,15 @@ def parse_local_hitbox_gif_filename(filename):
     if not move_name:
         move_name = primary_num_cmd
 
-    return {
+    drink_level = drink_level_from_text(stem.replace("_", " "))
+
+    parsed = {
         "moveName": move_name,
         "numCmd": num_cmd,
     }
+    if drink_level is not None:
+        parsed["drink_level"] = drink_level
+    return parsed
 
 
 def load_local_hitbox_gif_data(character_lookup):
@@ -101,13 +154,19 @@ def load_local_hitbox_gif_data(character_lookup):
             parsed = parse_local_hitbox_gif_filename(file_entry.name)
             if not parsed:
                 continue
+            remote_url = str(
+                SF6_UFD_GIF_URLS.get((normalize_char_name(char_entry.name), file_entry.name), "")
+                or ""
+            ).strip()
 
             gif_data.setdefault(char_key, []).append(
                 {
                     "moveName": parsed["moveName"],
                     "numCmd": parsed["numCmd"],
-                    "moveLink": file_entry.path,
+                    "moveLink": remote_url or file_entry.path,
+                    "localPath": file_entry.path,
                     "sourceFile": file_entry.name,
+                    "drink_level": parsed.get("drink_level"),
                 }
             )
 
@@ -136,6 +195,14 @@ def get_existing_local_gif_asset_paths(gif_links, limit=DISCORD_ATTACHMENT_LIMIT
         if len(paths) >= limit:
             break
     return paths
+
+
+def get_first_remote_gif_url(gif_links):
+    for move_link in gif_links or []:
+        link = str(move_link or "").strip()
+        if link.lower().startswith(("https://", "http://")):
+            return link
+    return ""
 
 
 def normalize_move_name_for_gif_text(value):
@@ -351,6 +418,13 @@ def lookup_hitbox_gif_link(row):
 
     row_num_cmd_raw = str(row.get("numCmd", "")).lower()
     row_num_cmd = normalize_num_cmd_token(row_num_cmd_raw)
+    requested_drink_level = (
+        normalize_drink_level(row.get("_jamie_drink_level"))
+        if char_key == "jamie"
+        else None
+    )
+    if char_key == "jamie" and requested_drink_level is None:
+        requested_drink_level = 0
     row_suffix = extract_button_suffix(row_num_cmd)
     row_move_name_norm = normalize_move_name_for_gif_text(row.get("moveName", ""))
     row_cmn_name_norm = normalize_move_name_for_gif_text(row.get("cmnName", ""))
@@ -447,6 +521,7 @@ def lookup_hitbox_gif_link(row):
                     or "(hold" in gif_num_cmd_raw
                 ),
                 "is_stocked": row_mentions_stocked_variant(gif_row),
+                "drink_level": normalize_drink_level(gif_row.get("drink_level")),
             }
         )
 
@@ -480,6 +555,11 @@ def lookup_hitbox_gif_link(row):
         if not items:
             return None
         filtered = apply_row_context_filters(items)
+        filtered = filter_drink_level_gif_candidates(
+            char_key,
+            requested_drink_level,
+            filtered,
+        )
         if row_suffix in {"p", "k"}:
             specific_suffixes = {
                 item["suffix"]
@@ -906,7 +986,15 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
     if not gif_rows:
         return []
 
-    query_raw = resolve_hitbox_gif_query_alias(char_key, move_query)
+    requested_drink_level = drink_level_from_text(move_query) if char_key == "jamie" else None
+    if char_key == "jamie" and requested_drink_level is None:
+        requested_drink_level = 0
+    query_for_matching = (
+        remove_drink_level_from_text(move_query)
+        if char_key == "jamie"
+        else move_query
+    )
+    query_raw = resolve_hitbox_gif_query_alias(char_key, query_for_matching)
     if not query_raw:
         return []
 
@@ -947,6 +1035,7 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
                     or "(hold" in gif_num_cmd_raw
                 ),
                 "is_stocked": row_mentions_stocked_variant(gif_row),
+                "drink_level": normalize_drink_level(gif_row.get("drink_level")),
             }
         )
 
@@ -1010,7 +1099,12 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
     def unique_links(items):
         resolved_links = []
         seen = set()
-        for item in items:
+        filtered_items = filter_drink_level_gif_candidates(
+            char_key,
+            requested_drink_level,
+            items,
+        )
+        for item in filtered_items:
             move_link = item["link"]
             if move_link in seen:
                 continue

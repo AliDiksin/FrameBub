@@ -178,6 +178,11 @@ def _quiz_game_key(game=None):
         "thirdstrike": "third_strike",
         "third_strike": "third_strike",
         "sf3": "third_strike",
+        "usf4": "usf4",
+        "usfiv": "usf4",
+        "sf4": "usf4",
+        "ultra_street_fighter_iv": "usf4",
+        "ultra_street_fighter_4": "usf4",
         "mk": "mk1",
         "mortal_kombat": "mk1",
         "mortal_kombat_1": "mk1",
@@ -222,6 +227,7 @@ def _quiz_extract_game_from_text(text, default="sf6"):
     if query_has_ggacr_game_tag(lowered):
         return "ggacr"
     game_patterns = [
+        ("usf4", r"\b(?:usf4|usfiv|sf4|ultra\s*street\s*fighter\s*(?:4|iv)|street\s*fighter\s*(?:4|iv))\b"),
         ("third_strike", r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b"),
         ("sfv", r"\b(?:sfv|sf5|street\s*fighter\s*(?:v|5))\b"),
         ("mk1", r"\b(?:mk1|mortal\s*kombat\s*(?:1|one)?|kombat)\b"),

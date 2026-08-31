@@ -22,6 +22,7 @@ async def handle_ready(deps):
     ggacr_module = deps["ggacr_module"]
     cotw_module = deps["cotw_module"]
     third_strike_module = deps["third_strike_module"]
+    usfiv_module = deps["usfiv_module"]
     mk1_module = deps["mk1_module"]
     combo_data_module = deps["combo_data_module"]
     from bubbot.data.ggacr_aliases import GGACR_GAME_TERMS
@@ -58,6 +59,7 @@ async def handle_ready(deps):
         ggacr_module.load_frame_data()
         cotw_module.load_frame_data()
         third_strike_module.load_frame_data()
+        usfiv_module.load_frame_data()
         mk1_module.load_frame_data()
         configure_extracted_modules()
         combo_data_module.load_combo_data()
@@ -166,6 +168,16 @@ async def handle_ready(deps):
                 "get_notes_text": third_strike_module.get_notes_text,
                 "game_terms": ("3s", "third strike"),
             },
+            "usf4": {
+                "label": "Ultra Street Fighter IV",
+                "data": usfiv_module.USFIV_FRAME_DATA,
+                "aliases": usfiv_module.USFIV_CHARACTER_ALIASES,
+                "resolve_character_key": usfiv_module.resolve_character_key,
+                "find_moves_in_text": usfiv_module.find_moves_in_text,
+                "build_frame_embed": usfiv_module.build_frame_embed,
+                "get_notes_text": usfiv_module.get_notes_text,
+                "game_terms": ("usf4", "ultra street fighter iv"),
+            },
             "mk1": {
                 "label": "Mortal Kombat 1",
                 "data": mk1_module.MK1_FRAME_DATA,
@@ -211,6 +223,8 @@ async def handle_ready(deps):
         cotw_character_aliases=cotw_module.COTW_CHARACTER_ALIASES,
         third_strike_frame_data=third_strike_module.THIRD_STRIKE_FRAME_DATA,
         third_strike_character_aliases=third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES,
+        usfiv_frame_data=usfiv_module.USFIV_FRAME_DATA,
+        usfiv_character_aliases=usfiv_module.USFIV_CHARACTER_ALIASES,
         mk1_frame_data=mk1_module.MK1_FRAME_DATA,
         mk1_character_aliases=mk1_module.MK1_CHARACTER_ALIASES,
         quiz_module_ref=quiz_module,
@@ -222,6 +236,7 @@ async def handle_ready(deps):
         build_ggacr_frame_embed_fn=ggacr_module.build_frame_embed,
         build_cotw_frame_embed_fn=cotw_module.build_frame_embed,
         build_third_strike_frame_embed_fn=third_strike_module.build_frame_embed,
+        build_usfiv_frame_embed_fn=usfiv_module.build_frame_embed,
         send_frame_embeds_with_views_fn=send_frame_embeds_with_views,
     )
     print("[menu] Menu system configured.", flush=True)

@@ -12,10 +12,10 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.discord_formatting import add_embed_field, clean_value, truncate_value
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
-from bubbot.utils.frame_match_utils import find_matching_rows_standard
+from bubbot.utils.frame_match_utils import filter_rows_by_strength, find_matching_rows_standard, parse_strength_qualifier
 from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
 
 
 SFV_FRAME_DATA_FILE = "SF5 Frame Data - FAT .ods"
@@ -240,6 +240,7 @@ def query_requests_plain_zeku(text):
 
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
+    text = strip_query_terms(text)
     text = re.sub(r"\b(?:sfv|sf5|street\s*fighter\s*(?:v|5))\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
     text = re.sub(r"\b(?:vt|v\s*trigger|trigger)\s*[12]\b|\bvt[12]\b", " ", text)
@@ -282,19 +283,26 @@ def _sfv_notation_query(query_key):
 def find_matching_rows(char_key, move_text):
     state_key = query_requested_state(move_text)
     query = normalize_move_query(move_text)
-    query_key = normalize_move_token(query)
     rows = _rows_for_state(char_key, state_key)
-    return find_matching_rows_standard(
-        rows,
-        query,
-        query_key,
-        normalize_fn=normalize_move_token,
-        looks_like_fn=_sfv_notation_query,
-        row_keys_fn=row_match_keys,
-        dedupe_fn=unique_rows,
-        name_fields=("moveName", "cmnName"),
-        fuzzy_value_fields=("moveName", "numCmd", "cmnName"),
-    )
+    base_query, strengths, embedded_notation = parse_strength_qualifier(query)
+    candidates = [query, base_query] if embedded_notation else [base_query]
+    for candidate in candidates:
+        query_key = normalize_move_token(candidate)
+        matches = find_matching_rows_standard(
+            rows,
+            candidate,
+            query_key,
+            normalize_fn=normalize_move_token,
+            looks_like_fn=_sfv_notation_query,
+            row_keys_fn=row_match_keys,
+            dedupe_fn=unique_rows,
+            name_fields=("moveName", "cmnName"),
+            fuzzy_value_fields=("moveName", "numCmd", "cmnName"),
+        )
+        matches = filter_rows_by_strength(matches, strengths)
+        if matches:
+            return matches
+    return []
 
 
 def build_disambiguation_prompt(char_key, rows):
@@ -315,7 +323,7 @@ def build_disambiguation_prompt(char_key, rows):
 
 
 def find_moves_in_text(text):
-    lowered = str(text or "").lower()
+    lowered = normalize_query_terms(text)
     gif_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     notes_query = bool(re.search(r"\bnotes?\b", lowered))

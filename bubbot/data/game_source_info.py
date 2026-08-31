@@ -32,6 +32,11 @@ SOURCE_CATALOG: dict[str, GameSourceInfo] = {
         url="https://fullmeter.com/fat/",
         icon_url="",
     ),
+    "ultimate_frame_data": GameSourceInfo(
+        name="Ultimate Frame Data",
+        url="https://ultimateframedata.com/sf6/",
+        icon_url="",
+    ),
     "supercombo": GameSourceInfo(
         name="SuperCombo Wiki",
         url="https://wiki.supercombo.gg",
@@ -62,6 +67,7 @@ SOURCE_CATALOG: dict[str, GameSourceInfo] = {
 FRAME_DATA_SOURCE_KEYS: dict[str, str] = {
     "sf6": "fat",
     "sfv": "fat",
+    "usf4": "supercombo",
     "ggst": "dustloop",
     "ggacr": "dustloop",
     "tuco": "2xko",
@@ -69,6 +75,10 @@ FRAME_DATA_SOURCE_KEYS: dict[str, str] = {
     "cotw": "dreamcancel",
     "bbcf": "dustloop",
     "third_strike": "supercombo",
+}
+
+ADDITIONAL_FRAME_DATA_SOURCE_KEYS: dict[str, tuple[str, ...]] = {
+    "sf6": ("ultimate_frame_data",),
 }
 
 COMBO_SOURCE_KEYS: dict[str, str] = {
@@ -80,6 +90,11 @@ COMBO_SOURCE_KEYS: dict[str, str] = {
 def get_frame_source_info(game: str) -> GameSourceInfo:
     key = FRAME_DATA_SOURCE_KEYS.get(str(game or "").strip().lower(), "fat")
     return SOURCE_CATALOG[key]
+
+
+def get_additional_frame_source_info(game: str) -> tuple[GameSourceInfo, ...]:
+    keys = ADDITIONAL_FRAME_DATA_SOURCE_KEYS.get(str(game or "").strip().lower(), ())
+    return tuple(SOURCE_CATALOG[key] for key in keys)
 
 
 def get_combo_source_info(game: str) -> GameSourceInfo:

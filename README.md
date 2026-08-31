@@ -1,15 +1,15 @@
 # FrameBub - Fighting Game Frame Data Bot
 
-A Discord bot that provides instant frame data, hitbox images, combo routes, and quiz challenges for 8 fighting games using natural language queries or interactive menus.
+A Discord bot that provides instant frame data, hitbox images, combo routes, and quiz challenges for 9 fighting games using natural language queries or interactive menus.
 
 ## Features
 
 - **Natural Language Lookup** - Ask questions like `what is the framedata for ryu's fireball? ` or `Ryu vs ken 5hp` in plain English
-- **8 Supported Games** - SF6, SFV, GGST, 2XKO, BBCF, COTW, Third Strike, and MK1 with more to come
+- **9 Supported Games** - SF6, SFV, USF4, GGST, 2XKO, BBCF, COTW, Third Strike, and MK1 with more to come
 - **Hitbox & GIF Images** - Toggle hitbox images and gifs.
 - **Compare Moves** - Press Compare to pick a second move and view both side by side
 - **Interactive Menu** - `/bub` opens a character and move selector for every game
-- **Slash Commands** - Dedicated `/sf6`, `/ggst`, `/sfv`, `/2xko`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1` commands
+- **Slash Commands** - Dedicated `/sf6`, `/usf4`, `/ggst`, `/sfv`, `/2xko`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1` commands
 - **Quiz Mode** - Test your knowledge with easy, medium, and hard frame data quizzes across all games
 - **Reminders** - Set reminders with timezone support
 - **Notes Toggle** - View move-specific notes from community wikis and frame data sources
@@ -20,6 +20,7 @@ A Discord bot that provides instant frame data, hitbox images, combo routes, and
 |------|--------|-------|
 | Street Fighter 6 | FAT ODS | Local hitbox GIFs, SuperCombo images |
 | Street Fighter V | FAT ODS | V-Trigger separated rows, SuperCombo images |
+| Ultra Street Fighter IV | SuperCombo ODS | 44-character roster, source notes, available move images |
 | Guilty Gear Strive | Dustloop ODS | Hitbox images, state-specific moves (Installs, Blood, etc.) |
 | 2XKO | Community ODS | Wiki-sourced images and hitboxes |
 | BlazBlue Central Fiction | Dustloop ODS | Hitbox images, move notes |
@@ -44,6 +45,7 @@ A Discord bot that provides instant frame data, hitbox images, combo routes, and
 @bub mai ex fan
 @bub delete carl 5c framedata
 @bub 3s urien 5hp and 2mk
+@bub usf4 cammy cannon spike lk framedata
 @bub mk1 sub 1 framedata
 @bub ahri 5l vs ken 5p
 ```
@@ -58,6 +60,7 @@ A Discord bot that provides instant frame data, hitbox images, combo routes, and
 | `/bbcf` | `char_name: Ragna` `move_name: 5B` |
 | `/cotw` | `char_name: Ronaldo` `move_name: Far C` |
 | `/third-strike` | `char_name: Urien` `move_name: 5HP` |
+| `/usf4` | `char_name: Cammy` `move_name: Cannon Spike (623 LK)` |
 | `/mk1` | `char_name: Sub-Zero` `move_name: 1` |
 
 ## Setup

@@ -18,7 +18,7 @@ from bubbot.frame_data.sf6_parser_helpers import query_has_grounded_normal_notat
 from bubbot.utils.discord_formatting import add_embed_field as shared_add_embed_field
 from bubbot.utils.discord_formatting import clean_value as shared_clean_value
 from bubbot.utils.discord_formatting import truncate_value as shared_truncate_value
-from bubbot.utils.text_utils import contains_token_sequence, word_tokens
+from bubbot.utils.text_utils import compact_key, contains_token_sequence, correct_alias_typos, word_tokens
 
 
 STAT_FIELD_LABELS = {
@@ -47,6 +47,27 @@ STAT_FIELD_LABELS = {
 STAT_DISPLAY_ORDER = tuple(STAT_FIELD_LABELS.keys())
 _FRAME_SUFFIX_KEYS = frozenset({"fDash", "bDash", "nJump", "fJump", "bJump"})
 
+_STAT_PHRASE_KEYS = {}
+for _phrases, _keys in SF6_STAT_PHRASE_ALIASES:
+    for _phrase in _phrases:
+        _STAT_PHRASE_KEYS[_phrase] = _keys
+        _STAT_PHRASE_KEYS[compact_key(_phrase)] = _keys
+
+_STAT_TYPO_WORDS = {
+    word
+    for term in (*SF6_STAT_BROAD_TERMS, *SF6_STAT_LEGACY_TERMS, *_STAT_PHRASE_KEYS)
+    for word in word_tokens(term)
+}
+_STAT_TYPO_WORDS = {
+    word
+    for word in _STAT_TYPO_WORDS
+    if not (
+        (word.endswith("s") and word[:-1] in _STAT_TYPO_WORDS)
+        or (word.endswith("es") and word[:-2] in _STAT_TYPO_WORDS)
+    )
+}
+_STAT_TYPO_ALIASES = {word: word for word in _STAT_TYPO_WORDS}
+
 
 @dataclass(frozen=True)
 class StatsIntent:
@@ -59,6 +80,10 @@ class StatsIntent:
 def _phrase_in_text(text_lower, phrase):
     pattern = rf"\b{re.escape(phrase)}\b"
     return bool(re.search(pattern, text_lower))
+
+
+def _normalize_stat_terms(text_lower):
+    return correct_alias_typos(text_lower, _STAT_TYPO_ALIASES, ambiguity_margin=0.05)
 
 
 _JUMP_FAMILY_KEYS = frozenset({"nJump", "fJump", "bJump", "fJumpDist", "bJumpDist"})
@@ -80,6 +105,7 @@ def _apply_jump_notation_precedence(tokens, matched):
 
 
 def match_stat_keys_in_text(text_lower):
+    text_lower = _normalize_stat_terms(text_lower)
     matched = set()
     tokens = word_tokens(text_lower)
     for alias, keys in SF6_STAT_NOTATION_ALIASES.items():
@@ -88,13 +114,14 @@ def match_stat_keys_in_text(text_lower):
     for token_sequence, keys in SF6_STAT_TOKEN_SEQUENCE_ALIASES:
         if contains_token_sequence(tokens, list(token_sequence)):
             matched.update(keys)
-    for phrases, keys in SF6_STAT_PHRASE_ALIASES:
-        if any(_phrase_in_text(text_lower, phrase) for phrase in phrases):
+    for phrase, keys in _STAT_PHRASE_KEYS.items():
+        if _phrase_in_text(text_lower, phrase):
             matched.update(keys)
     return _apply_jump_notation_precedence(tokens, matched)
 
 
 def _query_mentions_stats(text_lower):
+    text_lower = _normalize_stat_terms(text_lower)
     if any(_phrase_in_text(text_lower, term) for term in SF6_STAT_BROAD_TERMS):
         return True
     if match_stat_keys_in_text(text_lower):
@@ -128,16 +155,31 @@ def parse_stats_intent(
     property_only_query=False,
     startup_alias_query=False,
     charge_button_query=False,
+    move_results_found=False,
 ):
     if not mentioned_chars:
         return StatsIntent(False, tuple(), None, False)
 
-    broad_stats = any(_phrase_in_text(text_lower, term) for term in SF6_STAT_BROAD_TERMS)
-    phrase_keys = match_stat_keys_in_text(text_lower)
+    normalized_stat_text = _normalize_stat_terms(text_lower)
+    broad_stats = any(_phrase_in_text(normalized_stat_text, term) for term in SF6_STAT_BROAD_TERMS)
+    phrase_keys = match_stat_keys_in_text(normalized_stat_text)
     air_throw_move_query = _query_has_air_throw_move_intent(text_lower)
     jump_normal_move_query = _query_has_jump_normal_move_intent(text_lower)
     directional_normal_move_query = query_has_directional_normal_notation(text_lower)
     grounded_normal_move_query = query_has_grounded_normal_notation(text_lower)
+    explicit_health_query = any(
+        _phrase_in_text(normalized_stat_text, phrase)
+        for phrase in ("health", "life bar", "life")
+    )
+    move_overrides_hp_alias = bool(
+        move_results_found
+        and explicit_move_attempt
+        and not broad_stats
+        and not explicit_health_query
+        and _phrase_in_text(text_lower, "hp")
+    )
+    if move_overrides_hp_alias and phrase_keys:
+        phrase_keys = tuple(key for key in phrase_keys if key != "health")
     if charge_button_query and phrase_keys:
         phrase_keys = tuple(key for key in phrase_keys if key != "health")
     if air_throw_move_query and phrase_keys:
@@ -151,7 +193,7 @@ def parse_stats_intent(
         phrase_keys = tuple(key for key in phrase_keys if key != "health")
     if grounded_normal_move_query and phrase_keys:
         phrase_keys = tuple(key for key in phrase_keys if key != "health")
-    wants_stats = bool(broad_stats or phrase_keys or _query_mentions_stats(text_lower))
+    wants_stats = bool(broad_stats or phrase_keys or _query_mentions_stats(normalized_stat_text))
 
     if air_throw_move_query and not broad_stats:
         wants_stats = False
@@ -302,6 +344,7 @@ def apply_stats_context(
     property_only_query=False,
     startup_alias_query=False,
     charge_button_query=False,
+    move_results_found=False,
 ):
     stats_intent = parse_stats_intent(
         text_lower,
@@ -312,6 +355,7 @@ def apply_stats_context(
         property_only_query=property_only_query,
         startup_alias_query=startup_alias_query,
         charge_button_query=charge_button_query,
+        move_results_found=move_results_found,
     )
     if not stats_intent.wants_stats:
         return stats_intent, results, formatted_blocks

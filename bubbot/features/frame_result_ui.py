@@ -322,9 +322,18 @@ class FrameResultView(OwnedView):
         self.show_stats = False
         if game == "sf6":
             from bubbot.frame_data.frame_output import SF6NotesButton, SF6ShowStatsButton
-            from bubbot.frame_data.gif_lookup import get_existing_local_gif_asset_paths, get_frame_row_gif_links
+            from bubbot.frame_data.gif_lookup import (
+                get_existing_local_gif_asset_paths,
+                get_first_remote_gif_url,
+                get_frame_row_gif_links,
+            )
             self.gif_links = list(get_frame_row_gif_links(row) or [])
-            asset_paths = get_existing_local_gif_asset_paths(self.gif_links, limit=1) if self.gif_links else []
+            self.default_gif_url = get_first_remote_gif_url(self.gif_links)
+            asset_paths = (
+                get_existing_local_gif_asset_paths(self.gif_links, limit=1)
+                if self.gif_links and not self.default_gif_url
+                else []
+            )
             self.default_gif_asset_path = asset_paths[0] if asset_paths else None
             self.character_stats = FRAME_STATS.get(char_key) or {}
             self.stats_button = SF6ShowStatsButton(disabled=not self.character_stats)
@@ -403,6 +412,15 @@ class FrameResultView(OwnedView):
                     build_character_stats_embed(self.char_key, self.character_stats),
                     self.game,
                 )
+            if getattr(self, "default_gif_url", ""):
+                return apply_game_source_footer(
+                    build_sf6_frame_embed(
+                        self.row,
+                        image_url_override=self.default_gif_url,
+                        show_notes=getattr(self, "show_notes", False),
+                    ),
+                    self.game,
+                )
             if getattr(self, "default_gif_asset_path", None):
                 filename = os.path.basename(self.default_gif_asset_path)
                 return apply_game_source_footer(
@@ -455,4 +473,3 @@ class FrameResultView(OwnedView):
             filename = os.path.basename(self.default_gif_asset_path)
             files.append(discord.File(self.default_gif_asset_path, filename=filename))
         return files
-

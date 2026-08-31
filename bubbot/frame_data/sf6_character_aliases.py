@@ -275,6 +275,10 @@ def collect_jamie_aliases(text_lower, extra_inputs):
     elif re.search(r"\bdrink\b", text_lower):
         drink_alias = "drink"
 
+    drink_level = jamie_drink_level_from_text(text_lower)
+    if drink_level is not None and drink_alias is None:
+        drink_alias = f"drink level {drink_level}"
+
     drink_is_state_modifier = drink_alias and re.search(
         r"\b(?!22p\b)[1-9][0-9]*(?:lp|mp|hp|lk|mk|hk|pp|kk|p|k)\b",
         text_lower,
@@ -336,9 +340,9 @@ def collect_jamie_aliases(text_lower, extra_inputs):
 
 def jamie_drink_level_from_text(text_lower):
     numeric_match = re.search(
-        r"\b(?:dl\s*|drink\s*(?:(?:level|lvl|lv)\s*)?)([1-4])\s*\+?"
-        r"|\b(?:level|lvl|lv)\s*([1-4])\s*\+?\s*drinks?\b"
-        r"|\b([1-4])\s*\+?\s*drinks?\b",
+        r"\b(?:d\s*|dl\s*|drinks?\s*(?:(?:level|lvl|lv)\s*)?)([0-4])\s*\+?"
+        r"|\b(?:level|lvl|lv)\s*([0-4])\s*\+?\s*drinks?\b"
+        r"|\b([0-4])\s*\+?\s*drinks?\b",
         text_lower,
     )
     if numeric_match:

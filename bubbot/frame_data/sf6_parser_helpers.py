@@ -2,6 +2,8 @@
 
 import re
 
+from bubbot.utils.text_utils import correct_alias_typos
+
 
 NORMAL_BUTTON_PATTERN = (
     r"lp|mp|hp|lk|mk|hk|l\s*p|m\s*p|h\s*p|l\s*k|m\s*k|h\s*k|"
@@ -101,6 +103,48 @@ def normalize_directional_normal_notation(text):
     )
 
 
+def normalize_direction_word_motion_notation(text):
+    """Convert word-based motion notation like ``down down mk`` to ``22mk``."""
+    value = str(text or "")
+    # Common motion shorthands
+    value = re.sub(r"\bquarter\s+circle\s+forward\b", "236", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bqcf\b", "236", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bquarter\s+circle\s+back\b", "214", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bqcb\b", "214", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bhalf\s+circle\s+forward\b", "41236", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bhcf\b", "41236", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bhalf\s+circle\s+back\b", "63214", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bhcb\b", "63214", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bdragon\s+punch\b", "623", value, flags=re.IGNORECASE)
+    # Diagonals before single directions (must be first)
+    value = re.sub(r"\bdown\s*[-]?\s*forward\b", "3", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bdown\s*[-]?\s*back\b", "1", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bup\s*[-]?\s*forward\b", "9", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bup\s*[-]?\s*back\b", "7", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bdf\b", "3", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bdb\b", "1", value, flags=re.IGNORECASE)
+    value = re.sub(r"\buf\b", "9", value, flags=re.IGNORECASE)
+    value = re.sub(r"\bub\b", "7", value, flags=re.IGNORECASE)
+
+    direction_word_map = {"down": "2", "up": "8", "back": "4", "forward": "6"}
+
+    pattern = re.compile(
+        r"\b((?:down|up|back|forward|[12346789])(?:\s*[,+\->]*\s*(?:down|up|back|forward|[12346789]))*)\s*\+?\s*(lp|mp|hp|lk|mk|hk|pp|kk|p|k)\b",
+        re.IGNORECASE,
+    )
+
+    def _repl(match):
+        dir_seq = match.group(1)
+        button = match.group(2).lower()
+        tokens = re.findall(r"\b(?:down|up|back|forward)\b|[12346789]", dir_seq, flags=re.IGNORECASE)
+        digits = "".join(direction_word_map.get(tok.lower(), tok) for tok in tokens)
+        if not digits:
+            return match.group(0)
+        return f"{digits}{button}"
+
+    return pattern.sub(_repl, value)
+
+
 def normalize_grounded_normal_notation(text):
     return re.sub(
         rf"\b(stand|standing|st|s|crouch|crouching|cr|c)\s*\.?\s*({NORMAL_BUTTON_PATTERN})\b",
@@ -116,6 +160,43 @@ def collect_normal_notation_inputs(text_lower):
         if token not in inputs:
             inputs.append(token)
     return inputs
+
+
+def query_mentions_loaded_move_name(text_tokens, rows):
+    """Return whether the query contains a distinctive move name from loaded data."""
+    strength_prefix = re.compile(
+        r"^(?:od|ex|lp|mp|hp|lk|mk|hk|pp|kk|light|medium|heavy|l|m|h)\s+"
+    )
+    candidate_sequences = []
+    loaded_name_aliases = {}
+    for row in rows or ():
+        for field in ("moveName", "cmnName"):
+            raw_name = str(row.get(field, "")).lower().split("(", 1)[0].strip()
+            if raw_name:
+                loaded_name_aliases[raw_name] = raw_name
+            base_name = strength_prefix.sub("", raw_name).strip()
+            candidate_tokens = re.findall(r"[a-z0-9]+", base_name)
+            if not candidate_tokens:
+                continue
+            if len(candidate_tokens) == 1 and len(candidate_tokens[0]) < 4:
+                continue
+            candidate_sequences.append(candidate_tokens)
+
+    def contains_candidate(tokens):
+        for candidate_tokens in candidate_sequences:
+            candidate_length = len(candidate_tokens)
+            if any(
+                tokens[index:index + candidate_length] == candidate_tokens
+                for index in range(len(tokens) - candidate_length + 1)
+            ):
+                return True
+        return False
+
+    if contains_candidate(text_tokens):
+        return True
+    corrected_text = correct_alias_typos(" ".join(text_tokens), loaded_name_aliases)
+    corrected_tokens = re.findall(r"[a-z0-9]+", corrected_text)
+    return corrected_tokens != text_tokens and contains_candidate(corrected_tokens)
 
 
 def append_unique(items, token, *, front=False):

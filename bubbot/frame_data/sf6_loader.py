@@ -24,6 +24,11 @@ def loader_row_signature(row):
     )
 
 
+def jamie_drink_level_from_sheet_name(sheet_name):
+    match = re.fullmatch(r"jamie\s*d\s*([1-4])", str(sheet_name or "").strip(), re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
 # Jamie drink-level sheet merge
 
 
@@ -33,16 +38,16 @@ def merge_jamie_drink_level_sheets(xls, frame_data):
         return
 
     jamie_extra_sheets = [
-        name for name in xls.sheet_names
-        if re.fullmatch(r"JamieD[1-4]", str(name or ""), re.IGNORECASE)
+        (name, jamie_drink_level_from_sheet_name(name))
+        for name in xls.sheet_names
+        if jamie_drink_level_from_sheet_name(name) is not None
     ]
     previous_signatures = {
         normalize_loader_move_key(row.get("moveName", ""), row.get("numCmd", "")): loader_row_signature(row)
         for row in frame_data["jamie"]
         if str(row.get("moveName", "")).strip() and str(row.get("numCmd", "")).strip()
     }
-    for sheet_name in sorted(jamie_extra_sheets, key=str.lower):
-        drink_level = int(re.search(r"([1-4])$", sheet_name, re.IGNORECASE).group(1))
+    for sheet_name, drink_level in sorted(jamie_extra_sheets, key=lambda item: str(item[0]).lower()):
         df = pd.read_excel(xls, sheet_name=sheet_name)
         records = df.fillna("").to_dict("records")
         for row in records:

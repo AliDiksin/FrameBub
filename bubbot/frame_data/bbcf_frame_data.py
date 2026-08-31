@@ -15,7 +15,7 @@ from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_r
 from bubbot.utils.frame_match_utils import find_matching_rows_standard
 from bubbot.utils.notation_match_utils import looks_like_notation_query
 from bubbot.utils.row_utils import unique_rows
-from bubbot.utils.text_utils import compact_key, correct_alias_typos, query_suffix_candidates, strip_noise_words
+from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
 
 
 BBCF_FRAME_DATA_FILE = "BBCF Frame Data.ods"
@@ -145,6 +145,7 @@ def find_characters_in_text(text):
 
 def normalize_move_query(query):
     text = str(query or "").lower().strip()
+    text = strip_query_terms(text)
     text = re.sub(r"\b(?:bbcf|blazblue|central\s*fiction)\b", " ", text)
     text = re.sub(r"\b(?:framedata|frame\s*data|frames?|data|gif|gifs|hitbox(?:es)?|images?|notes?|start\s*up|startup|active|recovery|total|on\s+hit|on\s+block|flawless\s+block|block\s+damage|rev\s+damage|guard\s+damage|damage|dmg|guard|attack\s+level|atk\s*lvl|atk\s*level|cancel(?:l?able)?|gatling|invuln(?:erability)?|invul|attribute|range|length|hit\s*-?\s*confirm|hitconfirm|confirm\s+window|confirm\s+timing|confirmable|super\s*gain|super\s*meter\s*gain|meter\s*gain|super\s*build|sa\s*gain|drive\s+gain|drive\s+chip|drive\s+dmg|drive\s+damage|hitstun|blockstun|stun|risc\s*gain|risc|proration|prorate|knockdown\s+adv(?:antage)?|kda|counter\s*hit\s+adv(?:antage)?|ch\s*adv)\b", " ", text)
     text = _normalize_bbcf_notation_spacing(text)
@@ -318,7 +319,7 @@ def build_disambiguation_prompt(char_key, rows):
 
 
 def find_moves_in_text(text):
-    lowered = str(text or "").lower()
+    lowered = normalize_query_terms(text)
     hitbox_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     game_query = bool(re.search(r"\b(?:bbcf|blazblue|central\s*fiction)\b", lowered))
