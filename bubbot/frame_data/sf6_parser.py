@@ -2,6 +2,7 @@
 
 import difflib
 import re
+from bubbot.utils.frame_match_utils import prefer_grounded_rows
 
 from bubbot.frame_data.sf6_cammy_followups import query_has_hooligan_followup
 from bubbot.frame_data.sf6_character_aliases import (
@@ -845,6 +846,7 @@ def find_moves_in_text(deps, text):
                             prompt_variants = air_prompt_variants
                         else:
                             continue
+                    prompt_variants = prefer_grounded_rows(prompt_variants, text_lower)
                     base_tokens = re.findall(r"[a-z0-9]+", base_name)
                     base_in_query = tokens_in_text(base_tokens)
                     if not base_in_query and base_name == "fireball":
@@ -1645,6 +1647,7 @@ def find_moves_in_text(deps, text):
                         continue
                     variants.append(candidate)
 
+                variants = prefer_grounded_rows(variants, text_lower)
                 if query_requests_air_context and not any(
                     variant_is_air_move(candidate) for candidate in variants
                 ):
@@ -1748,6 +1751,9 @@ def find_moves_in_text(deps, text):
                 results = filtered_tc_results
             elif tc_prompt_blocks:
                 results = []
+
+    if not wants_comparison:
+        results = prefer_grounded_rows(results, text_lower)
 
     # Format the results
     formatted_blocks = []

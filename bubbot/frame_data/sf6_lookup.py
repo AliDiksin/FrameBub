@@ -2,6 +2,7 @@
 
 import difflib
 import re
+from bubbot.utils.frame_match_utils import query_requests_air_move, row_is_air_move
 
 from bubbot.frame_data.sf6_parser_helpers import (
     normalize_button_word_notation,
@@ -95,18 +96,6 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         re.search(r"\b(air|aerial)\b", original_move_input)
         or air_motion_command
     )
-
-    def row_is_air_move(row):
-        num_cmd_raw = str(row.get("numCmd", "")).lower()
-        move_name = str(row.get("moveName", "")).lower()
-        cmn_name = str(row.get("cmnName", "")).lower()
-        return bool(
-            "(air" in num_cmd_raw
-            or "air" in move_name
-            or "air" in cmn_name
-            or "aerial" in move_name
-            or "aerial" in cmn_name
-        )
 
     def row_is_air_throw(row):
         return bool(
@@ -645,6 +634,9 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
             variants.append(stripped_after_collapse)
 
         return variants
+    if not query_requests_air_move(f"{original_move_input} {move_input}"):
+        # Stable ordering keeps air-only moves reachable without letting them beat ground matches.
+        data = sorted(data, key=row_is_air_move)
     move_input_compact = re.sub(r"[^a-z0-9]", "", move_input)
     move_input_num_cmd = normalize_num_cmd_for_lookup(move_input)
     move_input_num_cmd_generic = normalize_num_cmd_generic_for_lookup(move_input)

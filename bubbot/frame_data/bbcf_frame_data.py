@@ -7,12 +7,11 @@ import discord
 import pandas as pd
 
 from bubbot.data.bbcf_aliases import BBCF_CHARACTER_ALIASES, BBCF_LOOKUP_WORDS, BBCF_MOVE_ALIASES
-from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
-from bubbot.utils.frame_match_utils import find_matching_rows_standard
+from bubbot.utils.frame_match_utils import find_matching_rows_standard, prefer_grounded_rows
 from bubbot.utils.notation_match_utils import looks_like_notation_query, query_has_jump_motion_notation
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
@@ -215,7 +214,7 @@ def _find_matching_rows_generic(char_key, move_text):
             if normalize_move_token(row.get("numCmd", "")) == query_key
         )
         if exact_command_rows:
-            return exact_command_rows
+            return prefer_grounded_rows(exact_command_rows, move_text)
     return find_matching_rows_standard(
         rows,
         query,
@@ -497,36 +496,6 @@ def build_frame_embed(row, show_notes=False):
     if image_url:
         embed.set_image(url=image_url)
     return embed
-
-
-class BBCFHitboxButton(discord.ui.Button):
-    def __init__(self, row, showing_hitbox=False):
-        self.frame_row = row
-        self.hitbox_links = get_hitbox_links(row)
-        self.original_image_url = get_move_image_url(row)
-        self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
-        super().__init__(
-            label="Hide Image" if self.showing_hitbox else "Show Hitbox",
-            style=discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary,
-            disabled=not self.hitbox_links,
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        if not self.hitbox_links:
-            await interaction.response.send_message(
-                f"I have BBCF frame data for this move but no hitbox image link yet. "
-                f"{FRAME_DATA_ERROR_CONTACT_TEXT}",
-                ephemeral=True,
-            )
-            return
-        self.showing_hitbox = not self.showing_hitbox
-        self.label = "Hide Image" if self.showing_hitbox else "Show Hitbox"
-        self.style = discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary
-        embed = self.view.build_embed() if hasattr(self.view, "build_embed") else build_frame_embed(self.frame_row)
-        image_url = self.hitbox_links[0] if self.showing_hitbox else self.original_image_url
-        if image_url:
-            embed.set_image(url=image_url)
-        await interaction.response.edit_message(embed=embed, view=self.view)
 
 
 class BBCFAllHitboxImagesButton(discord.ui.Button):

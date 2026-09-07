@@ -7,6 +7,7 @@ import re
 
 import discord
 import pandas as pd
+from bubbot.utils.frame_match_utils import prefer_grounded_rows
 
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
@@ -539,15 +540,13 @@ def lookup_frame_data(character, move_input, state_key=None):
         query = normalize_move_query(move_input)
     if char_key == "nagoriyuki" and state_key:
         rows = GGST_STATE_FRAME_DATA.get(char_key, {}).get(state_key, [])
-        for row in rows:
-            if row_matches_move(row, query):
-                return row
+        matches = prefer_grounded_rows([row for row in rows if row_matches_move(row, query)], query)
+        if matches:
+            return matches[0]
 
     rows = GGST_FRAME_DATA.get(char_key, [])
-    for row in rows:
-        if row_matches_move(row, query):
-            return row
-    return None
+    matches = prefer_grounded_rows([row for row in rows if row_matches_move(row, query)], query)
+    return matches[0] if matches else None
 
 
 def find_matching_rows(character, move_input, state_key=None):
@@ -571,10 +570,8 @@ def find_matching_rows(character, move_input, state_key=None):
         for row in state_rows:
             if query.lower() == str(row.get("moveName", "")).lower().strip():
                 exact_name_matches.append(row)
-    if len(exact_name_matches) == 1:
-        return dedupe_equivalent_frame_rows(exact_name_matches)
-    if len(exact_name_matches) > 1:
-        return dedupe_equivalent_frame_rows(exact_name_matches)
+    if exact_name_matches:
+        return dedupe_equivalent_frame_rows(prefer_grounded_rows(exact_name_matches, query))
 
     if state_key:
         state_matches = []
@@ -587,7 +584,7 @@ def find_matching_rows(character, move_input, state_key=None):
                 state_matches.append(row)
                 seen.add(key)
         if state_matches:
-            return state_matches
+            return prefer_grounded_rows(state_matches, query)
 
     supplemental_first = query_prefers_supplemental_rows(char_key, move_input)
     if supplemental_first:
@@ -601,7 +598,7 @@ def find_matching_rows(character, move_input, state_key=None):
                 supplemental_matches.append(row)
                 seen_supplemental.add(key)
         if supplemental_matches:
-            return supplemental_matches
+            return prefer_grounded_rows(supplemental_matches, query)
 
     rows_to_search = []
     rows_to_search.extend(GGST_FRAME_DATA.get(char_key, []))
@@ -620,8 +617,8 @@ def find_matching_rows(character, move_input, state_key=None):
     if notation_matches:
         primary_matches = [row for row in notation_matches if row_primary_command_matches_move(row, query)]
         if primary_matches:
-            return dedupe_equivalent_frame_rows(primary_matches)
-        return dedupe_equivalent_frame_rows(notation_matches)
+            return dedupe_equivalent_frame_rows(prefer_grounded_rows(primary_matches, query))
+        return dedupe_equivalent_frame_rows(prefer_grounded_rows(notation_matches, query))
 
     matches = []
     seen = set()
@@ -634,8 +631,8 @@ def find_matching_rows(character, move_input, state_key=None):
             seen.add(key)
     primary_matches = [row for row in matches if row_primary_command_matches_move(row, query)]
     if primary_matches:
-        return dedupe_equivalent_frame_rows(primary_matches)
-    return dedupe_equivalent_frame_rows(matches)
+        return dedupe_equivalent_frame_rows(prefer_grounded_rows(primary_matches, query))
+    return dedupe_equivalent_frame_rows(prefer_grounded_rows(matches, query))
 
 
 def find_followup_rows(character, move_input):
@@ -991,41 +988,6 @@ def get_media_links(row, limit=4):
     if image_url and image_url not in links:
         links.append(image_url)
     return links[:limit] if limit is not None else links
-
-
-class GGSTHitboxButton(discord.ui.Button):
-    def __init__(self, row, showing_hitbox=False):
-        self.frame_row = row
-        self.hitbox_links = get_hitbox_links(row)
-        self.original_image_url = get_move_image_url(row)
-        self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
-        super().__init__(
-            label="Hide Image" if self.showing_hitbox else "Show Hitbox",
-            style=discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary,
-            disabled=not self.hitbox_links,
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        if not self.hitbox_links:
-            await interaction.response.send_message(
-                "I have frame data for this move but no GGST hitbox image link yet.",
-                ephemeral=True,
-            )
-            return
-        next_showing_hitbox = not self.showing_hitbox
-        self.showing_hitbox = next_showing_hitbox
-        self.label = "Hide Image" if next_showing_hitbox else "Show Hitbox"
-        self.style = discord.ButtonStyle.danger if next_showing_hitbox else discord.ButtonStyle.primary
-        if hasattr(self.view, "build_embed"):
-            embed = self.view.build_embed()
-        elif interaction.message and interaction.message.embeds:
-            embed = discord.Embed.from_dict(interaction.message.embeds[0].to_dict())
-        else:
-            embed = build_frame_embed(self.frame_row)
-        target_image_url = self.hitbox_links[0] if next_showing_hitbox else self.original_image_url
-        if target_image_url:
-            embed.set_image(url=target_image_url)
-        await interaction.response.edit_message(embed=embed, view=self.view)
 
 
 class GGSTAllHitboxImagesButton(discord.ui.Button):

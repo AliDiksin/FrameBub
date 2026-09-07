@@ -12,6 +12,35 @@ from bubbot.utils.notation_match_utils import (
 )
 
 
+def query_requests_air_move(query):
+    return bool(re.search(
+        r"\b(?:air|aerial|airborne|jump(?:ing)?)\b|(?<![a-z0-9])j(?=[.\s(1-9])"
+        r"|(?<![a-z0-9])j[a-dhklmpst]{1,2}(?![a-z])|\b[789]\s*(?:[lmh][pk]|[a-dhpkst])\b",
+        str(query or ""), re.IGNORECASE,
+    ))
+
+
+def row_is_air_move(row):
+    # Use identity fields, not notes/guard text that may describe anti-air properties.
+    context = " ".join(str(row.get(field) or "") for field in (
+        "numCmd", "version", "moveType", "section", "subsection",
+    )).replace("_", " ")
+    names = " ".join(str(row.get(field) or "") for field in ("moveName", "cmnName"))
+    return query_requests_air_move(context) or bool(re.search(
+        r"\(\s*air\b|\b(?:aerial|airborne|jump(?:ing)?)\b|(?<![a-z0-9])j[.\s]*[1-9]",
+        names, re.IGNORECASE,
+    ))
+
+
+def prefer_grounded_rows(rows, query):
+    """Prefer grounded candidates unless air is explicit; retain air-only moves."""
+    rows = list(rows or [])
+    if query_requests_air_move(query):
+        return rows
+    grounded = [row for row in rows if not row_is_air_move(row)]
+    return grounded or rows
+
+
 STRENGTH_ALIASES = (
     ("light punch", frozenset({"LP"})),
     ("medium punch", frozenset({"MP"})),
@@ -178,6 +207,7 @@ def find_matching_rows_standard(
     post_exact: Optional[Callable[[list[dict]], list[dict]]] = None,
     post_name: Optional[Callable[[list[dict]], list[dict]]] = None,
     extra_row_keys_fn: Optional[Callable[[dict], Iterable[str]]] = None,
+    original_query: Optional[str] = None,
 ) -> list[dict]:
     """Notation prefix -> exact keys -> name haystack -> fuzzy keys."""
     if not query_key:
@@ -185,6 +215,7 @@ def find_matching_rows_standard(
 
     row_list = list(rows or [])
     fuzzy_fields = fuzzy_value_fields or (name_fields[0], "numCmd")
+    context = f"{original_query or ''} {query}"
 
     notation_matches = find_rows_by_notation_prefix(
         row_list,
@@ -197,14 +228,14 @@ def find_matching_rows_standard(
         if post_notation:
             notation_matches = post_notation(notation_matches)
         if notation_matches:
-            return dedupe_fn(notation_matches)
+            return dedupe_fn(prefer_grounded_rows(notation_matches, context))
 
     exact = exact_row_key_matches(row_list, query_key, row_keys_fn)
     if exact:
         if post_exact:
             exact = post_exact(exact)
         if exact:
-            return dedupe_fn(exact)
+            return dedupe_fn(prefer_grounded_rows(exact, context))
 
     name_matches = match_rows_by_name_substring(
         row_list,
@@ -218,7 +249,7 @@ def find_matching_rows_standard(
         if post_name:
             name_matches = post_name(name_matches)
         if name_matches:
-            return dedupe_fn(name_matches)
+            return dedupe_fn(prefer_grounded_rows(name_matches, context))
 
     fuzzy = match_rows_by_fuzzy_keys(
         row_list,
@@ -228,4 +259,4 @@ def find_matching_rows_standard(
         cutoff=fuzzy_cutoff,
         n=fuzzy_n,
     )
-    return dedupe_fn(fuzzy)
+    return dedupe_fn(prefer_grounded_rows(fuzzy, context))

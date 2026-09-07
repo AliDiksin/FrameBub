@@ -7,6 +7,7 @@ import re
 
 import discord
 import pandas as pd
+from bubbot.utils.frame_match_utils import prefer_grounded_rows
 
 from bubbot.data.usfiv_aliases import USFIV_CHARACTER_ALIASES, USFIV_LOOKUP_WORDS, USFIV_MOVE_ALIASES
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
@@ -276,6 +277,7 @@ def find_matching_rows(char_key, move_text):
     for candidate in candidates:
         matches = _find_matching_rows_unfiltered(char_key, candidate)
         matches = filter_rows_by_strength(matches, strengths)
+        matches = prefer_grounded_rows(matches, f"{move_text} {query}")
         matches = prefer_ex_variant(matches, move_text)
         if matches:
             return matches

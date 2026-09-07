@@ -5,6 +5,7 @@ import os
 import re
 
 import discord
+from bubbot.utils.frame_match_utils import prefer_grounded_rows
 
 from bubbot.data.mk1_aliases import MK1_CHARACTER_ALIASES, MK1_LOOKUP_WORDS, MK1_MOVE_ALIASES
 from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
@@ -300,7 +301,7 @@ def find_matching_rows(char_key, move_text):
             preferred = [row for row in preferred if row_is_air_variant(row)]
         if not preferred:
             return []
-        return prefer_enhanced(preferred, base_query_key)
+        return prefer_grounded_rows(prefer_enhanced(preferred, base_query_key), f"{move_text} {query}")
 
     base_query = re.sub(r"\b(?:ex|enhanced|meter\s*burn|meterburn)\b", " ", query, flags=re.IGNORECASE)
     base_query = re.sub(r"\s+", " ", base_query).strip()

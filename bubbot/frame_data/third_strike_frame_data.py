@@ -5,6 +5,7 @@ import re
 
 import discord
 import pandas as pd
+from bubbot.utils.frame_match_utils import prefer_grounded_rows
 
 from bubbot.data.third_strike_aliases import (
     THIRD_STRIKE_CHARACTER_ALIASES,
@@ -352,10 +353,9 @@ def prefer_ground_or_air_rows(rows, original_query, normalized_query):
     if len(unique) <= 1:
         return unique
     air_rows = [row for row in unique if row_is_air_variant(row)]
-    ground_rows = [row for row in unique if not row_is_air_variant(row)]
-    if not air_rows or not ground_rows:
-        return unique
-    return air_rows if query_requests_air_variant(original_query, normalized_query) else ground_rows
+    if air_rows and query_requests_air_variant(original_query, normalized_query):
+        return air_rows
+    return prefer_grounded_rows(unique, f"{original_query} {normalized_query}")
 
 
 def prefer_state_rows(char_key, rows, original_query, normalized_query):
@@ -757,32 +757,6 @@ def build_frame_embed(row, show_notes=False):
     if image_url:
         embed.set_image(url=image_url)
     return embed
-
-
-class ThirdStrikeHitboxButton(discord.ui.Button):
-    def __init__(self, row, showing_hitbox=False):
-        self.frame_row = row
-        self.hitbox_links = get_hitbox_links(row)
-        self.original_image_url = get_move_image_url(row)
-        self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
-        super().__init__(
-            label="Hide Image" if self.showing_hitbox else "Show Hitbox",
-            style=discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary,
-            disabled=not self.hitbox_links,
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        if not self.hitbox_links:
-            await interaction.response.send_message("No dedicated Third Strike hitbox image found; the embed uses the move image when one exists.", ephemeral=True)
-            return
-        self.showing_hitbox = not self.showing_hitbox
-        self.label = "Hide Image" if self.showing_hitbox else "Show Hitbox"
-        self.style = discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary
-        embed = self.view.build_embed() if hasattr(self.view, "build_embed") else build_frame_embed(self.frame_row)
-        image_url = self.hitbox_links[0] if self.showing_hitbox else self.original_image_url
-        if image_url:
-            embed.set_image(url=image_url)
-        await interaction.response.edit_message(embed=embed, view=self.view)
 
 
 class ThirdStrikeAllHitboxImagesButton(discord.ui.Button):
