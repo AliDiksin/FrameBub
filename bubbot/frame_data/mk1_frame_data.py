@@ -19,8 +19,10 @@ from bubbot.utils.discord_formatting import (
 from bubbot.utils.frame_match_utils import match_rows_by_fuzzy_keys, match_rows_by_name_substring
 from bubbot.utils.notation_match_utils import (
     exact_row_key_matches,
+    extract_jump_motion_command,
     find_rows_by_notation_prefix,
     looks_like_notation_query,
+    query_has_jump_motion_notation,
 )
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
@@ -182,6 +184,7 @@ def query_has_mk1_notation(text):
     return bool(
         re.search(r"\b(?:[bfdu]\s*\+?\s*)?[1-4](?:\s*,\s*(?:[bfdu]\s*\+?\s*)?[1-4])*\b|\b(?:db|df|bf|bb|ff|du|dd|uf|ub)\s*\+?\s*[1-4]\b|\bkameo\b", lowered)
         or re.search(r"\b(?:fatal\s+blow|fb)\b", lowered)
+        or query_has_jump_motion_notation(lowered)
     )
 
 
@@ -224,7 +227,8 @@ def _mk1_notation_query(query_key):
 def find_matching_rows(char_key, move_text):
     raw_move_text = str(move_text or "").lower()
     query_requests_enhanced = bool(re.search(r"\b(?:ex|enhanced|meter\s*burn|meterburn)\b", raw_move_text))
-    query = normalize_move_query(move_text)
+    air_command = extract_jump_motion_command(raw_move_text)
+    query = normalize_move_query(air_command or move_text)
     query_key = normalize_move_token(query)
     if not query_key:
         return []
@@ -234,6 +238,14 @@ def find_matching_rows(char_key, move_text):
         return bool(
             re.search(r"\b(?:enhanced|ex)\b", str(row.get("moveName") or "").lower())
             or "ex" in normalize_move_token(row.get("numCmd"))
+        )
+
+    def row_is_air_variant(row):
+        move_name = str(row.get("moveName") or "").lower().strip()
+        move_type = str(row.get("moveType") or "").lower().strip()
+        return bool(
+            move_name.startswith(("(air)", "air ", "aerial "))
+            or move_type.startswith(("(air)", "air ", "aerial "))
         )
 
     def enhanced_rows_for_base(base_rows, base_query_key):
@@ -270,13 +282,25 @@ def find_matching_rows(char_key, move_text):
         return unique_rows(enhanced_matches)
 
     def prefer_enhanced(matches, base_query_key):
-        if not query_requests_enhanced or not matches:
-            return unique_rows(matches)
-        enhanced_matches = [row for row in matches if row_is_enhanced(row)]
+        unique = unique_rows(matches)
+        if not unique:
+            return []
+        if not query_requests_enhanced:
+            non_enhanced = [row for row in unique if not row_is_enhanced(row)]
+            return non_enhanced or unique
+        enhanced_matches = [row for row in unique if row_is_enhanced(row)]
         if enhanced_matches:
             return unique_rows(enhanced_matches)
-        derived = enhanced_rows_for_base(matches, base_query_key)
-        return derived or unique_rows(matches)
+        derived = enhanced_rows_for_base(unique, base_query_key)
+        return derived or unique
+
+    def apply_query_preferences(matches, base_query_key):
+        preferred = unique_rows(matches)
+        if air_command:
+            preferred = [row for row in preferred if row_is_air_variant(row)]
+        if not preferred:
+            return []
+        return prefer_enhanced(preferred, base_query_key)
 
     base_query = re.sub(r"\b(?:ex|enhanced|meter\s*burn|meterburn)\b", " ", query, flags=re.IGNORECASE)
     base_query = re.sub(r"\s+", " ", base_query).strip()
@@ -291,16 +315,22 @@ def find_matching_rows(char_key, move_text):
             looks_like_fn=_mk1_notation_query,
         )
         if notation_matches:
-            return prefer_enhanced(notation_matches, base_query_key or query_key)
+            preferred = apply_query_preferences(notation_matches, base_query_key or query_key)
+            if preferred:
+                return preferred
 
     exact = exact_row_key_matches(rows, query_key, row_match_keys)
     if exact:
-        return prefer_enhanced(exact, base_query_key or query_key)
+        preferred = apply_query_preferences(exact, base_query_key or query_key)
+        if preferred:
+            return preferred
 
     if query_requests_enhanced and base_query_key and base_query_key != query_key:
         base_exact = exact_row_key_matches(rows, base_query_key, row_match_keys)
         if base_exact:
-            return prefer_enhanced(base_exact, base_query_key)
+            preferred = apply_query_preferences(base_exact, base_query_key)
+            if preferred:
+                return preferred
 
     name_matches = match_rows_by_name_substring(
         rows,
@@ -309,7 +339,9 @@ def find_matching_rows(char_key, move_text):
         looks_like_fn=_mk1_notation_query,
     )
     if name_matches:
-        return prefer_enhanced(name_matches, base_query_key or query_key)
+        preferred = apply_query_preferences(name_matches, base_query_key or query_key)
+        if preferred:
+            return preferred
 
     if query_requests_enhanced and base_query_key and base_query_key != query_key:
         base_name_matches = match_rows_by_name_substring(
@@ -319,7 +351,9 @@ def find_matching_rows(char_key, move_text):
             looks_like_fn=_mk1_notation_query,
         )
         if base_name_matches:
-            return prefer_enhanced(base_name_matches, base_query_key)
+            preferred = apply_query_preferences(base_name_matches, base_query_key)
+            if preferred:
+                return preferred
 
     fuzzy_matches = match_rows_by_fuzzy_keys(
         rows,
@@ -330,7 +364,7 @@ def find_matching_rows(char_key, move_text):
         n=4,
     )
     if fuzzy_matches:
-        return prefer_enhanced(fuzzy_matches, base_query_key or query_key)
+        return apply_query_preferences(fuzzy_matches, base_query_key or query_key)
     return []
 
 

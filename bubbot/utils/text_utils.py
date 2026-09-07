@@ -78,6 +78,10 @@ def strip_noise_words(text):
 
 
 # Typo correction against alias vocabulary; short buttons/strengths are left alone.
+_VOCAB_CACHE = {}
+_TYPO_CORRECTION_CACHE = {}
+
+
 def alias_word_vocabulary(*alias_maps, min_word_len=4):
     """Build typo-correction vocabulary from human-readable alias words."""
     words = set()
@@ -89,14 +93,43 @@ def alias_word_vocabulary(*alias_maps, min_word_len=4):
     return sorted(words)
 
 
+def _cached_alias_word_vocabulary(alias_maps, min_word_len=4):
+    """Reuse vocab when alias maps are unchanged; rebuild only on size/identity change."""
+    key_parts = []
+    for alias_map in alias_maps:
+        if alias_map is None:
+            key_parts.append((0, 0))
+            continue
+        try:
+            key_parts.append((id(alias_map), len(alias_map)))
+        except TypeError:
+            return alias_word_vocabulary(*alias_maps, min_word_len=min_word_len)
+    key = (tuple(key_parts), min_word_len)
+    cached = _VOCAB_CACHE.get(key)
+    if cached is not None:
+        return cached
+    words = alias_word_vocabulary(*alias_maps, min_word_len=min_word_len)
+    # Bound growth if many distinct transient maps are seen.
+    if len(_VOCAB_CACHE) > 64:
+        _VOCAB_CACHE.clear()
+    _VOCAB_CACHE[key] = words
+    return words
+
+
 def correct_alias_typos(text, *alias_maps, min_word_len=4, cutoff=0.8, ambiguity_margin=None):
     """Correct one-token typos against alias words without touching short buttons."""
-    words = alias_word_vocabulary(*alias_maps, min_word_len=min_word_len)
+    text_value = str(text or "")
+    map_signature = tuple((id(alias_map), len(alias_map or {})) for alias_map in alias_maps)
+    cache_key = (text_value, map_signature, min_word_len, cutoff, ambiguity_margin)
+    cached = _TYPO_CORRECTION_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    words = _cached_alias_word_vocabulary(alias_maps, min_word_len=min_word_len)
     if not words:
-        return text
+        return text_value
     corrected_tokens = []
     changed = False
-    for token in str(text or "").split():
+    for token in text_value.split():
         if len(token) < min_word_len or token in words:
             corrected_tokens.append(token)
             continue
@@ -113,7 +146,11 @@ def correct_alias_typos(text, *alias_maps, min_word_len=4, cutoff=0.8, ambiguity
             changed = True
         else:
             corrected_tokens.append(token)
-    return " ".join(corrected_tokens) if changed else text
+    result = " ".join(corrected_tokens) if changed else text_value
+    if len(_TYPO_CORRECTION_CACHE) > 4096:
+        _TYPO_CORRECTION_CACHE.clear()
+    _TYPO_CORRECTION_CACHE[cache_key] = result
+    return result
 
 
 QUERY_TERM_ALIASES = (

@@ -13,7 +13,7 @@ from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_qu
 from bubbot.utils.discord_formatting import add_embed_field, clean_value, truncate_value
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.frame_match_utils import filter_rows_by_strength, find_matching_rows_standard, parse_strength_qualifier
-from bubbot.utils.notation_match_utils import looks_like_notation_query
+from bubbot.utils.notation_match_utils import extract_jump_motion_command, looks_like_notation_query, query_has_jump_motion_notation
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
 
@@ -55,6 +55,7 @@ def query_has_sfv_notation(text):
         re.search(r"(?:^|\s)(?:[1-9][0-9]{0,5})?(?:lp|mp|hp|lk|mk|hk|pp|kk)(?:\s|$)", lowered)
         or re.search(r"\b(?:st|cr|j)\s*\.?\s*(?:lp|mp|hp|lk|mk|hk)\b", lowered)
         or re.search(r"\b(?:vt|v\s*trigger)\s*[12]\b", lowered)
+        or query_has_jump_motion_notation(lowered)
     )
 
 
@@ -280,9 +281,17 @@ def _sfv_notation_query(query_key):
     return looks_like_notation_query(query_key, "digit_button", "sf_button")
 
 
+def row_is_air_variant(row):
+    move_name = str(row.get("moveName") or "").lower()
+    cmn_name = str(row.get("cmnName") or "").lower()
+    num_cmd = str(row.get("numCmd") or "").lower()
+    return bool("(air" in num_cmd or "air" in move_name or "air" in cmn_name or "aerial" in move_name or "aerial" in cmn_name)
+
+
 def find_matching_rows(char_key, move_text):
     state_key = query_requested_state(move_text)
-    query = normalize_move_query(move_text)
+    air_command = extract_jump_motion_command(move_text)
+    query = normalize_move_query(air_command or move_text)
     rows = _rows_for_state(char_key, state_key)
     base_query, strengths, embedded_notation = parse_strength_qualifier(query)
     candidates = [query, base_query] if embedded_notation else [base_query]
@@ -300,6 +309,8 @@ def find_matching_rows(char_key, move_text):
             fuzzy_value_fields=("moveName", "numCmd", "cmnName"),
         )
         matches = filter_rows_by_strength(matches, strengths)
+        if air_command:
+            matches = [row for row in matches if row_is_air_variant(row)]
         if matches:
             return matches
     return []

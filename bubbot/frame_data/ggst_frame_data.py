@@ -31,6 +31,7 @@ from bubbot.utils.notation_match_utils import (
     find_rows_by_notation_prefix,
     looks_like_notation_query,
     notation_prefix_matches_row_key,
+    query_has_jump_motion_notation,
 )
 from bubbot.utils.mediawiki_images import resize_mediawiki_thumb_url as shared_resize_mediawiki_thumb_url
 from bubbot.utils.row_utils import row_key
@@ -749,6 +750,7 @@ def find_moves_in_text(text):
     gif_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     game_query = bool(re.search(r"\b(?:ggst|guilty\s+gear|guilty|strive)\b", lowered))
+    jump_motion_query = query_has_jump_motion_notation(lowered)
     char_matches = find_characters_in_text(lowered)
     if not char_matches:
         fuzzy_char = find_fuzzy_character_in_text(lowered)
@@ -868,8 +870,8 @@ def find_moves_in_text(text):
         "char_found": char_found,
         "char_key": matched_char_key,
         "wants_comparison": is_comparison_query(lowered, char_matches),
-        "explicit_move_attempt": bool(char_found and (frame_query or gif_query or game_query)),
-        "missing_scrolls_query": bool(char_found and not rows and (frame_query or gif_query or game_query)),
+        "explicit_move_attempt": bool(char_found and (frame_query or gif_query or game_query or jump_motion_query)),
+        "missing_scrolls_query": bool(char_found and not rows and (frame_query or gif_query or game_query or jump_motion_query)),
     }
 
 

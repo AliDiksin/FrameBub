@@ -72,7 +72,13 @@ from bubbot.utils.response_log import (
     notify_owner,
     log_record,
 )
-from bubbot.utils.text_utils import compact_key, contains_token_sequence, normalize_query_terms, word_tokens
+from bubbot.utils.text_utils import (
+    compact_key,
+    contains_token_sequence,
+    normalize_query_terms,
+    remove_first_token_sequence,
+    word_tokens,
+)
 from bubbot.runtime.buenavista_extension import buenavista_extension
 from collections import deque
 from bubbot.runtime.slash_commands import register_slash_commands
@@ -626,6 +632,41 @@ def _requested_property_key(text):
     return matches[0] if len(matches) == 1 else None
 
 
+def _requested_property_key_after_move_resolution(text, rows):
+    """Parse property intent after consuming resolved move names and commands."""
+    remaining_tokens = word_tokens(normalize_query_terms(text))
+    command_fields = {"numCmd", "input", "command", "notation"}
+    identity_fields = ("moveName", "cmnName", "numCmd", "input", "command", "notation")
+
+    for row in rows or []:
+        candidates = set()
+        for field in identity_fields:
+            value = str(row.get(field) or "").strip()
+            if not value:
+                continue
+            variants = {value}
+            if field in command_fields:
+                without_notes = re.sub(r"\s*[\[(].*?[\])]\s*", " ", value).strip()
+                variants.add(without_notes)
+                variants.update(
+                    part.strip()
+                    for part in re.split(r"\s*(?:/|\||\bor\b)\s*", without_notes, flags=re.IGNORECASE)
+                    if part.strip()
+                )
+            for variant in variants:
+                tokens = tuple(word_tokens(normalize_query_terms(variant)))
+                if tokens:
+                    candidates.add(tokens)
+                compact = compact_key(variant)
+                if compact:
+                    candidates.add((compact,))
+
+        for candidate in sorted(candidates, key=lambda tokens: (len(tokens), sum(map(len, tokens))), reverse=True):
+            remaining_tokens, _removed = remove_first_token_sequence(remaining_tokens, list(candidate))
+
+    return _requested_property_key(" ".join(remaining_tokens))
+
+
 def _format_requested_property_reply(rows, property_key, *, game="sf6"):
     if not rows or not property_key:
         return None
@@ -869,7 +910,7 @@ async def _send_cross_game_lookup_response(message, module, rows, payload, query
     if media_query:
         _record_frame_data_ids(await module.send_hitbox_response(message, rows))
         return True
-    property_key = _requested_property_key(query_text)
+    property_key = _requested_property_key_after_move_resolution(query_text, rows)
     if _format_requested_property_reply(rows, property_key, game=_game_key_for_frame_module(module)):
         await _send_property_value_reply(message, rows, property_key, game=_game_key_for_frame_module(module))
         return True
@@ -885,6 +926,83 @@ def _has_explicit_game_conflict(current_payload, game_payloads, *, explicit_sf6_
             for payload in game_payloads
         )
     )
+
+
+def _cheap_explicit_frame_game_tags(content_lower):
+    """Detect explicit game tags with regex only; avoids running full parsers.
+
+    Mirrors each parser's game_query definition so early-exit skips the same
+    games arbitration would reject via has_explicit_game_conflict.
+    """
+    text = str(content_lower or "")
+    tags = set()
+    if re.search(r"\b(?:sf6|street\s*fighter\s*6)\b", text):
+        tags.add("sf6")
+    if re.search(r"\b(?:ggst|guilty\s+gear|guilty|strive)\b", text):
+        tags.add("ggst")
+    try:
+        if ggacr_module.query_has_explicit_ggacr_tag(text):
+            tags.add("ggacr")
+    except Exception:
+        pass
+    if re.search(r"\b(?:sfv|sf5|street\s*fighter\s*(?:v|5))\b", text):
+        tags.add("sfv")
+    if re.search(r"\b(?:2xko|tuco)\b", text):
+        tags.add("tuco")
+    if re.search(r"\b(?:bbcf|blazblue|central\s*fiction)\b", text):
+        tags.add("bbcf")
+    if re.search(r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b", text):
+        tags.add("cotw")
+    if re.search(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", text):
+        tags.add("third_strike")
+    try:
+        if usfiv_module.query_has_usf4_game_tag(text):
+            tags.add("usfiv")
+    except Exception:
+        pass
+    if re.search(r"\b(?:mk1|mortal\s+kombat\s+1|mortal\s+kombat\s+one|mortal\s+kombat)\b", text):
+        tags.add("mk1")
+    return tags
+
+
+def _selected_frame_parser_subset(content_lower, exact_matches):
+    """Return parser keys to run, or None to run all (preserve fuzzy fallback).
+
+    Order of exact_matches: sf6, ggst, sfv, tuco, bbcf, ggacr, cotw,
+    third_strike, usfiv, mk1. When any game is explicitly tagged, run only
+    tagged games. Otherwise when any game has an exact character match, run
+    only those games; per routing policy exact matches outrank other games'
+    fuzzy matches, so skipped parsers could not have claimed the route.
+    """
+    explicit_tags = _cheap_explicit_frame_game_tags(content_lower)
+    if explicit_tags:
+        selected = set(explicit_tags)
+        # GGST/GGACR share "guilty gear" wording; keep both when either hits
+        # so Strive vs +R arbitration still sees both payloads.
+        if "ggst" in selected or "ggacr" in selected:
+            selected.update({"ggst", "ggacr"})
+        return selected
+    keys = ("sf6", "ggst", "sfv", "tuco", "bbcf", "ggacr", "cotw", "third_strike", "usfiv", "mk1")
+    if exact_matches and any(exact_matches):
+        return {key for key, matched in zip(keys, exact_matches) if matched}
+    return None
+
+
+def _empty_frame_payload():
+    return {
+        "mode": "none",
+        "rows": [],
+        "data": "",
+        "gif_query": False,
+        "frame_query": False,
+        "game_query": False,
+        "notes_query": False,
+        "char_found": False,
+        "needs_disambiguation": False,
+        "missing_scrolls_query": False,
+        "explicit_move_attempt": False,
+        "wants_comparison": False,
+    }
 
 
 async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
@@ -952,8 +1070,17 @@ async def _handle_cross_game_disambiguation_reply(message, content_no_mentions):
     elif rows and output_mode == "both":
         _record_frame_data_ids(await module.send_frame_response(message, rows))
         _record_frame_data_ids(await module.send_hitbox_response(message, rows))
-    elif rows and _format_requested_property_reply(rows, _requested_property_key(source_text), game=_game_key_for_frame_module(module)):
-        await _send_property_value_reply(message, rows, _requested_property_key(source_text), game=_game_key_for_frame_module(module))
+    elif rows and _format_requested_property_reply(
+        rows,
+        _requested_property_key_after_move_resolution(source_text, rows),
+        game=_game_key_for_frame_module(module),
+    ):
+        await _send_property_value_reply(
+            message,
+            rows,
+            _requested_property_key_after_move_resolution(source_text, rows),
+            game=_game_key_for_frame_module(module),
+        )
     elif rows:
         _record_frame_data_ids(await module.send_frame_response(message, rows))
     else:
@@ -1998,17 +2125,36 @@ async def _handle_message(message):
     ):
         return
 
-    fd_context_payload = find_moves_in_text(content_lower)
+    exact_match_tuple = (
+        sf6_exact_character_query,
+        ggst_exact_character_query,
+        sfv_exact_character_query,
+        tuco_exact_character_query,
+        bbcf_exact_character_query,
+        ggacr_exact_character_query,
+        cotw_exact_character_query,
+        third_strike_exact_character_query,
+        usfiv_exact_character_query,
+        mk1_exact_character_query,
+    )
+    selected_parsers = _selected_frame_parser_subset(content_lower, exact_match_tuple)
 
-    ggacr_payload = ggacr_module.find_moves_in_text(content_lower)
-    ggst_payload = ggst_module.find_moves_in_text(content_lower)
-    sfv_payload = sfv_module.find_moves_in_text(content_lower)
-    tuco_payload = tuco_module.find_moves_in_text(content_lower)
-    bbcf_payload = bbcf_module.find_moves_in_text(content_lower)
-    cotw_payload = cotw_module.find_moves_in_text(content_lower)
-    third_strike_payload = third_strike_module.find_moves_in_text(content_lower)
-    usfiv_payload = usfiv_module.find_moves_in_text(content_lower)
-    mk1_payload = mk1_module.find_moves_in_text(content_lower)
+    def _run_frame_parser(key, runner):
+        if selected_parsers is not None and key not in selected_parsers:
+            return _empty_frame_payload()
+        return runner()
+
+    fd_context_payload = _run_frame_parser("sf6", lambda: find_moves_in_text(content_lower))
+
+    ggacr_payload = _run_frame_parser("ggacr", lambda: ggacr_module.find_moves_in_text(content_lower))
+    ggst_payload = _run_frame_parser("ggst", lambda: ggst_module.find_moves_in_text(content_lower))
+    sfv_payload = _run_frame_parser("sfv", lambda: sfv_module.find_moves_in_text(content_lower))
+    tuco_payload = _run_frame_parser("tuco", lambda: tuco_module.find_moves_in_text(content_lower))
+    bbcf_payload = _run_frame_parser("bbcf", lambda: bbcf_module.find_moves_in_text(content_lower))
+    cotw_payload = _run_frame_parser("cotw", lambda: cotw_module.find_moves_in_text(content_lower))
+    third_strike_payload = _run_frame_parser("third_strike", lambda: third_strike_module.find_moves_in_text(content_lower))
+    usfiv_payload = _run_frame_parser("usfiv", lambda: usfiv_module.find_moves_in_text(content_lower))
+    mk1_payload = _run_frame_parser("mk1", lambda: mk1_module.find_moves_in_text(content_lower))
     game_payloads = (
         ggacr_payload,
         ggst_payload,
@@ -2574,12 +2720,13 @@ async def _handle_message(message):
     fd_context_data = fd_context_payload.get("data", "")
     fd_context_mode = fd_context_payload.get("mode", "none")
     fd_context_rows = fd_context_payload.get("rows", [])
-    startup_alias_query = bool(fd_context_payload.get("startup_alias_query"))
-    hitconfirm_alias_query = bool(fd_context_payload.get("hitconfirm_alias_query"))
-    super_gain_alias_query = bool(fd_context_payload.get("super_gain_alias_query"))
-    range_alias_query = bool(fd_context_payload.get("range_alias_query"))
+    requested_sf6_property_key = _requested_property_key_after_move_resolution(content_lower, fd_context_rows)
+    startup_alias_query = requested_sf6_property_key == "startup"
+    hitconfirm_alias_query = requested_sf6_property_key == "hitconfirm"
+    super_gain_alias_query = requested_sf6_property_key == "super_gain"
+    range_alias_query = requested_sf6_property_key == "range"
     wants_comparison = bool(fd_context_payload.get("wants_comparison"))
-    property_only_query = bool(fd_context_payload.get("property_only_query"))
+    property_only_query = bool(requested_sf6_property_key)
     target_combo_query = bool(fd_context_payload.get("target_combo_query"))
     missing_scrolls_query = bool(fd_context_payload.get("missing_scrolls_query"))
     gif_query = bool(fd_context_payload.get("gif_query"))
@@ -2674,12 +2821,13 @@ async def _handle_message(message):
                 fd_context_data = rewritten_payload.get("data", "")
                 fd_context_mode = rewritten_payload.get("mode", "none")
                 fd_context_rows = rewritten_rows
-                startup_alias_query = bool(rewritten_payload.get("startup_alias_query"))
-                hitconfirm_alias_query = bool(rewritten_payload.get("hitconfirm_alias_query"))
-                super_gain_alias_query = bool(rewritten_payload.get("super_gain_alias_query"))
-                range_alias_query = bool(rewritten_payload.get("range_alias_query"))
+                requested_sf6_property_key = _requested_property_key_after_move_resolution(content_lower, fd_context_rows)
+                startup_alias_query = requested_sf6_property_key == "startup"
+                hitconfirm_alias_query = requested_sf6_property_key == "hitconfirm"
+                super_gain_alias_query = requested_sf6_property_key == "super_gain"
+                range_alias_query = requested_sf6_property_key == "range"
                 wants_comparison = bool(rewritten_payload.get("wants_comparison"))
-                property_only_query = bool(rewritten_payload.get("property_only_query"))
+                property_only_query = bool(requested_sf6_property_key)
                 target_combo_query = bool(rewritten_payload.get("target_combo_query"))
                 missing_scrolls_query = bool(rewritten_payload.get("missing_scrolls_query"))
                 gif_query = bool(rewritten_payload.get("gif_query"))
@@ -2748,6 +2896,7 @@ async def _handle_message(message):
     vague_move_query_without_output_intent = False
     implied_rows = []
     implied_data = ""
+    implied_has_special_prompt = False
     if (
         frame_command_is_addressed
         and allow_implied_frame_routing
@@ -2814,9 +2963,19 @@ async def _handle_message(message):
             return
 
         if vague_move_query_without_output_intent:
+            if implied_has_special_prompt:
+                try:
+                    sent_prompt = await message.reply(implied_data)
+                    sf6_prompt_replies.remember_special_strength_prompt_mode(sent_prompt.id, "frame")
+                except Exception as reply_error:
+                    if is_deleted_message_reference_error(reply_error):
+                        print("Special strength options implied reply target deleted. Triggering failsafe.", flush=True)
+                        await send_deleted_message_failsafe(message.channel)
+                    else:
+                        print(f"Special strength options implied reply error: {reply_error}", flush=True)
+                return
             default_rows = implied_rows or fd_context_rows
-            default_data = implied_data or fd_context_data
-            frame_sent_ids = await send_frame_table_response(message, default_rows, default_data)
+            frame_sent_ids = await send_frame_table_response(message, default_rows)
             _record_frame_data_ids(frame_sent_ids)
             return
 
@@ -3018,7 +3177,6 @@ async def _handle_message(message):
         if target_combo_query and fd_context_mode == "frame" and fd_context_rows:
             _record_frame_data_ids(await send_frame_table_response(message, fd_context_rows, fd_context_data))
             return
-        requested_sf6_property_key = _requested_property_key(content_lower)
         if property_only_query and requested_sf6_property_key and fd_context_mode == "frame" and fd_context_rows:
             property_reply = _format_requested_property_reply(fd_context_rows, requested_sf6_property_key)
             if property_reply:

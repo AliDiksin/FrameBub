@@ -18,7 +18,7 @@ from bubbot.utils.discord_formatting import (
 )
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.frame_match_utils import find_matching_rows_standard
-from bubbot.utils.notation_match_utils import looks_like_notation_query
+from bubbot.utils.notation_match_utils import looks_like_notation_query, query_has_jump_motion_notation
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
 
@@ -196,6 +196,7 @@ def find_moves_in_text(text):
     gif_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     game_query = bool(re.search(r"\b(?:2xko|tuco)\b", lowered))
+    jump_motion_query = query_has_jump_motion_notation(lowered)
     char_matches = find_characters_in_text(lowered)
     rows = []
     matched_char_key = char_matches[0][0] if char_matches else None
@@ -270,8 +271,8 @@ def find_moves_in_text(text):
         "char_found": bool(char_matches),
         "char_key": matched_char_key,
         "wants_comparison": is_comparison_query(lowered, char_matches),
-        "explicit_move_attempt": bool(char_matches and (frame_query or gif_query or game_query)),
-        "missing_scrolls_query": bool(char_matches and not rows and (frame_query or gif_query or game_query)),
+        "explicit_move_attempt": bool(char_matches and (frame_query or gif_query or game_query or jump_motion_query)),
+        "missing_scrolls_query": bool(char_matches and not rows and (frame_query or gif_query or game_query or jump_motion_query)),
         }
 
 

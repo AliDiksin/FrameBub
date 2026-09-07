@@ -300,6 +300,16 @@ def move_name_match_tokens(move_name, num_cmd=""):
     return token_set
 
 
+LOW_INFORMATION_GIF_MATCH_TOKENS = frozenset({
+    "l", "m", "h", "p", "k", "lp", "mp", "hp", "lk", "mk", "hk",
+    "pp", "kk", "od", "hold", "held", "charged",
+})
+
+
+def meaningful_gif_match_tokens(tokens):
+    return set(tokens or ()) - LOW_INFORMATION_GIF_MATCH_TOKENS
+
+
 def text_mentions_stocked_variant(value):
     text = str(value or "").lower()
     if re.search(r"\b0\s*stocks?\b", text):
@@ -534,6 +544,8 @@ def lookup_hitbox_gif_link(row):
         denjin_matches = [item for item in filtered if item["is_denjin"] == row_is_denjin]
         if denjin_matches:
             filtered = denjin_matches
+        elif filtered:
+            return []
 
         air_matches = [item for item in filtered if item["is_air"] == row_is_air]
         if air_matches:
@@ -683,9 +695,10 @@ def lookup_hitbox_gif_link(row):
     if link:
         return link
 
+    meaningful_row_tokens = meaningful_gif_match_tokens(row_tokens)
     token_overlap_matches = [
         item for item in gif_candidates
-        if row_tokens and (row_tokens & item["tokens"])
+        if meaningful_row_tokens and (meaningful_row_tokens & item["tokens"])
     ]
     link = pick_first_link(token_overlap_matches)
     if link:
@@ -1078,10 +1091,11 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
             if jump_matches:
                 filtered = jump_matches
 
-        if query_wants_denjin:
-            denjin_matches = [item for item in filtered if item["is_denjin"]]
-            if denjin_matches:
-                filtered = denjin_matches
+        denjin_matches = [item for item in filtered if item["is_denjin"] == query_wants_denjin]
+        if denjin_matches:
+            filtered = denjin_matches
+        elif filtered:
+            return []
 
         stocked_matches = [item for item in filtered if item["is_stocked"] == query_wants_stocked]
         if stocked_matches:
@@ -1157,9 +1171,10 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
         if links:
             return links
 
+    meaningful_query_tokens = meaningful_gif_match_tokens(query_tokens)
     token_overlap_matches = [
         item for item in gif_candidates
-        if query_tokens and (query_tokens & item["tokens"])
+        if meaningful_query_tokens and (meaningful_query_tokens & item["tokens"])
     ]
     if token_overlap_matches:
         links = unique_links(apply_query_context_filters(token_overlap_matches))
