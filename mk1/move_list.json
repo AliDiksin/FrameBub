@@ -55,7 +55,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is 0 on block and mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "3",
@@ -253,7 +253,7 @@
         "block_advantage": "-2",
         "fblock_advantage": "-2",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack with incredible range."
       },
       {
         "id": "12",
@@ -319,7 +319,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that is safe on block."
       },
       {
         "id": "15",
@@ -363,7 +363,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": ""
+        "notes": "A slow 23 frame overhead attack that can occasionally be thrown out to catch opponents off-guard for blocking low."
       },
       {
         "id": "17",
@@ -473,7 +473,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A mid into overhead attack that is primarily used at close-range and can be hit confirmed into a combo."
       },
       {
         "id": "22",
@@ -803,7 +803,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Enters Hell Mode\n• Hell Mode Special Moves place a Sin on the opponent (Up to 3)"
+        "notes": "• Enters Hell Mode\n• Hell Mode Special Moves place a Sin on the opponent (Up to 3)\nSwitches between Heaven Mode and Hell Mode."
       },
       {
         "id": "37",
@@ -1177,7 +1177,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Enters Heaven Mode\n• Heaven Mode Special Moves ignite the Dark Debuff for extra damage"
+        "notes": "• Enters Heaven Mode\n• Heaven Mode Special Moves ignite the Dark Debuff for extra damage\nSwitches between Heaven Mode and Hell Mode."
       },
       {
         "id": "54",
@@ -1749,7 +1749,7 @@
         "block_advantage": "-4",
         "fblock_advantage": "-4",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "80",
@@ -1881,7 +1881,7 @@
         "block_advantage": "-2",
         "fblock_advantage": "-2",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that has decent range and can be hit confirmed into a combo."
       },
       {
         "id": "86",
@@ -2035,7 +2035,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nA multi-hitting mid into low attack that launches for a combo."
       },
       {
         "id": "93",
@@ -2079,7 +2079,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A slow 29 frame overhead attack that goes over certain attacks, is safe on block, and launches for a combo. It can occasionally be thrown out to catch opponents off-guard for blocking low."
       },
       {
         "id": "95",
@@ -2145,7 +2145,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting high into mid attack that deals decent block damage."
       },
       {
         "id": "98",
@@ -2519,7 +2519,7 @@
         "block_advantage": "-16",
         "fblock_advantage": "-16",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that is used in zoning to keep opponents away. When enhanced and the opponent is hit, they take damage over time and increased block damage for a duration."
       },
       {
         "id": "115",
@@ -2563,7 +2563,7 @@
         "block_advantage": "-27",
         "fblock_advantage": "-27",
         "properties": "",
-        "notes": ""
+        "notes": "A downwards aerial projectile. When enhanced, the opponent slowly collapses on hit allowing for a combo. It can sometimes be used to counter anti-aerial attacks."
       },
       {
         "id": "117",
@@ -2607,7 +2607,7 @@
         "block_advantage": "-13",
         "fblock_advantage": "-13",
         "properties": "",
-        "notes": ""
+        "notes": "A downwards aerial projectile. When enhanced, the opponent slowly collapses on hit allowing for a combo. It can sometimes be used to counter anti-aerial attacks."
       },
       {
         "id": "119",
@@ -2673,7 +2673,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": "• Third hit now has 11 more frames of hit advantage"
+        "notes": "• Third hit now has 11 more frames of hit advantage\nA multi-hitting mid attack. When enhanced, it launches for a combo."
       },
       {
         "id": "122",
@@ -2717,7 +2717,7 @@
         "block_advantage": "-23",
         "fblock_advantage": "-23",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting mid attack. When enhanced, it launches for a combo."
       },
       {
         "id": "124",
@@ -2783,7 +2783,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": ""
+        "notes": "A quick mid attack that travels across the screen. It can be thrown out occasionally as a surprise attack and can be useful for countering projectiles. When enhanced, it grants armor and becomes unbreakable. It can be enhanced twice to deal increased damage."
       },
       {
         "id": "127",
@@ -3025,7 +3025,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is used at close-range to punish unsafe moves."
       },
       {
         "id": "138",
@@ -3091,7 +3091,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A command grab that is used for mix-ups at close-range."
       },
       {
         "id": "141",
@@ -3311,7 +3311,7 @@
         "block_advantage": "-8",
         "fblock_advantage": "-8",
         "properties": "",
-        "notes": "• Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Advantage on Hit allows for Jump Attack follow-up\nA slow 28 frame overhead attack that launches for a combo."
       },
       {
         "id": "151",
@@ -3333,7 +3333,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead into low attack that can be used for mix-ups at close-range. It’s unsafe at -12 on block."
       },
       {
         "id": "152",
@@ -3355,7 +3355,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting mid attack that is safe on block and can be hit-confirmed into a combo."
       },
       {
         "id": "153",
@@ -3487,7 +3487,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A 12 frame mid attack that is safe on block and can be hit-confirmed into a combo."
       },
       {
         "id": "159",
@@ -4059,7 +4059,7 @@
         "block_advantage": "107",
         "fblock_advantage": "107",
         "properties": "",
-        "notes": "• Advantage on Hit allows for Jump Attack follow-up\n• Hold 4 during Start-Up to throw a Dud"
+        "notes": "• Advantage on Hit allows for Jump Attack follow-up\n• Hold 4 during Start-Up to throw a Dud\nA bomb that detonates after a duration and launches for a combo. Hold <span class=\"inputs\">4</span> during start-up to throw a Dud. When enhanced, it moves toward the foe and deploys a drone."
       },
       {
         "id": "185",
@@ -4147,7 +4147,7 @@
         "block_advantage": "108",
         "fblock_advantage": "108",
         "properties": "",
-        "notes": "• Advantage on Hit allows for Jump Attack follow-up\n• Hold 4 during Start-Up to leave behind a Dud"
+        "notes": "• Advantage on Hit allows for Jump Attack follow-up\n• Hold 4 during Start-Up to leave behind a Dud\nA teleport that positions Cyrax behind the opponent while leaving a bomb behind. Hold <span class=\"inputs\">4</span> during start-up to leave behind a Dud. When enhanced, Cyrax retreats instead of teleporting."
       },
       {
         "id": "189",
@@ -4191,7 +4191,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A teleport that positions Cyrax behind the opponent. When enhanced, Cyrax advances instead of teleporting."
       },
       {
         "id": "191",
@@ -4301,7 +4301,7 @@
         "block_advantage": "-23",
         "fblock_advantage": "-23",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that is mainly used as a combo ender."
       },
       {
         "id": "196",
@@ -4345,7 +4345,7 @@
         "block_advantage": "-25",
         "fblock_advantage": "-25",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that is mainly used as a combo ender."
       },
       {
         "id": "198",
@@ -4565,7 +4565,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is 0 on block and is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "208",
@@ -4675,7 +4675,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that has decent range and can be hit confirmed into a combo."
       },
       {
         "id": "213",
@@ -4763,7 +4763,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A mid into overhead attack that can be hit confirmed into a combo."
       },
       {
         "id": "217",
@@ -4807,7 +4807,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A 23 frame overhead attack that can be used to catch opponents off-guard for blocking low."
       },
       {
         "id": "219",
@@ -5049,7 +5049,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A fast 11 frame advancing high attack that sends Ermac into the air and can lead into pressure."
       },
       {
         "id": "230",
@@ -5401,7 +5401,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A throw with very good range."
       },
       {
         "id": "246",
@@ -5841,7 +5841,7 @@
         "block_advantage": "-27",
         "fblock_advantage": "-27",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that travels across the screen. When enhanced, it stuns the opponent allowing for a combo. It can be useful for mix-ups at close-range."
       },
       {
         "id": "266",
@@ -6193,7 +6193,7 @@
         "block_advantage": "-3",
         "fblock_advantage": "-3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is -3 on block and is mainly used at close-range and for punishing unsafe moves."
       },
       {
         "id": "282",
@@ -6369,7 +6369,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack with good range and is safe on block."
       },
       {
         "id": "290",
@@ -6413,7 +6413,7 @@
         "block_advantage": "3",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nA slow, long-ranged mid attack that has incredible range, is +3 on block, and launches for a combo."
       },
       {
         "id": "292",
@@ -6435,7 +6435,7 @@
         "block_advantage": "-32",
         "fblock_advantage": "-32",
         "properties": "",
-        "notes": ""
+        "notes": "Requires No Axe. An overhead attack that is safe on block and launches for a combo."
       },
       {
         "id": "293",
@@ -6567,7 +6567,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A low into overhead attack that is safe on block and is used for mix-ups at close-range."
       },
       {
         "id": "299",
@@ -6721,7 +6721,7 @@
         "block_advantage": "-3",
         "fblock_advantage": "-3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is -3 on block and is mainly used at close-range and for punishing unsafe moves."
       },
       {
         "id": "306",
@@ -6787,7 +6787,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack with good range and is safe on block."
       },
       {
         "id": "309",
@@ -6809,7 +6809,7 @@
         "block_advantage": "2",
         "fblock_advantage": "2",
         "properties": "",
-        "notes": ""
+        "notes": "Requires No Axe. A high into mid attack that is +2 on block and is mostly used at close-range for pressure."
       },
       {
         "id": "310",
@@ -6831,7 +6831,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A slow, long-ranged mid attack that has incredible range, is +3 on block, and launches for a combo."
       },
       {
         "id": "311",
@@ -6853,7 +6853,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "Requires No Axe. An overhead attack that is safe on block and launches for a combo."
       },
       {
         "id": "312",
@@ -6919,7 +6919,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A low into overhead attack that is safe on block and is used for mix-ups at close-range."
       },
       {
         "id": "315",
@@ -7095,7 +7095,7 @@
         "block_advantage": "-24",
         "fblock_advantage": "-24",
         "properties": "",
-        "notes": ""
+        "notes": "An aerial attack with good range. It can be difficult for opponents to anti-air."
       },
       {
         "id": "323",
@@ -7227,7 +7227,7 @@
         "block_advantage": "-24",
         "fblock_advantage": "-24",
         "properties": "",
-        "notes": ""
+        "notes": "An aerial attack with good range. It can be difficult for opponents to anti-air."
       },
       {
         "id": "329",
@@ -7359,7 +7359,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Strengthens Axe moves for a duration"
+        "notes": "• Strengthens Axe moves for a duration\nStrengthens Axe moves for a duration."
       },
       {
         "id": "335",
@@ -7403,7 +7403,7 @@
         "block_advantage": "-25",
         "fblock_advantage": "-25",
         "properties": "",
-        "notes": ""
+        "notes": "Requires No Axe. A high attack that launches for a combo. When enhanced, it grants armor."
       },
       {
         "id": "337",
@@ -7447,7 +7447,7 @@
         "block_advantage": "-9",
         "fblock_advantage": "-9",
         "properties": "",
-        "notes": ""
+        "notes": "A fullscreen low attack. When enhanced, it launches for a combo. It can be useful at a distance for trading against projectiles."
       },
       {
         "id": "339",
@@ -7557,7 +7557,7 @@
         "block_advantage": "3",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "Strengthens Axe moves for a duration."
       },
       {
         "id": "344",
@@ -7601,7 +7601,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Must be near Axe"
+        "notes": "• Must be near Axe\nRequires No Axe. Must be near Axe. A throw that is used for mix-ups at close-range. If it hits, General Shao will recall his axe. When enhanced, it grants armor and becomes unbreakable."
       },
       {
         "id": "346",
@@ -7689,7 +7689,7 @@
         "block_advantage": "-24",
         "fblock_advantage": "-24",
         "properties": "",
-        "notes": ""
+        "notes": "Requires No Axe. A high attack that launches for a combo. When enhanced, it grants armor."
       },
       {
         "id": "350",
@@ -7733,7 +7733,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A fullscreen low attack. When enhanced, it launches for a combo. It can be useful at a distance for trading against projectiles."
       },
       {
         "id": "352",
@@ -7931,7 +7931,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "361",
@@ -8019,7 +8019,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that is safe on block and launches for a combo."
       },
       {
         "id": "365",
@@ -8085,7 +8085,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": ""
+        "notes": "A fast 11 frame mid attack that is mostly used at close-range."
       },
       {
         "id": "368",
@@ -8833,7 +8833,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Deals increased damage when throwing the opponent out of the Corner\n• Recovery on miss reduced by 17 frames"
+        "notes": "• Deals increased damage when throwing the opponent out of the Corner\n• Recovery on miss reduced by 17 frames\nA command grab that is mostly used at close-range for mix-ups. It can also be done as a combo ender. It deals increased damage when throwing the opponent out of the corner."
       },
       {
         "id": "402",
@@ -8877,7 +8877,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Deals increased damage when throwing the opponent out of the Corner"
+        "notes": "• Deals increased damage when throwing the opponent out of the Corner\nA command grab that is mostly used at close-range for mix-ups. It can also be done as a combo ender. It deals increased damage when throwing the opponent out of the corner."
       },
       {
         "id": "404",
@@ -8965,7 +8965,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Increases Countdown Charges by 1 (MAX 3)\n• Changes to Inevitable when at 3 Charges"
+        "notes": "• Increases Countdown Charges by 1 (MAX 3)\n• Changes to Inevitable when at 3 Charges\nIncreases Countdown Charges by 1. When enhanced, it increases Contdown Charges by 3. Changes to Inevitable when at 3 Charges."
       },
       {
         "id": "408",
@@ -9009,7 +9009,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": "• Can only be done with 3 Charges of Countdown\n• Swaps sides"
+        "notes": "• Can only be done with 3 Charges of Countdown\n• Swaps sides\nIncreases Countdown Charges by 1. When enhanced, it increases Contdown Charges by 3. Changes to Inevitable when at 3 Charges."
       },
       {
         "id": "410",
@@ -9097,7 +9097,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it grants armor."
       },
       {
         "id": "414",
@@ -9141,7 +9141,7 @@
         "block_advantage": "-27",
         "fblock_advantage": "-27",
         "properties": "",
-        "notes": "• Launches opponent away from the center of the Sandstorm"
+        "notes": "• Launches opponent away from the center of the Sandstorm\nA mid attack that launches for a combo. It can be directed Close, Mid, or Far. When enhanced, the Sandstorm will be delayed for a short duration before appearing. Enhanced Sandstorm also increases Countdown Charges by 1."
       },
       {
         "id": "416",
@@ -11517,7 +11517,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +3 on block and is mainly used at close-range for pressure and to punish unsafe moves."
       },
       {
         "id": "524",
@@ -11539,7 +11539,7 @@
         "block_advantage": "3",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A high, mid, overhead attack that is +3 on block and is used at close-range for pressure."
       },
       {
         "id": "525",
@@ -11605,7 +11605,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A high, mid, overhead attack that is +3 on block and is used at close-range for pressure."
       },
       {
         "id": "528",
@@ -11693,7 +11693,7 @@
         "block_advantage": "6",
         "fblock_advantage": "6",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +6 on block and is used at close-range for pressure."
       },
       {
         "id": "532",
@@ -11781,7 +11781,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack ending in a command grab that is useful for mix-ups."
       },
       {
         "id": "536",
@@ -11803,7 +11803,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack ending in a low."
       },
       {
         "id": "537",
@@ -11957,7 +11957,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that is safe on block."
       },
       {
         "id": "544",
@@ -12265,7 +12265,7 @@
         "block_advantage": "-4",
         "fblock_advantage": "-4",
         "properties": "Unbreakable",
-        "notes": "• Hit reaction changes if opponent is in a Kombo\n• Unbreakable in a Kombo"
+        "notes": "• Hit reaction changes if opponent is in a Kombo\n• Unbreakable in a Kombo\nA high projectile that slowly circles around Havik before flying towards the opponent. If the opponent is already hit beforehand, it launches for a combo. When enhanced, it will fly behind the opponent and hit as a mid."
       },
       {
         "id": "558",
@@ -12309,7 +12309,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-15",
         "properties": "Armor",
-        "notes": "• Has Armor\n• Armor starts on frame 6\n• Hit reaction changes if Havik is hit"
+        "notes": "• Has Armor\n• Armor starts on frame 6\n• Hit reaction changes if Havik is hit\nA slow, armored mid attack that is safe on block and launches for a combo unless Havik is hit. When enhanced, it grants 3 hits of armor instead of 1."
       },
       {
         "id": "560",
@@ -12353,7 +12353,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing high attack that when used will roll underneath high attacks and projectiles. When enhanced, it costs 2 bars of Super Meter and becomes unbreakable."
       },
       {
         "id": "562",
@@ -12441,7 +12441,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Only after opponent was hit with Enhanced Blood Bath"
+        "notes": "• Only after opponent was hit with Enhanced Blood Bath\nAn advancing high attack that when used will roll underneath high attacks and projectiles. When enhanced, it costs 2 bars of Super Meter and becomes unbreakable."
       },
       {
         "id": "566",
@@ -12529,7 +12529,7 @@
         "block_advantage": "-11",
         "fblock_advantage": "-11",
         "properties": "",
-        "notes": ""
+        "notes": "A mid projectile that travels quickly across the screen. It can be very difficult to avoid as it covers a large portion of the screen. When enhanced, an additional projectile is fired towards the opponent."
       },
       {
         "id": "570",
@@ -12573,7 +12573,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting high attack that is primarily used as a combo ender."
       },
       {
         "id": "572",
@@ -12617,7 +12617,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting high attack that is primarily used as a combo ender."
       },
       {
         "id": "574",
@@ -14443,7 +14443,7 @@
         "block_advantage": "1",
         "fblock_advantage": "1",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +1 on block and is mainly used at close-range for pressure and to punish unsafe moves."
       },
       {
         "id": "657",
@@ -14509,7 +14509,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing high attack that is +3 on block and is used at close-range for pressure."
       },
       {
         "id": "660",
@@ -14839,7 +14839,7 @@
         "block_advantage": "-13",
         "fblock_advantage": "-13",
         "properties": "",
-        "notes": ""
+        "notes": "A fast mid attack that launches for a combo. It can be thrown out at times to stop approaches."
       },
       {
         "id": "675",
@@ -15345,7 +15345,7 @@
         "block_advantage": "-23",
         "fblock_advantage": "-23",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that is primarily used as a combo ender."
       },
       {
         "id": "698",
@@ -15411,7 +15411,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "Parry",
-        "notes": "• Parries High, Mid, and Overhead Attacks (not including Jumping Attacks)"
+        "notes": "• Parries High, Mid, and Overhead Attacks (not including Jumping Attacks)\nA parry that counters high, mid, and overhead attacks, excluding jump attacks."
       },
       {
         "id": "701",
@@ -15521,7 +15521,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it launches for a combo."
       },
       {
         "id": "706",
@@ -15653,7 +15653,7 @@
         "block_advantage": "-18",
         "fblock_advantage": "-18",
         "properties": "",
-        "notes": ""
+        "notes": "A quick, advancing high attack that is usually done as a combo ender, but can also be thrown out occasionally as a surprise attack. When enhanced, it grants armor."
       },
       {
         "id": "712",
@@ -15719,7 +15719,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Builds up Hype Meter"
+        "notes": "• Builds up Hype Meter\nRequires full Hype Meter. It temporarily allows Johnny Cage to cancel Special Moves into other Special Moves, Kameo Summons, or Fatal Blow up to 2 times in a row. Special Moves are always enhanced during Wowing Out."
       },
       {
         "id": "715",
@@ -15741,7 +15741,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Must have full Hype Meter\n• Special Moves can cancel into other Special Moves, Kameo Summons, or Fatal Blow up to 2 times in a row\n• Specials are always Enhanced during Wowing Out"
+        "notes": "• Must have full Hype Meter\n• Special Moves can cancel into other Special Moves, Kameo Summons, or Fatal Blow up to 2 times in a row\n• Specials are always Enhanced during Wowing Out\nRequires full Hype Meter. It temporarily allows Johnny Cage to cancel Special Moves into other Special Moves, Kameo Summons, or Fatal Blow up to 2 times in a row. Special Moves are always enhanced during Wowing Out."
       },
       {
         "id": "716",
@@ -15961,7 +15961,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A high into low attack that is mainly used at close-range for punishing unsafe moves."
       },
       {
         "id": "726",
@@ -16093,7 +16093,7 @@
         "block_advantage": "-4",
         "fblock_advantage": "-4",
         "properties": "",
-        "notes": ""
+        "notes": "A long-reaching mid attack that is safe at -4 on block and is a great move to throw out from mid-distance."
       },
       {
         "id": "732",
@@ -16511,7 +16511,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": ""
+        "notes": "Must be in Sento Stance. A low into mid attack that is used for mix-ups and launches for a combo."
       },
       {
         "id": "751",
@@ -16577,7 +16577,7 @@
         "block_advantage": "-13",
         "fblock_advantage": "-13",
         "properties": "",
-        "notes": ""
+        "notes": "A long-reaching mid attack that is safe at -4 on block and is a great move to throw out from mid-distance."
       },
       {
         "id": "754",
@@ -16863,7 +16863,7 @@
         "block_advantage": "1",
         "fblock_advantage": "1",
         "properties": "",
-        "notes": ""
+        "notes": "Must be in Sento Stance. A mid attack that is +1 on block and can also used as a combo ender."
       },
       {
         "id": "767",
@@ -17303,7 +17303,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "Projectile Break",
-        "notes": "• Destroys opponent's projectiles"
+        "notes": "• Destroys opponent's projectiles\nAn advancing mid attack. When used, Kenshi will run towards the opponent, destroying enemy projectiles. It can be extended by holding <span class=\"inputs\">1</span> or cancelled by inputting <span class=\"inputs\">SS</span>."
       },
       {
         "id": "787",
@@ -17369,7 +17369,7 @@
         "block_advantage": "-16",
         "fblock_advantage": "-16",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it grants armor and becomes unbreakable."
       },
       {
         "id": "790",
@@ -17413,7 +17413,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead attack that can be used to attack opponents from a distance. It can be directed Close, Mid, or Far. When enhanced, it launches for a combo."
       },
       {
         "id": "792",
@@ -17545,7 +17545,7 @@
         "block_advantage": "-16",
         "fblock_advantage": "-16",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that launches for a combo."
       },
       {
         "id": "798",
@@ -17677,7 +17677,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Kenshi enters Sento Stance\n• Disables Kenshi's Kameo for 10 seconds"
+        "notes": "• Kenshi enters Sento Stance\n• Disables Kenshi's Kameo for 10 seconds\nEnds Sento Stance."
       },
       {
         "id": "804",
@@ -17787,7 +17787,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Ends Sento Stance"
+        "notes": "• Ends Sento Stance\nEnds Sento Stance."
       },
       {
         "id": "809",
@@ -17809,7 +17809,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead attack that can be used to attack opponents from a distance. It can be directed Close, Mid, or Far. When enhanced, it launches for a combo."
       },
       {
         "id": "810",
@@ -17853,7 +17853,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Sento Stance. A mid attack. When enhanced, it can combo into aerial attacks."
       },
       {
         "id": "812",
@@ -18183,7 +18183,7 @@
         "block_advantage": "3",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack that is +3 on block."
       },
       {
         "id": "827",
@@ -18227,7 +18227,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting mid attack that is safe on block and can be hit confirmed into a combo."
       },
       {
         "id": "829",
@@ -18381,7 +18381,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that has decent range, is safe on block, and can be hit confirmed into a combo."
       },
       {
         "id": "836",
@@ -18909,7 +18909,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that is primarily used in zoning. When enhanced, it becomes a slow mid projectile that is +14 on block and launches for a combo. Enhanced Fan Toss can be directed Close, Mid, or Far."
       },
       {
         "id": "860",
@@ -18997,7 +18997,7 @@
         "block_advantage": "-24",
         "fblock_advantage": "-24",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that is primarily used in zoning. When enhanced, it becomes a slow mid projectile that is +14 on block and launches for a combo. Enhanced Fan Toss can be directed Close, Mid, or Far."
       },
       {
         "id": "864",
@@ -19019,7 +19019,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that circles around Kitana before flying upwards. It launches for a combo and can be directed Close, Mid, or Far. It can be thrown out to stop enemies from approaching from the ground and air."
       },
       {
         "id": "865",
@@ -19085,7 +19085,7 @@
         "block_advantage": "-40",
         "fblock_advantage": "-40",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that circles around Kitana before flying upwards. It launches for a combo and can be directed Close, Mid, or Far. It can be thrown out to stop enemies from approaching from the ground and air."
       },
       {
         "id": "868",
@@ -19151,7 +19151,7 @@
         "block_advantage": "-28",
         "fblock_advantage": "-28",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it grants armor and the first hit becomes unbreakable."
       },
       {
         "id": "871",
@@ -19195,7 +19195,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack. When enhanced, it becomes unbreakable and is cancelable on hit into other (Air) Special Moves."
       },
       {
         "id": "873",
@@ -19239,7 +19239,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack. When enhanced, it becomes unbreakable and is cancelable on hit into other (Air) Special Moves."
       },
       {
         "id": "875",
@@ -19283,7 +19283,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A slow mid attack that grants advantage on block. It can be directed Close, Mid, or Far. When enhanced, it launches for a combo."
       },
       {
         "id": "877",
@@ -19789,7 +19789,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +3 on block and is mainly used at close-range for pressure and to punish unsafe moves."
       },
       {
         "id": "900",
@@ -19899,7 +19899,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead attack that can lead into a combo when cancelled into Special Moves. It can be thrown out occasionally to catch opponents off-guard for blocking low."
       },
       {
         "id": "905",
@@ -19943,7 +19943,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A high into overhead attack that is 0 on block. It can be thrown out occasionally to catch opponents off-guard for blocking low."
       },
       {
         "id": "907",
@@ -19987,7 +19987,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A mid into low attack that is safe on block and is used for mix-ups."
       },
       {
         "id": "909",
@@ -20009,7 +20009,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A mid into overhead attack that is safe on block and is used for mix-ups."
       },
       {
         "id": "910",
@@ -20471,7 +20471,7 @@
         "block_advantage": "-14",
         "fblock_advantage": "-14",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that is used in zoning to keep opponents away. It grants advantage if blocked from a distance."
       },
       {
         "id": "931",
@@ -20515,7 +20515,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that is used in zoning to keep opponents away. It grants advantage if blocked from a distance."
       },
       {
         "id": "933",
@@ -20559,7 +20559,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": ""
+        "notes": "A mid projectile that is used in zoning to keep opponents away. It can be directed Up or Down."
       },
       {
         "id": "935",
@@ -20647,7 +20647,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it grants armor, is safe on block, and the first hit becomes unbreakable in a combo."
       },
       {
         "id": "939",
@@ -20713,7 +20713,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, the victim slowly collapses on hit allowing for a combo. It can be used as a combo ender to switch positions with the opponent or to extend combos."
       },
       {
         "id": "942",
@@ -20757,7 +20757,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. It can be extended by holding <span class=\"inputs\">3</span>. When enhanced, it grants armor and can be moved forward or backward."
       },
       {
         "id": "944",
@@ -21109,7 +21109,7 @@
         "block_advantage": "2",
         "fblock_advantage": "2",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +2 on block and is mainly used at close-range for pressure and to punish unsafe moves."
       },
       {
         "id": "960",
@@ -21219,7 +21219,7 @@
         "block_advantage": "6",
         "fblock_advantage": "6",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +6 on block and is used at close-range for pressure."
       },
       {
         "id": "965",
@@ -21241,7 +21241,7 @@
         "block_advantage": "-3",
         "fblock_advantage": "-3",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that is -3 on block and is mostly used to attack from mid-distance."
       },
       {
         "id": "966",
@@ -21263,7 +21263,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that is safe on block."
       },
       {
         "id": "967",
@@ -21285,7 +21285,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": "• Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Advantage on Hit allows for Jump Attack follow-up\nAn advancing mid into high attack that is safe on block and launches for a combo."
       },
       {
         "id": "968",
@@ -21351,7 +21351,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that is +3 on block and is useful for applying pressure from mid-range."
       },
       {
         "id": "971",
@@ -21373,7 +21373,7 @@
         "block_advantage": "7",
         "fblock_advantage": "7",
         "properties": "",
-        "notes": ""
+        "notes": "A mid into low attack that is +7 on block."
       },
       {
         "id": "972",
@@ -21505,7 +21505,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is safe on block and can be hit confirmed into a combo."
       },
       {
         "id": "978",
@@ -21527,7 +21527,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A high, mid, high attack that is +3 on block and can be useful at close-range for pressure."
       },
       {
         "id": "979",
@@ -21593,7 +21593,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nA low into mid attack that launches for a combo. While unsafe at -20 on block, it can be used occasionally for mix-ups at close-range."
       },
       {
         "id": "982",
@@ -21615,7 +21615,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A low into overhead attack that is safe at -6 on block and is useful for mix-ups at close-range."
       },
       {
         "id": "983",
@@ -22033,7 +22033,7 @@
         "block_advantage": "-23",
         "fblock_advantage": "-23",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it becomes a fast 7 frame attack that is able to punish many moves and is unbreakable."
       },
       {
         "id": "1002",
@@ -22077,7 +22077,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": "• Recovers 12 frames faster on miss"
+        "notes": "• Recovers 12 frames faster on miss\nAn advancing mid attack. When enhanced, it grants armor and becomes unbreakable."
       },
       {
         "id": "1004",
@@ -22121,7 +22121,7 @@
         "block_advantage": "-14",
         "fblock_advantage": "-14",
         "properties": "",
-        "notes": ""
+        "notes": "An aerial overhead attack that is mainly used for mix-ups at close-range and as a combo ender."
       },
       {
         "id": "1006",
@@ -22319,7 +22319,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is 0 on block and is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "1015",
@@ -22451,7 +22451,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +3 on block and is used at close-range for pressure."
       },
       {
         "id": "1021",
@@ -22495,7 +22495,7 @@
         "block_advantage": "-4",
         "fblock_advantage": "-4",
         "properties": "",
-        "notes": ""
+        "notes": "A fast 10 frame mid attack that is -4 on block and is useful at close-range for pressure."
       },
       {
         "id": "1023",
@@ -22539,7 +22539,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nA fast 10 frame mid into high attack that is mainly used as a combo starter."
       },
       {
         "id": "1025",
@@ -22605,7 +22605,7 @@
         "block_advantage": "2",
         "fblock_advantage": "-8",
         "properties": "",
-        "notes": ""
+        "notes": "A high into overhead attack that is +2 on block."
       },
       {
         "id": "1028",
@@ -23573,7 +23573,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": ""
+        "notes": "A high into overhead attack that is mainly used at close-range and to punish unsafe moves."
       },
       {
         "id": "1072",
@@ -23639,7 +23639,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting mid attack ending in a low that is safe on block and is mostly used at close-range."
       },
       {
         "id": "1075",
@@ -23793,7 +23793,7 @@
         "block_advantage": "2",
         "fblock_advantage": "2",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing high, low, mid attack that is +2 on block and is useful for applying pressure from mid-distance."
       },
       {
         "id": "1082",
@@ -24013,7 +24013,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A safe overhead attack that is mostly used for mix-ups at close-range."
       },
       {
         "id": "1092",
@@ -24365,7 +24365,7 @@
         "block_advantage": "-35",
         "fblock_advantage": "-35",
         "properties": "",
-        "notes": ""
+        "notes": "A downwards teleport. When enhanced, it grants armor."
       },
       {
         "id": "1108",
@@ -24409,7 +24409,7 @@
         "block_advantage": "-36",
         "fblock_advantage": "-36",
         "properties": "",
-        "notes": ""
+        "notes": "A downwards teleport. When enhanced, it grants armor."
       },
       {
         "id": "1110",
@@ -24453,7 +24453,7 @@
         "block_advantage": "-27",
         "fblock_advantage": "-27",
         "properties": "",
-        "notes": ""
+        "notes": "An upwards teleport. When enhanced, it launches for a combo."
       },
       {
         "id": "1112",
@@ -24497,7 +24497,7 @@
         "block_advantage": "-23",
         "fblock_advantage": "-23",
         "properties": "",
-        "notes": ""
+        "notes": "A low projectile that is usually used for zoning from mid-distance."
       },
       {
         "id": "1114",
@@ -24541,7 +24541,7 @@
         "block_advantage": "-37",
         "fblock_advantage": "-37",
         "properties": "",
-        "notes": ""
+        "notes": "A fast, advancing mid attack that travels across the screen and launches for a combo. When enhanced, it becomes unbreakable. It can be used to punish unsafe moves from a distance or thrown out occasionally as a surprise attack."
       },
       {
         "id": "1116",
@@ -24585,7 +24585,7 @@
         "block_advantage": "-36",
         "fblock_advantage": "-36",
         "properties": "",
-        "notes": ""
+        "notes": "An aerial attack that launches for a combo. When enhanced, it tracks the opponent and is cancelable into other (Air) Special Moves. It can be delayed by holding <span class=\"inputs\">4</span> or cancelled by inputting <span class=\"inputs\">DD</span>."
       },
       {
         "id": "1118",
@@ -24849,7 +24849,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nA high into mid attack that launches for a combo and is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "1130",
@@ -24871,7 +24871,7 @@
         "block_advantage": "-3",
         "fblock_advantage": "-3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is -3 on block and is mostly used at close-range."
       },
       {
         "id": "1131",
@@ -24915,7 +24915,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A fast 11 frame mid into overhead attack."
       },
       {
         "id": "1133",
@@ -25025,7 +25025,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": "• Cancelable into (Air) Special Moves"
+        "notes": "• Cancelable into (Air) Special Moves\nAn advancing aerial overhead attack that goes over certain moves and is cancelable into (Air) Special Moves."
       },
       {
         "id": "1138",
@@ -25509,7 +25509,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": "• Deals damage over time when Blood Sacrifice is Active"
+        "notes": "• Deals damage over time when Blood Sacrifice is Active\nA high attack. It deals damage over time when Blood Sacrifice is active. When enhanced, it grants armor and becomes unbreakable."
       },
       {
         "id": "1160",
@@ -25553,7 +25553,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": "• Heals Nitara when Blood Sacrifice is Active"
+        "notes": "• Heals Nitara when Blood Sacrifice is Active\nAn advancing high attack. When enhanced, it launches for a combo. It heals Nitara when Blood Sacrifice is active. It can be used to punish unsafe moves from a distance or thrown out occasionally as a surprise attack."
       },
       {
         "id": "1162",
@@ -25597,7 +25597,7 @@
         "block_advantage": "-21",
         "fblock_advantage": "-21",
         "properties": "",
-        "notes": "• Heals Nitara when Blood Sacrifice is Active"
+        "notes": "• Heals Nitara when Blood Sacrifice is Active\nAn advancing high attack. When enhanced, it launches for a combo. It heals Nitara when Blood Sacrifice is active. It can be used to punish unsafe moves from a distance or thrown out occasionally as a surprise attack."
       },
       {
         "id": "1164",
@@ -25641,7 +25641,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Cancelable into (Air) Special Moves on Hit"
+        "notes": "• Cancelable into (Air) Special Moves on Hit\nA fast anti-aerial attack that propels Nitara into the air."
       },
       {
         "id": "1166",
@@ -25685,7 +25685,7 @@
         "block_advantage": "-1",
         "fblock_advantage": "-11",
         "properties": "",
-        "notes": "• Performable when Blood Sacrifice is Active\n• Cancelable into (Air) Special Moves on Hit"
+        "notes": "• Performable when Blood Sacrifice is Active\n• Cancelable into (Air) Special Moves on Hit\nA mid projectile that is only performable when Blood Sacrifice is active. It can be directed Close, Mid, or Far."
       },
       {
         "id": "1168",
@@ -25861,7 +25861,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes the properties of certain Special Moves"
+        "notes": "• Changes the properties of certain Special Moves\nChanges the properties of certain Special Moves. When enhanced, it heals Nitara when near the opponent."
       },
       {
         "id": "1176",
@@ -26235,7 +26235,7 @@
         "block_advantage": "4",
         "fblock_advantage": "4",
         "properties": "",
-        "notes": ""
+        "notes": "A 9 frame high attack that is +4 on block."
       },
       {
         "id": "1193",
@@ -26345,7 +26345,7 @@
         "block_advantage": "1",
         "fblock_advantage": "1",
         "properties": "",
-        "notes": ""
+        "notes": "A 23 frame overhead attack that is +1 on block. During Embrace Khaos, it can be used for mix-ups."
       },
       {
         "id": "1198",
@@ -26587,7 +26587,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": "• Requires Shadow Klone"
+        "notes": "• Requires Shadow Klone\nA 7 frame high attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "1209",
@@ -26763,7 +26763,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A 12 frame low into mid attack that can be safely hit-confirmed into a combo."
       },
       {
         "id": "1217",
@@ -26873,7 +26873,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A high into overhead attack that is safe on block. During Embrace Khaos, it can be used for mix-ups."
       },
       {
         "id": "1222",
@@ -27269,7 +27269,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": "• On Hit or Block, enables Exorcism\n• Enhanced Exorcism only possible immediately after Ghostball contact"
+        "notes": "• On Hit or Block, enables Exorcism\n• Enhanced Exorcism only possible immediately after Ghostball contact\nA high projectile. Upon contact with the opponent (Hit or Block), it enables Exorcism. When enhanced, Shadow Klone holds Ghost Ball for a duration before firing."
       },
       {
         "id": "1240",
@@ -27291,7 +27291,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": "• Requires Ghostball contact (Hit or Block)\n• Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Ghostball contact (Hit or Block)\n• Advantage on Hit allows for Jump Attack follow-up\nA high projectile. Upon contact with the opponent (Hit or Block), it enables Exorcism. When enhanced, Shadow Klone holds Ghost Ball for a duration before firing."
       },
       {
         "id": "1241",
@@ -27357,7 +27357,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Available once per match: after expiration, Shadow Klone is unavailable for the rest of the round\n• For a duration, enables Netherrealm Summon, and Shadow Klone Special Moves warp victim toward Noob Saibot"
+        "notes": "• Available once per match: after expiration, Shadow Klone is unavailable for the rest of the round\n• For a duration, enables Netherrealm Summon, and Shadow Klone Special Moves warp victim toward Noob Saibot\nEnables Netherrealm Summons, and Shadow Klone Special Moves warp victims toward Noob Saibot. Available once per match. After expiration, Shadow Klone becomes unavailable for the rest of the round. When enhanced, it is cancelable into Special Moves."
       },
       {
         "id": "1244",
@@ -27401,7 +27401,7 @@
         "block_advantage": "6",
         "fblock_advantage": "6",
         "properties": "",
-        "notes": "• Requires Embrace Khaos\n• Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Embrace Khaos\n• Advantage on Hit allows for Jump Attack follow-up\nRequires Embrace Khaos. A low projectile that warps victims toward Noob Saibot. When enhanced, Shadow Klone holds the portal before firing."
       },
       {
         "id": "1246",
@@ -27445,7 +27445,7 @@
         "block_advantage": "6",
         "fblock_advantage": "6",
         "properties": "",
-        "notes": "• Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Advantage on Hit allows for Jump Attack follow-up\nA low attack that is fired upwards into the air before falling. It can be directed Close, Mid, or Far. On hit, it warps victims towards Noob Saibot."
       },
       {
         "id": "1248",
@@ -27511,7 +27511,7 @@
         "block_advantage": "-27",
         "fblock_advantage": "-27",
         "properties": "",
-        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up\nRequires Shadow Klone. A mid attack that charges towards the opponent."
       },
       {
         "id": "1251",
@@ -27555,7 +27555,7 @@
         "block_advantage": "-4",
         "fblock_advantage": "-4",
         "properties": "",
-        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up\nRequires Shadow Klone. A high attack that is mostly used in the corner."
       },
       {
         "id": "1253",
@@ -27599,7 +27599,7 @@
         "block_advantage": "-18",
         "fblock_advantage": "-18",
         "properties": "",
-        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up\nRequires Shadow Klone. A low attack that travels across the screen."
       },
       {
         "id": "1255",
@@ -27643,7 +27643,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": "• Occurs when Shadow Klone is unavailable"
+        "notes": "• Occurs when Shadow Klone is unavailable\nRequires Shadow Klone. A low attack that travels across the screen."
       },
       {
         "id": "1257",
@@ -27687,7 +27687,7 @@
         "block_advantage": "-18",
         "fblock_advantage": "-18",
         "properties": "",
-        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up\nRequires Shadow Klone. An 18 frame low attack with great range. When enhanced, it grants armor."
       },
       {
         "id": "1259",
@@ -27731,7 +27731,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up\nRequires Shadow Klone. A low attack that travels across the screen."
       },
       {
         "id": "1261",
@@ -27775,7 +27775,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up\nRequires Shadow Klone. An 18 frame low attack with great range. When enhanced, it grants armor."
       },
       {
         "id": "1263",
@@ -27819,7 +27819,7 @@
         "block_advantage": "-28",
         "fblock_advantage": "-28",
         "properties": "",
-        "notes": "• Occurs when Shadow Klone is unavailable"
+        "notes": "• Occurs when Shadow Klone is unavailable\nRequires Shadow Klone. An 18 frame low attack with great range. When enhanced, it grants armor."
       },
       {
         "id": "1265",
@@ -27863,7 +27863,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up"
+        "notes": "• Requires Shadow Klone\n• During Embrace Khaos: Advantage on Hit allows for Jump Attack follow-up\nRequires Shadow Klone. An aerial attack that is fired directly downwards. When enhanced, it causes victims to slowly collapse on Hit."
       },
       {
         "id": "1267",
@@ -27907,7 +27907,7 @@
         "block_advantage": "-25",
         "fblock_advantage": "-25",
         "properties": "",
-        "notes": ""
+        "notes": "A high teleport attack. When enhanced, it launches for a combo. It can also be used in air."
       },
       {
         "id": "1269",
@@ -27951,7 +27951,7 @@
         "block_advantage": "-25",
         "fblock_advantage": "-25",
         "properties": "",
-        "notes": ""
+        "notes": "A high teleport attack. When enhanced, it launches for a combo. It can also be used in air."
       },
       {
         "id": "1271",
@@ -28149,7 +28149,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +3 on block and is mainly used at close-range for pressure and to punish unsafe moves."
       },
       {
         "id": "1280",
@@ -28215,7 +28215,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nA mid into high attack that launches for a combo."
       },
       {
         "id": "1283",
@@ -28347,7 +28347,7 @@
         "block_advantage": "-14",
         "fblock_advantage": "-14",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead attack that has slow start-up but travels quickly across the screen. It can be thrown out occasionally to catch opponents off-guard for blocking low."
       },
       {
         "id": "1289",
@@ -28413,7 +28413,7 @@
         "block_advantage": "-11",
         "fblock_advantage": "-11",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that is mostly used at close-range and can lead into a combo."
       },
       {
         "id": "1292",
@@ -28523,7 +28523,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that can be safely hit confirmed into a combo."
       },
       {
         "id": "1297",
@@ -28941,7 +28941,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it grants armor."
       },
       {
         "id": "1316",
@@ -28985,7 +28985,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it grants armor."
       },
       {
         "id": "1318",
@@ -29029,7 +29029,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Dodges Projectile Attacks"
+        "notes": "• Dodges Projectile Attacks\nA stance that dodges projectile attacks and can lead into multiple attacks. When enhanced, it also dodges high and mid attacks. It can be cancelled by inputting <span class=\"inputs\">D+EX</span> or it can be used to teleport towards the enemy by inputting <span class=\"inputs\">F+EX</span>."
       },
       {
         "id": "1320",
@@ -29205,7 +29205,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Dodges Projectile Attacks"
+        "notes": "• Dodges Projectile Attacks\nA stance that dodges projectile attacks and can lead into multiple attacks. When enhanced, it also dodges high and mid attacks. It can be cancelled by inputting <span class=\"inputs\">D+EX</span> or it can be used to teleport towards the enemy by inputting <span class=\"inputs\">F+EX</span>."
       },
       {
         "id": "1328",
@@ -29425,7 +29425,7 @@
         "block_advantage": "-26",
         "fblock_advantage": "-26",
         "properties": "",
-        "notes": "• Costs 2 bars of Super Meter for each consecutive use of Fly Toward/Away"
+        "notes": "• Costs 2 bars of Super Meter for each consecutive use of Fly Toward/Away\nAn aerial move that propels Omni-Man forward or backward. It costs 1 bar of Super Meter for each consecutive use."
       },
       {
         "id": "1338",
@@ -29623,7 +29623,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +3 on block and is mainly used at close-range for pressure and to punish unsafe moves."
       },
       {
         "id": "1347",
@@ -29821,7 +29821,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-16",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack."
       },
       {
         "id": "1356",
@@ -29865,7 +29865,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that can be hit confirmed into a combo."
       },
       {
         "id": "1358",
@@ -30041,7 +30041,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that can be hit confirmed into a combo."
       },
       {
         "id": "1366",
@@ -30349,7 +30349,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "An anti-aerial attack that can be thrown out to preemptively counter jump attacks. It can also be used to extend combos."
       },
       {
         "id": "1380",
@@ -30459,7 +30459,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that is mostly used in zoning to keep opponents away. When enhanced, 2 additional projectiles are fired."
       },
       {
         "id": "1385",
@@ -30503,7 +30503,7 @@
         "block_advantage": "-35",
         "fblock_advantage": "-35",
         "properties": "",
-        "notes": ""
+        "notes": "A fast 12 frame advancing mid attack. When enhanced, it grants armor. It can be used to punish unsafe moves from a distance or thrown out occasionally as a surprise attack."
       },
       {
         "id": "1387",
@@ -30547,7 +30547,7 @@
         "block_advantage": "-13",
         "fblock_advantage": "-23",
         "properties": "",
-        "notes": "• Hold B during ascent to aim in front of foe\n• Hold F during ascent to aim behind foe\n• Hold U during ascent to enable use of Jump Attacks while falling"
+        "notes": "• Hold B during ascent to aim in front of foe\n• Hold F during ascent to aim behind foe\n• Hold U during ascent to enable use of Jump Attacks while falling\nAn overhead attack where Peacemaker flies into the air before landing on top of the enemy. It can also be directed In Front or Behind. It can be cancelled by holding <span class=\"inputs\">U</span> to land without attacking the opponent. When enhanced, Peacemaker flies away from the opponent."
       },
       {
         "id": "1389",
@@ -30657,7 +30657,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "Projectile Reflect",
-        "notes": "• Deflects Projectiles (MAX 2) for a duration"
+        "notes": "• Deflects Projectiles (MAX 2) for a duration\nActivates a force field that deflects projectiles for a duration. When enhanced, it briefly reflects projectiles and repels foes, then deflects projectiles for a duration."
       },
       {
         "id": "1394",
@@ -30745,7 +30745,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-20",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that travels quickly across the screen and launches for a combo. It can be thrown out occasionally as a surprise attack."
       },
       {
         "id": "1398",
@@ -30789,7 +30789,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Attacks opposing Kameos"
+        "notes": "• Attacks opposing Kameos\nSummons Eagly to attack opposing Kameos."
       },
       {
         "id": "1400",
@@ -30965,7 +30965,7 @@
         "block_advantage": "-2",
         "fblock_advantage": "-2",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is -2 on block."
       },
       {
         "id": "1408",
@@ -31009,7 +31009,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A high into overhead attack that launches for a combo and is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "1410",
@@ -31163,7 +31163,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": ""
+        "notes": "A slow overhead attack that is unsafe at -12 on block. It can be charged by holding <span class=\"inputs\">2</span>. When fully charged, it becomes +8 on block."
       },
       {
         "id": "1417",
@@ -31273,7 +31273,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nA high attack that is mostly used in to extend combos."
       },
       {
         "id": "1422",
@@ -31339,7 +31339,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A low into mid attack that launches for a combo."
       },
       {
         "id": "1425",
@@ -31757,7 +31757,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": "• Zone of Power: Spawns extra projectiles"
+        "notes": "• Zone of Power: Spawns extra projectiles\nA mid projectile that is fired downwards from the air. When enhanced, it becomes a large mid projectile. When Quan Chi is near Zone of Power, it homes in on the foe, and when enhanced, the opponent is teleported above Quan Chi."
       },
       {
         "id": "1444",
@@ -31845,7 +31845,7 @@
         "block_advantage": "-33",
         "fblock_advantage": "-33",
         "properties": "",
-        "notes": "• Zone of Power: Homing effect"
+        "notes": "• Zone of Power: Homing effect\nA mid projectile that is fired downwards from the air. When enhanced, it becomes a large mid projectile. When Quan Chi is near Zone of Power, it homes in on the foe, and when enhanced, the opponent is teleported above Quan Chi."
       },
       {
         "id": "1448",
@@ -31933,7 +31933,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": "• Zone of Power: Becomes Psycho Skull Volley"
+        "notes": "• Zone of Power: Becomes Psycho Skull Volley\nAn overhead projectile that appears from above. It can be directed Close, Mid, Far, or Very Far. When enhanced, it homes in on the foe. When enhanced, it homes in on the foe and launches for a combo."
       },
       {
         "id": "1452",
@@ -32043,7 +32043,7 @@
         "block_advantage": "10",
         "fblock_advantage": "10",
         "properties": "",
-        "notes": "• Requires nearby Zone of Power"
+        "notes": "• Requires nearby Zone of Power\nAn overhead projectile that appears from above. It can be directed Close, Mid, Far, or Very Far. When enhanced, it homes in on the foe. When enhanced, it homes in on the foe and launches for a combo."
       },
       {
         "id": "1457",
@@ -32263,7 +32263,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• When Quan Chi is near Zone of Power, extra effects granted to Head Rush, (Air) Head Rush, and Psycho Skull"
+        "notes": "• When Quan Chi is near Zone of Power, extra effects granted to Head Rush, (Air) Head Rush, and Psycho Skull\nCreates a portal that stays on the screen for a duration. When Quan Chi is near Zone of Power, extra effects granted to Head Rush, (Air) Head Rush, and Psycho Skull."
       },
       {
         "id": "1467",
@@ -32329,7 +32329,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Costs 2 bars of Super Meter\n• Repels opponents"
+        "notes": "• Costs 2 bars of Super Meter\n• Repels opponents\nCreates a portal that stays on the screen for a duration. Zone of Fear repels opponents."
       },
       {
         "id": "1470",
@@ -32527,7 +32527,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead teleport. When enhanced, it grants armor."
       },
       {
         "id": "1479",
@@ -32571,7 +32571,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead teleport. When enhanced, it grants armor."
       },
       {
         "id": "1481",
@@ -32615,7 +32615,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that launches the opponent for a combo. It costs 2 bars of Super Meter."
       },
       {
         "id": "1483",
@@ -32967,7 +32967,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead attack that is mostly used at close-range for mix-ups."
       },
       {
         "id": "1499",
@@ -33055,7 +33055,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that can be hit confirmed into a combo."
       },
       {
         "id": "1503",
@@ -33165,7 +33165,7 @@
         "block_advantage": "-4",
         "fblock_advantage": "-4",
         "properties": "",
-        "notes": ""
+        "notes": "A high into overhead attack that launches for a combo."
       },
       {
         "id": "1508",
@@ -33275,7 +33275,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that can be hit confirmed into a combo."
       },
       {
         "id": "1513",
@@ -33693,7 +33693,7 @@
         "block_advantage": "-11",
         "fblock_advantage": "-11",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack. When enhanced, it deals additional damage and switches positions with the opponent."
       },
       {
         "id": "1532",
@@ -33891,7 +33891,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting mid attack. When enhanced, it becomes a multi-hitting low attack pushes the opponent away. It deals very good block damage and builds a decent amount of Super Meter, but is unsafe on block."
       },
       {
         "id": "1541",
@@ -33957,7 +33957,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A quick teleport. When enhanced, it costs 2 bars of Super Meter, becomes a low attack, and can combo into aerial attacks."
       },
       {
         "id": "1544",
@@ -34155,7 +34155,7 @@
         "block_advantage": "-1",
         "fblock_advantage": "-1",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "1553",
@@ -34177,7 +34177,7 @@
         "block_advantage": "0",
         "fblock_advantage": "-10",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is 0 on block and pushes the opponent back."
       },
       {
         "id": "1554",
@@ -34265,7 +34265,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A 12 frame advancing mid attack that is safe on block."
       },
       {
         "id": "1558",
@@ -34331,7 +34331,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting attack that has decent range, deals good block damage and pushes the opponent back."
       },
       {
         "id": "1561",
@@ -34353,7 +34353,7 @@
         "block_advantage": "-13",
         "fblock_advantage": "-13",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that can lead into a combo."
       },
       {
         "id": "1562",
@@ -34397,7 +34397,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A mid into low attack that can be hit confirmed into a combo."
       },
       {
         "id": "1564",
@@ -34463,7 +34463,7 @@
         "block_advantage": "4",
         "fblock_advantage": "4",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack that is +4 on block and useful at close-range for pressure."
       },
       {
         "id": "1567",
@@ -34507,7 +34507,7 @@
         "block_advantage": "-13",
         "fblock_advantage": "-13",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing low into high attack that has good range and launches for a combo."
       },
       {
         "id": "1569",
@@ -34551,7 +34551,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nA slow overhead attack that is safe on block and launches for a combo."
       },
       {
         "id": "1571",
@@ -34595,7 +34595,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack that kicks the opponent offscreen before landing behind Rain. It can be charged by holding <span class=\"inputs\">4</span> and cancelled by inputting <span class=\"inputs\">F</span> or <span class=\"inputs\">B</span>. When fully charged, it allows for a combo on hit."
       },
       {
         "id": "1573",
@@ -34683,7 +34683,7 @@
         "block_advantage": "-3",
         "fblock_advantage": "-3",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack with good range."
       },
       {
         "id": "1577",
@@ -34793,7 +34793,7 @@
         "block_advantage": "-24",
         "fblock_advantage": "-24",
         "properties": "",
-        "notes": ""
+        "notes": "An aerial attack that can be difficult to anti-air."
       },
       {
         "id": "1582",
@@ -34991,7 +34991,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": ""
+        "notes": "A high projectile that is mostly used in zoning to keep opponents away. It can be charged by holding <span class=\"inputs\">1</span> and cancelled by inputting <span class=\"inputs\">FF</span>, <span class=\"inputs\">BB</span>, or other Special Moves. When fully charged, the victim slowly collapses on hit allowing for a combo."
       },
       {
         "id": "1591",
@@ -35145,7 +35145,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "Creates a portal of water on the screen. Up to 2 Water Gates can be placed on the screen at a time."
       },
       {
         "id": "1598",
@@ -35167,7 +35167,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "Creates a portal of water on the screen. Up to 2 Water Gates can be placed on the screen at a time."
       },
       {
         "id": "1599",
@@ -35189,7 +35189,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "Creates a portal of water on the screen. Up to 2 Water Gates can be placed on the screen at a time."
       },
       {
         "id": "1600",
@@ -35211,7 +35211,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "Teleports Rain between Water Gates. When enhanced, Rain creates a beam of water in between Water Gates instead of teleporting."
       },
       {
         "id": "1601",
@@ -35277,7 +35277,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "Teleports Rain between Water Gates. When enhanced, Rain creates a beam of water in between Water Gates instead of teleporting."
       },
       {
         "id": "1604",
@@ -35343,7 +35343,7 @@
         "block_advantage": "-16",
         "fblock_advantage": "-16",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that can be directed Mid or Far. When enhanced, it grants armor."
       },
       {
         "id": "1607",
@@ -35805,7 +35805,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "1628",
@@ -35871,7 +35871,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that can be hit confirmed into a combo."
       },
       {
         "id": "1631",
@@ -35959,7 +35959,7 @@
         "block_advantage": "2",
         "fblock_advantage": "2",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +2 on block and is used at close-range for pressure."
       },
       {
         "id": "1635",
@@ -35981,7 +35981,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A high, mid, low attack that pushes the opponent back."
       },
       {
         "id": "1636",
@@ -36003,7 +36003,7 @@
         "block_advantage": "8",
         "fblock_advantage": "8",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack that is +8 on block and is mostly used at close-range for pressure."
       },
       {
         "id": "1637",
@@ -36025,7 +36025,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead attack that is primarily used at close-range for mix-ups."
       },
       {
         "id": "1638",
@@ -36113,7 +36113,7 @@
         "block_advantage": "-14",
         "fblock_advantage": "-14",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack with very good range."
       },
       {
         "id": "1642",
@@ -36245,7 +36245,7 @@
         "block_advantage": "3",
         "fblock_advantage": "3",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that is +3 on block and is primarily used at close-range for mix-ups."
       },
       {
         "id": "1648",
@@ -36553,7 +36553,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "Parry",
-        "notes": "• Parries High, Mid, and Overhead Attacks"
+        "notes": "• Parries High, Mid, and Overhead Attacks\nA parry that counters high, mid, and overhead attacks. When enhanced, it stuns the opponent after a successful parry allowing for a combo."
       },
       {
         "id": "1662",
@@ -36597,7 +36597,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A command grab that is used at close-range for mix-ups. It can switch positions with the opponent by holding <span class=\"inputs\">B</span>. When enhanced, it costs 2 bars of Super Meter and becomes unbreakable."
       },
       {
         "id": "1664",
@@ -36663,7 +36663,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": ""
+        "notes": "A series of high projectiles that is used in zoning to keep opponents away. When enhanced, additional projectiles are thrown with all of them hitting as mid attacks."
       },
       {
         "id": "1667",
@@ -36707,7 +36707,7 @@
         "block_advantage": "-27",
         "fblock_advantage": "-27",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing low attack that travels across the screen. It can be delayed by holding <span class=\"inputs\">3</span> and cancelled by inputting <span class=\"inputs\">DD</span>. By holding <span class=\"inputs\">U</span> or <span class=\"inputs\">B</span>, it becomes a mid attack that launches for a combo."
       },
       {
         "id": "1669",
@@ -36817,7 +36817,7 @@
         "block_advantage": "-14",
         "fblock_advantage": "-14",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that switches positions with the opponent. When enhanced, it grants armor and becomes unbreakable."
       },
       {
         "id": "1674",
@@ -37037,7 +37037,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is 0 on block and is used at close-range to punish unsafe moves."
       },
       {
         "id": "1684",
@@ -37059,7 +37059,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": "• Can Cancel into (Air) Falling Fangs"
+        "notes": "• Can Cancel into (Air) Falling Fangs\nA high into mid attack that can be cancelled into (Air) Falling Fangs."
       },
       {
         "id": "1685",
@@ -37257,7 +37257,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A 12 frame mid attack that is used at close-range and can be hit confirmed into a combo."
       },
       {
         "id": "1694",
@@ -37411,7 +37411,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A low into mid attack that has very good range and can be hit confirmed into a combo."
       },
       {
         "id": "1701",
@@ -37587,7 +37587,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A quick low attack that has very good range."
       },
       {
         "id": "1709",
@@ -37851,7 +37851,7 @@
         "block_advantage": "-16",
         "fblock_advantage": "-16",
         "properties": "",
-        "notes": "• Hold 1 to trigger Acid Spit Ball"
+        "notes": "• Hold 1 to trigger Acid Spit Ball\nA high attack with very good range. By holding <span class=\"inputs\">1</span>, it fires a high projectile across the screen. When enhanced, it becomes an unbreakable mid attack. It can be thrown out occasionally from mid-range to stop approaches."
       },
       {
         "id": "1721",
@@ -37983,7 +37983,7 @@
         "block_advantage": "-24",
         "fblock_advantage": "-24",
         "properties": "",
-        "notes": ""
+        "notes": "A slow mid projectile that travels across the screen and launches for a combo. Its speed can be altered by inputting <span class=\"inputs\">B</span> or <span class=\"inputs\">F</span>. When enhanced, it lasts for a longer duration."
       },
       {
         "id": "1727",
@@ -38115,7 +38115,7 @@
         "block_advantage": "-30",
         "fblock_advantage": "-30",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing low attack. When enhanced, it grants armor and becomes unbreakable."
       },
       {
         "id": "1733",
@@ -38489,7 +38489,7 @@
         "block_advantage": "-3",
         "fblock_advantage": "-3",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "1750",
@@ -38577,7 +38577,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that has decent range."
       },
       {
         "id": "1754",
@@ -38621,7 +38621,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack that can be used to anti-air opponents."
       },
       {
         "id": "1756",
@@ -38775,7 +38775,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that is safe on block."
       },
       {
         "id": "1763",
@@ -38797,7 +38797,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": "• First two hits now hit Mid and can be 2in1 cancelled"
+        "notes": "• First two hits now hit Mid and can be 2in1 cancelled\nA low attack that has incredible range and is mostly used to attack from a distance."
       },
       {
         "id": "1764",
@@ -39303,7 +39303,7 @@
         "block_advantage": "-21",
         "fblock_advantage": "-21",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack. When enhanced, it grants armor."
       },
       {
         "id": "1787",
@@ -39347,7 +39347,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack. When enhanced, it grants armor."
       },
       {
         "id": "1789",
@@ -39391,7 +39391,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting mid attack. When enhanced, it deals increased damage. It deals decent block damage and builds a good amount of Super Meter, but is unsafe on block."
       },
       {
         "id": "1791",
@@ -39435,7 +39435,7 @@
         "block_advantage": "-25",
         "fblock_advantage": "-25",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting mid attack. When enhanced, it deals increased damage. It deals decent block damage and builds a good amount of Super Meter, but is unsafe on block."
       },
       {
         "id": "1793",
@@ -39478,7 +39478,7 @@
         "block_advantage": "-21",
         "fblock_advantage": "-21",
         "properties": "",
-        "notes": ""
+        "notes": "A high teleport that attacks from behind. When enhanced, Scorpion teleports without attacking. If done airborne and enhanced, it becomes cancellable into other aerial attacks."
       },
       {
         "id": "1795",
@@ -39522,7 +39522,7 @@
         "block_advantage": "-25",
         "fblock_advantage": "-25",
         "properties": "",
-        "notes": ""
+        "notes": "A high teleport that attacks from behind. When enhanced, Scorpion teleports without attacking. If done airborne and enhanced, it becomes cancellable into other aerial attacks."
       },
       {
         "id": "1797",
@@ -39566,7 +39566,7 @@
         "block_advantage": "-38",
         "fblock_advantage": "-38",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that appears beneath the opponent. When enhanced, it becomes an unblockable attack that deals damage over time. It can be useful to attack from fullscreen or to deal increased damage at the end of combos if enhanced."
       },
       {
         "id": "1799",
@@ -39764,7 +39764,7 @@
         "block_advantage": "-1",
         "fblock_advantage": "-1",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is used at close-range to punish unsafe moves."
       },
       {
         "id": "1808",
@@ -39918,7 +39918,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A slow 24 frame overhead attack that can be used to catch opponents off-guard for blocking low."
       },
       {
         "id": "1815",
@@ -39984,7 +39984,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that is safe on block and can be hit-confirmed into a combo."
       },
       {
         "id": "1818",
@@ -40094,7 +40094,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that is safe on block and can be hit-confirmed into a combo."
       },
       {
         "id": "1823",
@@ -40908,7 +40908,7 @@
         "block_advantage": "-23",
         "fblock_advantage": "-23",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack with good range. When enhanced, it grants armor."
       },
       {
         "id": "1860",
@@ -40974,7 +40974,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": ""
+        "notes": "An anti-aerial attack."
       },
       {
         "id": "1863",
@@ -41018,7 +41018,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Eliminates projectile damage and pushback\n• Upon successful deflection, can be canceled into Unguided Rocket or Sidewinder\n• Energizes Charge Bionic Blast and enables Force Sensor"
+        "notes": "• Eliminates projectile damage and pushback\n• Upon successful deflection, can be canceled into Unguided Rocket or Sidewinder\n• Energizes Charge Bionic Blast and enables Force Sensor\nEliminates projectile damage and pushback. Upon successful deflection, it can be canceled into Unguided Rocket or Sidewinder. Energizes Charge Bionic Blast and enables Force Sensor. When enhanced, it can be canceled into Special Moves upon successful deflection."
       },
       {
         "id": "1865",
@@ -41370,7 +41370,7 @@
         "block_advantage": "2",
         "fblock_advantage": "2",
         "properties": "",
-        "notes": ""
+        "notes": "A high that is +2 on block and is mainly used at close-range for pressure and to punish unsafe moves."
       },
       {
         "id": "1881",
@@ -41810,7 +41810,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A mid attack that can be hit confirmed into a combo."
       },
       {
         "id": "1901",
@@ -42008,7 +42008,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Old Form. A mid attack that can be hit confirmed into a combo."
       },
       {
         "id": "1910",
@@ -42294,7 +42294,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes Forms between Young and Old"
+        "notes": "• Changes Forms between Young and Old\nChanges form between Young and Old."
       },
       {
         "id": "1923",
@@ -42316,7 +42316,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes Forms between Young and Old"
+        "notes": "• Changes Forms between Young and Old\nChanges form between Young and Old."
       },
       {
         "id": "1924",
@@ -42338,7 +42338,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes Form from Shang Tsung to opponent"
+        "notes": "• Changes Form from Shang Tsung to opponent\nChanges form from Shang Tsung to the opponent. When enhanced, Shang Tsung deals increased damage while morphed."
       },
       {
         "id": "1925",
@@ -42382,7 +42382,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes Form from opponent back to Shang Tsung"
+        "notes": "• Changes Form from opponent back to Shang Tsung\nChanges form from the opponent back to Shang Tsung"
       },
       {
         "id": "1927",
@@ -42448,7 +42448,7 @@
         "block_advantage": "-28",
         "fblock_advantage": "-28",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A high projectile that is used in zoning to keep opponents away. When enhanced, an additional mid projectile is fired."
       },
       {
         "id": "1930",
@@ -42492,7 +42492,7 @@
         "block_advantage": "-11",
         "fblock_advantage": "-11",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A high projectile that is used in zoning to keep opponents away. When enhanced, an additional mid projectile is fired."
       },
       {
         "id": "1932",
@@ -42536,7 +42536,7 @@
         "block_advantage": "-15",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A series of 2 high projectiles that is used in zoning to keep opponents away. When enhanced, an additional mid projectile is fired."
       },
       {
         "id": "1934",
@@ -42580,7 +42580,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A series of 3 high projectiles that is used in zoning to keep opponents away. When enhanced, an additional mid projectile is fired."
       },
       {
         "id": "1936",
@@ -42624,7 +42624,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A multi-hitting mid attack. When enhanced, it grants armor."
       },
       {
         "id": "1938",
@@ -42668,7 +42668,7 @@
         "block_advantage": "-21",
         "fblock_advantage": "-21",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A low attack that moves Shang Tsung backwards. When enhanced, it becomes more difficult to punish on block. It can be useful at close-range to create distance from the opponent."
       },
       {
         "id": "1940",
@@ -42712,7 +42712,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes Forms between Young and Old"
+        "notes": "• Changes Forms between Young and Old\nChanges form between Young and Old."
       },
       {
         "id": "1942",
@@ -42734,7 +42734,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes Forms between Young and Old"
+        "notes": "• Changes Forms between Young and Old\nChanges form between Young and Old."
       },
       {
         "id": "1943",
@@ -42756,7 +42756,7 @@
         "block_advantage": "-13",
         "fblock_advantage": "-13",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A high projectile that is used in zoning to keep opponents away. When enhanced, an additional mid projectile is fired."
       },
       {
         "id": "1944",
@@ -42844,7 +42844,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A high projectile that is used in zoning to keep opponents away. When enhanced, an additional mid projectile is fired."
       },
       {
         "id": "1948",
@@ -42866,7 +42866,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A series of 2 high projectiles that is used in zoning to keep opponents away. When enhanced, an additional mid projectile is fired."
       },
       {
         "id": "1949",
@@ -42888,7 +42888,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A series of 3 high projectiles that is used in zoning to keep opponents away. When enhanced, an additional mid projectile is fired."
       },
       {
         "id": "1950",
@@ -42954,7 +42954,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A multi-hitting mid attack. When enhanced, it grants armor."
       },
       {
         "id": "1953",
@@ -42998,7 +42998,7 @@
         "block_advantage": "-16",
         "fblock_advantage": "-16",
         "properties": "",
-        "notes": ""
+        "notes": "Requires Young Form. A low attack that moves Shang Tsung backwards. When enhanced, it becomes more difficult to punish on block. It can be useful at close-range to create distance from the opponent."
       },
       {
         "id": "1955",
@@ -43042,7 +43042,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes Forms between Young and Old"
+        "notes": "• Changes Forms between Young and Old\nChanges form between Young and Old."
       },
       {
         "id": "1957",
@@ -43064,7 +43064,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Changes Forms between Young and Old"
+        "notes": "• Changes Forms between Young and Old\nChanges form between Young and Old."
       },
       {
         "id": "1958",
@@ -43240,7 +43240,7 @@
         "block_advantage": "-1",
         "fblock_advantage": "-1",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "1966",
@@ -43284,7 +43284,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting high into mid attack that has good range and can be hit confirmed into a combo."
       },
       {
         "id": "1968",
@@ -43372,7 +43372,7 @@
         "block_advantage": "2",
         "fblock_advantage": "2",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is +2 on block and is used at close-range for pressure."
       },
       {
         "id": "1972",
@@ -43438,7 +43438,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A mid into overhead attack that launches for a combo."
       },
       {
         "id": "1975",
@@ -43570,7 +43570,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack that has very good range."
       },
       {
         "id": "1981",
@@ -43988,7 +43988,7 @@
         "block_advantage": "-11",
         "fblock_advantage": "-11",
         "properties": "",
-        "notes": ""
+        "notes": "A low projectile that is used in zoning to keep opponents away. When enhanced, it becomes a fast 9 frame mid attack followed by a low projectile."
       },
       {
         "id": "2000",
@@ -44120,7 +44120,7 @@
         "block_advantage": "-34",
         "fblock_advantage": "-34",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack with very good range. It stuns the opponent briefly allowing for a combo. ?If hitting an airborne opponent, it keeps the opponent standing. It can be thrown out occasionally from mid-range as a surprise attack."
       },
       {
         "id": "2006",
@@ -44318,7 +44318,7 @@
         "block_advantage": "-25",
         "fblock_advantage": "-25",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing overhead attack. When enhanced, it grants armor and becomes unbreakable."
       },
       {
         "id": "2015",
@@ -44582,7 +44582,7 @@
         "block_advantage": "2",
         "fblock_advantage": "2",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing high into mid attack that is +2 on block and is primarily used at close-range for pressure."
       },
       {
         "id": "2027",
@@ -44736,7 +44736,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting high into mid attack that is mostly used at close-range to punish unsafe moves."
       },
       {
         "id": "2034",
@@ -44758,7 +44758,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": "• Cancelable during Start-Up into (Air) Special Moves"
+        "notes": "• Cancelable during Start-Up into (Air) Special Moves\nAn advancing overhead attack that has incredible range and is useful for mix-ups."
       },
       {
         "id": "2035",
@@ -44912,7 +44912,7 @@
         "block_advantage": "-4",
         "fblock_advantage": "-4",
         "properties": "",
-        "notes": ""
+        "notes": "A low into overhead attack that is mostly used at close-range for mix-ups."
       },
       {
         "id": "2042",
@@ -45044,7 +45044,7 @@
         "block_advantage": "8",
         "fblock_advantage": "-2",
         "properties": "",
-        "notes": "• Cancelable into (Air) Special Moves"
+        "notes": "• Cancelable into (Air) Special Moves\nAn advancing high into mid attack that is +8 on block and is useful for applying pressure from mid-distance."
       },
       {
         "id": "2048",
@@ -45374,7 +45374,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": ""
+        "notes": "An anti-aerial attack that can be thrown out at times to hit opponents out of the air. It can also be used as a combo ender."
       },
       {
         "id": "2063",
@@ -45418,7 +45418,7 @@
         "block_advantage": "-14",
         "fblock_advantage": "-14",
         "properties": "",
-        "notes": ""
+        "notes": "An overhead teleport. When enhanced, it grants armor and invisibility."
       },
       {
         "id": "2065",
@@ -45638,7 +45638,7 @@
         "block_advantage": "-30",
         "fblock_advantage": "-30",
         "properties": "",
-        "notes": ""
+        "notes": "A low teleport. It can be cancelled by inputting <span class=\"inputs\">F</span>. When enhanced, it can combo into aerial attacks. Cancelling out of Enhanced Smoke-Port grants invisibility."
       },
       {
         "id": "2075",
@@ -45726,7 +45726,7 @@
         "block_advantage": "-30",
         "fblock_advantage": "-30",
         "properties": "",
-        "notes": ""
+        "notes": "A low teleport. It can be cancelled by inputting <span class=\"inputs\">F</span>. When enhanced, it can combo into aerial attacks. Cancelling out of Enhanced Smoke-Port grants invisibility."
       },
       {
         "id": "2079",
@@ -45968,7 +45968,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "2090",
@@ -46034,7 +46034,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A mid attack that can be hit confirmed into a combo."
       },
       {
         "id": "2093",
@@ -46166,7 +46166,7 @@
         "block_advantage": "-23",
         "fblock_advantage": "-23",
         "properties": "",
-        "notes": "• Cancelable on Hit into Jump"
+        "notes": "• Cancelable on Hit into Jump\nAn overhead attack that launches for a combo. While unsafe at -23 on block, it can be thrown out occasionally to catch opponents off-guard for blocking low."
       },
       {
         "id": "2099",
@@ -46276,7 +46276,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A low attack."
       },
       {
         "id": "2104",
@@ -46958,7 +46958,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": ""
+        "notes": "A quick advancing low attack. When enhanced, it switches positions with the opponent, grants armor and becomes unbreakable. It can be used to punish unsafe moves from a distance or thrown out occasionally as a surprise attack."
       },
       {
         "id": "2135",
@@ -47024,7 +47024,7 @@
         "block_advantage": "-16",
         "fblock_advantage": "-16",
         "properties": "",
-        "notes": ""
+        "notes": "An aerial attack that stuns the opponent allowing for a combo. While unsafe at -16 on block, it can be more difficult to punish when blocked low to the ground. When enhanced, it launches for a combo."
       },
       {
         "id": "2138",
@@ -47068,7 +47068,7 @@
         "block_advantage": "-20",
         "fblock_advantage": "-15",
         "properties": "",
-        "notes": "• Slows the opponent"
+        "notes": "• Slows the opponent\nA mid attack that appears beneath the opponent, slowing down their movements. When enhanced and the opponent is hit prior, it freezes the opponent allowing for a combo."
       },
       {
         "id": "2140",
@@ -47266,7 +47266,7 @@
         "block_advantage": "-1",
         "fblock_advantage": "-1",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting high into mid attack that is -1 on block and is mainly used at close-range for pressure."
       },
       {
         "id": "2149",
@@ -47486,7 +47486,7 @@
         "block_advantage": "-3",
         "fblock_advantage": "-3",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is used to punish unsafe moves."
       },
       {
         "id": "2159",
@@ -47552,7 +47552,7 @@
         "block_advantage": "-19",
         "fblock_advantage": "-19",
         "properties": "",
-        "notes": ""
+        "notes": "A long-ranged mid attack that can be hit-confirmed into a combo."
       },
       {
         "id": "2162",
@@ -47684,7 +47684,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing low attack that is safe on block."
       },
       {
         "id": "2168",
@@ -47794,7 +47794,7 @@
         "block_advantage": "-7",
         "fblock_advantage": "-7",
         "properties": "",
-        "notes": ""
+        "notes": "A slow 22 frame overhead attack that can be used to catch opponents off-guard for blocking low."
       },
       {
         "id": "2173",
@@ -48454,7 +48454,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": "• B/F/U during Start-Up for (Air) Close/Far/Very Far Smart Shuriken\n• Several Smart Shurikens can be placed at once\n• Smart Shurikens are detonated by Shooting Star / Falling Star\n• Undetonated Smart Shurikens disappear after a duration\n• Advantage on det"
+        "notes": "• B/F/U during Start-Up for (Air) Close/Far/Very Far Smart Shuriken\n• Several Smart Shurikens can be placed at once\n• Smart Shurikens are detonated by Shooting Star / Falling Star\n• Undetonated Smart Shurikens disappear after a duration\n• Advantage on det\nA projectile that stays on the screen. If Shooting Star is used, it will detonate the Smart Shuriken, launching for a combo. Similar to Shooting Star, Enhancing Smart Shuriken allows Takeda to throw 3 shurikens across the screen, but the shurikens will detonate in the opposite direction."
       },
       {
         "id": "2203",
@@ -48718,7 +48718,7 @@
         "block_advantage": "-28",
         "fblock_advantage": "-28",
         "properties": "",
-        "notes": ""
+        "notes": "An aerial attack that allows Takeda to swing across the screen. It can be used as a combo ender."
       },
       {
         "id": "2215",
@@ -49026,7 +49026,7 @@
         "block_advantage": "-17",
         "fblock_advantage": "-17",
         "properties": "",
-        "notes": "• Cancelable into Whip Art: Scattering Winds"
+        "notes": "• Cancelable into Whip Art: Scattering Winds\nA high attack that can be used after attacks. It can be done up to 3 times and delayed with each hit. The final hit can be enhanced, launching for a combo."
       },
       {
         "id": "2229",
@@ -49070,7 +49070,7 @@
         "block_advantage": "-16",
         "fblock_advantage": "-11",
         "properties": "",
-        "notes": "• Can only be performed from Whip Art: Wretched Blow\n• Cancelable into Whip Art: Mad Dance or Whip Art: Death"
+        "notes": "• Can only be performed from Whip Art: Wretched Blow\n• Cancelable into Whip Art: Mad Dance or Whip Art: Death\nA high attack that can be used after attacks. It can be done up to 3 times and delayed with each hit. The final hit can be enhanced, launching for a combo."
       },
       {
         "id": "2231",
@@ -49092,7 +49092,7 @@
         "block_advantage": "-12",
         "fblock_advantage": "-12",
         "properties": "",
-        "notes": "• Can only be performed from Whip Art: Scattering Winds"
+        "notes": "• Can only be performed from Whip Art: Scattering Winds\nA high attack that can be used after attacks. It can be done up to 3 times and delayed with each hit. The final hit can be enhanced, launching for a combo."
       },
       {
         "id": "2232",
@@ -49334,7 +49334,7 @@
         "block_advantage": "-2",
         "fblock_advantage": "-2",
         "properties": "",
-        "notes": ""
+        "notes": "A high into mid attack that is mainly used at close-range to punish unsafe moves."
       },
       {
         "id": "2243",
@@ -49488,7 +49488,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack ending in an overhead that has good range and can be hit confirmed into a combo."
       },
       {
         "id": "2250",
@@ -49510,7 +49510,7 @@
         "block_advantage": "-5",
         "fblock_advantage": "-5",
         "properties": "",
-        "notes": ""
+        "notes": "A high attack that can be thrown out from a distance to hit opponents out of the air."
       },
       {
         "id": "2251",
@@ -49664,7 +49664,7 @@
         "block_advantage": "-6",
         "fblock_advantage": "-6",
         "properties": "",
-        "notes": ""
+        "notes": "A multi-hitting low attack that goes underneath high attacks."
       },
       {
         "id": "2258",
@@ -50148,7 +50148,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Grants Charges of Guidance (Max 2)\n• While at 2 Charges Tanya's Dashes go farther when Canceled into Attacks"
+        "notes": "• Grants Charges of Guidance (Max 2)\n• While at 2 Charges Tanya's Dashes go farther when Canceled into Attacks\nRequires 2 Charges of Guidance. Teleports Tanya diagonally upwards. When enhanced, it becomes a high attack that can be cancelled into aerial attacks for a combo. Enhanced Umgadi Dodge requires 2 Charges of Guidance."
       },
       {
         "id": "2280",
@@ -50214,7 +50214,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "",
-        "notes": "• Requires 2 Charges of Guidance"
+        "notes": "• Requires 2 Charges of Guidance\nRequires 2 Charges of Guidance. Teleports Tanya diagonally upwards. When enhanced, it becomes a high attack that can be cancelled into aerial attacks for a combo. Enhanced Umgadi Dodge requires 2 Charges of Guidance."
       },
       {
         "id": "2283",
@@ -50258,7 +50258,7 @@
         "block_advantage": "0",
         "fblock_advantage": "0",
         "properties": "Parry",
-        "notes": "• Parries High, Mid, and Projectile Attacks\n• Grants 1 Charge of Guidance upon successful parry\n• Allows for follow-ups with max charge"
+        "notes": "• Parries High, Mid, and Projectile Attacks\n• Grants 1 Charge of Guidance upon successful parry\n• Allows for follow-ups with max charge\nParries high and mid attacks. If holding <span class=\"inputs\">3+B</span>, it grants armor. When enhanced, it also parries projectiles, and if holding <span class=\"inputs\">3+B</span> it grants invulnerability. It grants 1 Charge of Guidance upon a successful parry."
       },
       {
         "id": "2285",
@@ -50412,7 +50412,7 @@
         "block_advantage": "-22",
         "fblock_advantage": "-22",
         "properties": "",
-        "notes": ""
+        "notes": "An advancing mid attack that travels across the screen and switches positions with the opponent. When enhanced, it launches for a combo."
       },
       {
         "id": "2292",
@@ -50500,7 +50500,7 @@
         "block_advantage": "-34",
         "fblock_advantage": "-34",
         "properties": "",
-        "notes": "• Hold 4 for improved position and advantage when blocked (Requires 2 Charges of Guidance)"
+        "notes": "• Hold 4 for improved position and advantage when blocked (Requires 2 Charges of Guidance)\nA multi-hitting mid attack that travels across the screen. When enhanced, it grants armor."
       },
       {
         "id": "2296",
@@ -50544,7 +50544,7 @@
         "block_advantage": "-26",
         "fblock_advantage": "-26",
         "properties": "",
-        "notes": "• Hold 4 for improved position and advantage when blocked (Requires 2 Charges of Guidance)"
+        "notes": "• Hold 4 for improved position and advantage when blocked (Requires 2 Charges of Guidance)\nA multi-hitting mid attack that travels across the screen. When enhanced, it grants armor."
       },
       {
         "id": "2298",

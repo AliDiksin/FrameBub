@@ -186,6 +186,9 @@ def _quiz_game_key(game=None):
         "mk": "mk1",
         "mortal_kombat": "mk1",
         "mortal_kombat_1": "mk1",
+        "avtl": "avtl",
+        "avatar_legends": "avtl",
+        "avatar": "avtl",
     }
     return aliases.get(key, key if key else "sf6")
 
@@ -234,6 +237,7 @@ def _quiz_extract_game_from_text(text, default="sf6"):
         ("tuco", r"\b(?:2xko|tuco)\b"),
         ("bbcf", r"\b(?:bbcf|blazblue|central\s*fiction)\b"),
         ("cotw", r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b"),
+        ("avtl", r"\b(?:avtl|avatar\s*legends|avatar)\b"),
         ("ggst", r"\b(?:ggst|guilty\s+gear(?!\s*(?:\+?\s*r|accent\s+core|plus\s*r|acpr))|strive)\b"),
         ("sf6", r"\b(?:sf6|street\s*fighter\s*6)\b"),
     ]

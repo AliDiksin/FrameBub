@@ -24,6 +24,7 @@ async def handle_ready(deps):
     third_strike_module = deps["third_strike_module"]
     usfiv_module = deps["usfiv_module"]
     mk1_module = deps["mk1_module"]
+    avtl_module = deps["avtl_module"]
     combo_data_module = deps["combo_data_module"]
     from bubbot.data.ggacr_aliases import GGACR_GAME_TERMS
 
@@ -61,6 +62,7 @@ async def handle_ready(deps):
         third_strike_module.load_frame_data()
         usfiv_module.load_frame_data()
         mk1_module.load_frame_data()
+        avtl_module.load_frame_data()
         configure_extracted_modules()
         combo_data_module.load_combo_data()
 
@@ -188,6 +190,16 @@ async def handle_ready(deps):
                 "get_notes_text": mk1_module.get_notes_text,
                 "game_terms": ("mk1", "mortal kombat 1"),
             },
+            "avtl": {
+                "label": "Avatar Legends",
+                "data": avtl_module.AVTL_FRAME_DATA,
+                "aliases": avtl_module.AVTL_CHARACTER_ALIASES,
+                "resolve_character_key": avtl_module.resolve_character_key,
+                "find_moves_in_text": avtl_module.find_moves_in_text,
+                "build_frame_embed": avtl_module.build_frame_embed,
+                "get_notes_text": avtl_module.get_notes_text,
+                "game_terms": ("avtl", "avatar legends"),
+            },
         },
         resolve_character_key=resolve_character_key,
         normalize_char_name=normalize_char_name,
@@ -227,6 +239,8 @@ async def handle_ready(deps):
         usfiv_character_aliases=usfiv_module.USFIV_CHARACTER_ALIASES,
         mk1_frame_data=mk1_module.MK1_FRAME_DATA,
         mk1_character_aliases=mk1_module.MK1_CHARACTER_ALIASES,
+        avtl_frame_data=avtl_module.AVTL_FRAME_DATA,
+        avtl_character_aliases=avtl_module.AVTL_CHARACTER_ALIASES,
         quiz_module_ref=quiz_module,
         build_sf6_frame_embed_fn=build_frame_embed,
         build_ggst_frame_embed_fn=ggst_module.build_frame_embed,
@@ -237,6 +251,7 @@ async def handle_ready(deps):
         build_cotw_frame_embed_fn=cotw_module.build_frame_embed,
         build_third_strike_frame_embed_fn=third_strike_module.build_frame_embed,
         build_usfiv_frame_embed_fn=usfiv_module.build_frame_embed,
+        build_avtl_frame_embed_fn=avtl_module.build_frame_embed,
         send_frame_embeds_with_views_fn=send_frame_embeds_with_views,
     )
     print("[menu] Menu system configured.", flush=True)

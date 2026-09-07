@@ -34,12 +34,15 @@ USFIV_FRAME_DATA = {}
 USFIV_CHARACTER_ALIASES = {}
 MK1_FRAME_DATA = {}
 MK1_CHARACTER_ALIASES = {}
+AVTL_FRAME_DATA = {}
+AVTL_CHARACTER_ALIASES = {}
 
 quiz_module = None
 build_sf6_frame_embed = None
 build_ggst_frame_embed = None
 build_sfv_frame_embed = None
 build_tuco_frame_embed = None
+build_avtl_frame_embed = None
 build_bbcf_frame_embed = None
 build_ggacr_frame_embed = None
 build_cotw_frame_embed = None
@@ -74,6 +77,8 @@ def configure(
     usfiv_character_aliases=None,
     mk1_frame_data=None,
     mk1_character_aliases=None,
+    avtl_frame_data=None,
+    avtl_character_aliases=None,
     quiz_module_ref=None,
     build_sf6_frame_embed_fn=None,
     build_ggst_frame_embed_fn=None,
@@ -84,10 +89,11 @@ def configure(
     build_cotw_frame_embed_fn=None,
     build_third_strike_frame_embed_fn=None,
     build_usfiv_frame_embed_fn=None,
+    build_avtl_frame_embed_fn=None,
     send_frame_embeds_with_views_fn=None,
 ):
-    global FRAME_DATA, FRAME_STATS, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, GGACR_FRAME_DATA, GGACR_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, USFIV_FRAME_DATA, USFIV_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES
-    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_sfv_frame_embed, build_tuco_frame_embed, build_bbcf_frame_embed, build_ggacr_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, build_usfiv_frame_embed, send_frame_embeds_with_views
+    global FRAME_DATA, FRAME_STATS, CHARACTER_ALIASES, GGST_FRAME_DATA, GGST_CHARACTER_ALIASES, GGST_SUPPLEMENTAL_FRAME_DATA, GGST_STATE_FRAME_DATA, SFV_FRAME_DATA, SFV_CHARACTER_ALIASES, SFV_TRIGGER_FRAME_DATA, TUCO_FRAME_DATA, TUCO_CHARACTER_ALIASES, BBCF_FRAME_DATA, BBCF_CHARACTER_ALIASES, GGACR_FRAME_DATA, GGACR_CHARACTER_ALIASES, COTW_FRAME_DATA, COTW_CHARACTER_ALIASES, THIRD_STRIKE_FRAME_DATA, THIRD_STRIKE_CHARACTER_ALIASES, USFIV_FRAME_DATA, USFIV_CHARACTER_ALIASES, MK1_FRAME_DATA, MK1_CHARACTER_ALIASES, AVTL_FRAME_DATA, AVTL_CHARACTER_ALIASES
+    global quiz_module, build_sf6_frame_embed, build_ggst_frame_embed, build_sfv_frame_embed, build_tuco_frame_embed, build_avtl_frame_embed, build_bbcf_frame_embed, build_ggacr_frame_embed, build_cotw_frame_embed, build_third_strike_frame_embed, build_usfiv_frame_embed, send_frame_embeds_with_views
     FRAME_DATA = frame_data or {}
     FRAME_STATS = frame_stats or {}
     CHARACTER_ALIASES = character_aliases or {}
@@ -112,6 +118,8 @@ def configure(
     USFIV_CHARACTER_ALIASES = usfiv_character_aliases or {}
     MK1_FRAME_DATA = mk1_frame_data or {}
     MK1_CHARACTER_ALIASES = mk1_character_aliases or {}
+    AVTL_FRAME_DATA = avtl_frame_data or {}
+    AVTL_CHARACTER_ALIASES = avtl_character_aliases or {}
     quiz_module = quiz_module_ref
     build_sf6_frame_embed = build_sf6_frame_embed_fn
     build_ggst_frame_embed = build_ggst_frame_embed_fn
@@ -122,6 +130,7 @@ def configure(
     build_cotw_frame_embed = build_cotw_frame_embed_fn
     build_third_strike_frame_embed = build_third_strike_frame_embed_fn
     build_usfiv_frame_embed = build_usfiv_frame_embed_fn
+    build_avtl_frame_embed = build_avtl_frame_embed_fn
     send_frame_embeds_with_views = send_frame_embeds_with_views_fn
 
 
@@ -129,6 +138,7 @@ MENU_SELECT_LIMIT = 25
 
 # Full display names for menu dropdown and embed titles (no abbreviations)
 MENU_GAMES = (
+    ("avtl", "Avatar Legends", 0x2E8B57),
     ("tuco", "2XKO", 0xD63C2F),
     ("bbcf", "BlazBlue Central Fiction", 0x1B5FA7),
     ("cotw", "Fatal Fury: City of the Wolves", 0xD8A234),
@@ -358,6 +368,10 @@ def _usfiv_character_list():
     return character_choices(USFIV_FRAME_DATA)
 
 
+def _avtl_character_list():
+    return character_choices(AVTL_FRAME_DATA)
+
+
 def _mk1_character_list():
     from bubbot.frame_data.mk1_frame_data import display_char_name
 
@@ -386,6 +400,7 @@ _GAME_ONLY_MENTION_PATTERNS = (
     ),
     ("usf4", re.compile(r"^(?:usf4|usfiv|sf4|ultra\s*street\s*fighter\s*(?:4|iv)|street\s*fighter\s*(?:4|iv))$", re.IGNORECASE)),
     ("mk1", re.compile(r"^(?:mk1|mortal\s+kombat(?:\s*(?:1|one))?)$", re.IGNORECASE)),
+    ("avtl", re.compile(r"^(?:avtl|avatar\s*legends|avatar)$", re.IGNORECASE)),
 )
 
 
@@ -433,6 +448,8 @@ def _character_list(game):
         return _usfiv_character_list()
     if game == "mk1":
         return _mk1_character_list()
+    if game == "avtl":
+        return _avtl_character_list()
     return []
 
 
@@ -513,6 +530,10 @@ def _mk1_move_list(char_key):
     return move_choices(MK1_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "moveType"))
 
 
+def _avtl_move_list(char_key):
+    return move_choices(AVTL_FRAME_DATA.get(char_key, []), key_fields=("moveName", "numCmd", "moveType"))
+
+
 def _move_list(game, char_key):
     if game == "sf6":
         return _sf6_move_list(char_key)
@@ -534,6 +555,8 @@ def _move_list(game, char_key):
         return _usfiv_move_list(char_key)
     if game == "mk1":
         return _mk1_move_list(char_key)
+    if game == "avtl":
+        return _avtl_move_list(char_key)
     return []
 
 
@@ -1599,6 +1622,11 @@ def _preferred_frame_image_url(game, row):
 
         links = get_hitbox_links(row)
         return links[0] if links else ""
+    if game_key == "avtl":
+        from bubbot.frame_data.avtl_frame_data import get_hitbox_links
+
+        links = get_hitbox_links(row)
+        return links[0] if links else ""
     return ""
 
 
@@ -1690,6 +1718,13 @@ class FrameResultView(OwnedView):
             from bubbot.frame_data.mk1_frame_data import MK1NotesButton
             self.notes_button = MK1NotesButton(row)
             self.add_item(self.notes_button)
+        elif game == "avtl":
+            from bubbot.frame_data.avtl_frame_data import AVTLAllHitboxImagesButton, AVTLNotesButton
+            self.all_hitbox_images_button = AVTLAllHitboxImagesButton(row)
+            if len(self.all_hitbox_images_button.hitbox_links) > 1:
+                self.add_item(self.all_hitbox_images_button)
+            self.notes_button = AVTLNotesButton(row)
+            self.add_item(self.notes_button)
         else:
             from bubbot.frame_data.cotw_frame_data import COTWNotesButton
             self.image_url_override = ""
@@ -1761,6 +1796,8 @@ class FrameResultView(OwnedView):
             from bubbot.frame_data.usfiv_frame_data import build_frame_embed
         elif self.game == "mk1":
             from bubbot.frame_data.mk1_frame_data import build_frame_embed
+        elif self.game == "avtl":
+            from bubbot.frame_data.avtl_frame_data import build_frame_embed
         else:
             from bubbot.frame_data.cotw_frame_data import build_frame_embed
         embed = build_frame_embed(self.row, show_notes=getattr(self, "show_notes", False))
@@ -2242,7 +2279,7 @@ def build_readme_embed():
         name="2. Use Game Tags When Needed",
         value=(
             "Shared names can be ambiguous. Add tags like `sfv`, `3s`, `ggst`, `ggacr`, `bbcf`, `cotw`, "
-            "`2xko`, or `mk1` when Bub needs context. Bare `guilty gear` defaults to Strive; "
+            "`2xko`, `mk1`, or `avtl` when Bub needs context. Bare `guilty gear` defaults to Strive; "
             "use `+r`, `plus r`, `gg +r`, `accent core`, `acpr`, or `guilty gear accent core` for Guilty Gear Accent Core Plus R. "
             "Example: `@Bub 3s ken hadouken`."
         ),
@@ -2262,7 +2299,7 @@ def build_readme_embed():
         value=(
             "Use `/bub` for the guided menu (game picker dropdown), `@bub` alone for the main menu, "
             "or `@bub` plus a game tag only (e.g. `@bub sf6`) to open that game's menu. "
-            "Slash commands include `/sf6`, `/sf6-stats` (SF6 stats), `/sf6-combos`, `/ggst`, `/ggacr`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1`, `/mk1-combos`, and `/glossary`. "
+            "Slash commands include `/sf6`, `/sf6-stats` (SF6 stats), `/sf6-combos`, `/ggst`, `/ggacr`, `/bbcf`, `/cotw`, `/third-strike`, `/mk1`, `/mk1-combos`, `/avtl`, and `/glossary`. "
             "Menus are locked to the user who opened them."
         ),
         inline=False,
@@ -2286,7 +2323,7 @@ def build_readme_embed():
     )
     embed.add_field(
         name="Need Help?",
-        value="If a valid fighting-game syntax query fails, contact `yimbo3560` with the exact query you used.",
+        value="If a valid fighting-game syntax query fails, use the Report Issue button with the exact query you used.",
         inline=False,
     )
     return embed

@@ -680,25 +680,28 @@ def lookup_hitbox_gif_link(row):
     if link:
         return link
 
+    # Single-word gif names ("double") mismatch longer moves; require 2+ shared words.
+    def _contains_name_match(name, gif_name):
+        if not name or not gif_name:
+            return False
+        if name not in gif_name and gif_name not in name:
+            return False
+        shorter = name if len(name) < len(gif_name) else gif_name
+        return len(shorter.split()) >= 2
+
     contains_name_matches = [
         item for item in gif_candidates
-        if any(
-            name
-            and (
-                name in item["name_norm"]
-                or item["name_norm"] in name
-            )
-            for name in row_names
-        )
+        if any(_contains_name_match(name, item["name_norm"]) for name in row_names)
     ]
     link = pick_first_link(contains_name_matches)
     if link:
         return link
 
     meaningful_row_tokens = meaningful_gif_match_tokens(row_tokens)
+    # single shared words ("double") mismatch follow-ups to unrelated moves; require 2+.
     token_overlap_matches = [
         item for item in gif_candidates
-        if meaningful_row_tokens and (meaningful_row_tokens & item["tokens"])
+        if len(meaningful_row_tokens & meaningful_gif_match_tokens(item["tokens"])) >= 2
     ]
     link = pick_first_link(token_overlap_matches)
     if link:
@@ -1138,11 +1141,12 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
             if links:
                 return links
 
+        # Single-character commands ("2", "3") substring-match almost anything; require 2+.
         partial_num_cmd = [
             item for item in gif_candidates
             if item["num_cmd"] and (
-                query_num_cmd in item["num_cmd"]
-                or item["num_cmd"] in query_num_cmd
+                (query_num_cmd in item["num_cmd"] and len(query_num_cmd) >= 2)
+                or (item["num_cmd"] in query_num_cmd and len(item["num_cmd"]) >= 2)
             )
         ]
         if partial_num_cmd:
@@ -1161,10 +1165,16 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
 
     contains_name_matches = [
         item for item in gif_candidates
-        if query_name_norm and (
+        if query_name_norm and item["name_norm"]
+        and (
             query_name_norm in item["name_norm"]
             or item["name_norm"] in query_name_norm
         )
+        and len((
+            query_name_norm
+            if len(query_name_norm) < len(item["name_norm"])
+            else item["name_norm"]
+        ).split()) >= 2
     ]
     if contains_name_matches:
         links = unique_links(apply_query_context_filters(contains_name_matches))
@@ -1172,9 +1182,10 @@ def lookup_hitbox_gif_links_from_query(char_key, move_query, limit=DISCORD_ATTAC
             return links
 
     meaningful_query_tokens = meaningful_gif_match_tokens(query_tokens)
+    # single shared words ("double") mismatch follow-ups to unrelated moves; require 2+.
     token_overlap_matches = [
         item for item in gif_candidates
-        if meaningful_query_tokens and (meaningful_query_tokens & item["tokens"])
+        if len(meaningful_query_tokens & meaningful_gif_match_tokens(item["tokens"])) >= 2
     ]
     if token_overlap_matches:
         links = unique_links(apply_query_context_filters(token_overlap_matches))
