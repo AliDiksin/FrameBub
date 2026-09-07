@@ -27,11 +27,30 @@ NOTATION_QUERY_PATTERNS: dict[str, Pattern[str]] = {
     "ggst": re.compile(r"^(?:[1-9][0-9]{0,5})?[shpkd]$|^[1-9][0-9]{2,8}[shpkd]$", re.IGNORECASE),
 }
 
+JUMP_MOTION_NOTATION_RE = re.compile(
+    r"(?<![a-z0-9])(?:jump(?:ing)?|air|j)\s*\.?\s*"
+    r"((?:[1-9][0-9]{1,7}[a-z][a-z0-9]*|[bfdu]{1,3}[1-4](?:\s*\+\s*ex)?))"
+    r"(?![a-z0-9])",
+    re.IGNORECASE,
+)
+
 SF6_NOTATION_STYLES = ("digit_button", "sf_button", "motion_digits")
 
 
 def looks_like_sf6_notation_query(query_key: str) -> bool:
     return looks_like_notation_query(query_key, *SF6_NOTATION_STYLES)
+
+
+def extract_jump_motion_command(value: str, *, fullmatch: bool = False) -> str:
+    text = str(value or "").strip()
+    match = JUMP_MOTION_NOTATION_RE.fullmatch(text) if fullmatch else JUMP_MOTION_NOTATION_RE.search(text)
+    if not match:
+        return ""
+    return re.sub(r"\s+", "", match.group(1)).lower()
+
+
+def query_has_jump_motion_notation(value: str) -> bool:
+    return bool(JUMP_MOTION_NOTATION_RE.search(str(value or "")))
 
 
 def looks_like_notation_query(query_key: str, *styles: str) -> bool:

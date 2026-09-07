@@ -14,7 +14,7 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.frame_match_utils import find_matching_rows_standard
-from bubbot.utils.notation_match_utils import looks_like_notation_query
+from bubbot.utils.notation_match_utils import looks_like_notation_query, query_has_jump_motion_notation
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
 
@@ -46,6 +46,7 @@ def query_has_cotw_notation(text):
         or re.search(r"(?:^|\s)(?:f|far)\s*\.?\s*[abcd]\b", lowered)
         or re.search(r"(?:^|\s)(?:cr|crouch|crouching)\s*\.?\s*[abcd]\b", lowered)
         or re.search(r"(?:^|\s)(?:[1-9][0-9]{0,5}[abcd]|[1-9]?[abcd](?:\+[abcd])+)(?:\s|$)", lowered)
+        or query_has_jump_motion_notation(lowered)
     )
 
 

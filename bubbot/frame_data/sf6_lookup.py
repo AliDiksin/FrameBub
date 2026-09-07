@@ -11,7 +11,11 @@ from bubbot.frame_data.sf6_parser_helpers import (
     normalize_directional_normal_notation,
     normalize_grounded_normal_notation,
 )
-from bubbot.utils.notation_match_utils import find_rows_by_notation_prefix, looks_like_notation_query
+from bubbot.utils.notation_match_utils import (
+    extract_jump_motion_command,
+    find_rows_by_notation_prefix,
+    looks_like_notation_query,
+)
 from bubbot.utils.text_utils import correct_alias_typos
 
 
@@ -86,19 +90,28 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
     move_input = re.sub(r"^(?:7|9)\s*(lp|mp|hp|lk|mk|hk)$", r"jump \1", move_input)
 
     original_move_input = move_input
-    query_requests_air_context = bool(re.search(r"\b(air|aerial)\b", original_move_input))
+    air_motion_command = extract_jump_motion_command(original_move_input, fullmatch=True)
+    query_requests_air_context = bool(
+        re.search(r"\b(air|aerial)\b", original_move_input)
+        or air_motion_command
+    )
 
-    def row_is_air_throw(row):
+    def row_is_air_move(row):
         num_cmd_raw = str(row.get("numCmd", "")).lower()
         move_name = str(row.get("moveName", "")).lower()
         cmn_name = str(row.get("cmnName", "")).lower()
         return bool(
+            "(air" in num_cmd_raw
+            or "air" in move_name
+            or "air" in cmn_name
+            or "aerial" in move_name
+            or "aerial" in cmn_name
+        )
+
+    def row_is_air_throw(row):
+        return bool(
             str(row.get("moveType", "")).lower() == "throw"
-            and (
-                "(air" in num_cmd_raw
-                or "air throw" in cmn_name
-                or "air throw" in move_name
-            )
+            and row_is_air_move(row)
         )
 
     if query_requests_air_context and re.search(r"\bthrows?\b", original_move_input):
@@ -169,7 +182,9 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
 
     move_input = re.sub(r"^ex\s+", "od ", move_input)
     move_input = re.sub(r"\bdivekick\b", "dive kick", move_input)
-    if not re.match(
+    if air_motion_command:
+        move_input = air_motion_command
+    elif not re.match(
         r"^(jump|j)[\s\.]+(?:(?:214|236|623|421|22|46|28|41236|63214)|(?:[123]\s*(?:lp|mp|hp|lk|mk|hk|p|k)))",
         move_input,
     ):
@@ -595,6 +610,10 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         if not normalized:
             return variants
 
+        generic_button_motion = re.sub(r"\b([1-9][0-9]{1,5})[pk]\b", r"\1", normalized)
+        if generic_button_motion and generic_button_motion != normalized:
+            variants.append(generic_button_motion)
+
         collapsed_numcmd = re.sub(r"(\d+)(lp|mp|hp)\b", r"\1p", normalized)
         collapsed_numcmd = re.sub(r"(\d+)(lk|mk|hk)\b", r"\1k", collapsed_numcmd)
         collapsed_numcmd = re.sub(r"(\d+)(pp)\b", r"\1p", collapsed_numcmd)
@@ -633,6 +652,16 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
         re.search(r"\b(air|hold|held|bomb|charged)\b", move_input)
         or any(ch in move_input for ch in "()[]{}")
     )
+
+    if query_requests_air_context and move_input_num_cmd_generic:
+        air_num_cmd_matches = [
+            row
+            for row in data
+            if row_is_air_move(row)
+            and normalize_num_cmd_generic_for_lookup(row.get("numCmd", "")) == move_input_num_cmd_generic
+        ]
+        if air_num_cmd_matches:
+            return air_num_cmd_matches[0]
 
     if char_key == "akuma":
         if move_input in {"air sa1", "aerial sa1", "sa1 air", "air super art 1"}:
@@ -688,6 +717,10 @@ def lookup_frame_data(deps, character, move_input, _seen_inputs=None):
             looks_like_fn=lambda key: looks_like_notation_query(key, "motion_digits"),
         )
         if notation_matches:
+            if query_requests_air_context:
+                air_notation_matches = [row for row in notation_matches if row_is_air_move(row)]
+                if air_notation_matches:
+                    notation_matches = air_notation_matches
             if notation_key.isdigit() and len(notation_key) == 3 and notation_key == "623":
                 exception_terms = dp_prefix_exceptions.get(char_key, [])
                 if exception_terms:

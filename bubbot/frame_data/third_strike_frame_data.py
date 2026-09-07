@@ -17,9 +17,11 @@ from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_qu
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
 from bubbot.utils.frame_match_utils import filter_rows_by_strength, match_rows_by_fuzzy_keys, normalized_query_words, parse_strength_qualifier
 from bubbot.utils.notation_match_utils import (
+    extract_jump_motion_command,
     find_rows_by_notation_prefix,
     looks_like_notation_query,
     notation_prefix_matches_row_key,
+    query_has_jump_motion_notation,
 )
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
@@ -59,6 +61,7 @@ def query_has_third_strike_notation(text):
         or re.search(r"\b(?:(?:cr|st|cl|j|nj)\s*(?:lp|mp|hp|lk|mk|hk))\b", lowered)
         or re.search(r"\b(?:cr|st|cl|j|nj)(?:lp|mp|hp|lk|mk|hk)\b", lowered)
         or re.search(r"\b(?:lp|mp|hp|lk|mk|hk|ex|od)\s+(?:fireball|hadoken|hadouken|dp|srk|shoryuken|tatsu|tatsumaki|hurricane)\b", lowered)
+        or query_has_jump_motion_notation(lowered)
     )
 
 
@@ -321,9 +324,11 @@ def _version_matches_query(row, query_key):
 def row_is_air_variant(row):
     move_name = str(row.get("moveName") or "").lower()
     num_cmd = str(row.get("numCmd") or "").lower()
+    version = str(row.get("version") or "").lower()
     return bool(
         "air" in num_cmd
         or move_name.startswith(("air ", "aerial "))
+        or bool(re.search(r"\(\s*j\s*\)", f"{num_cmd} {version}"))
     )
 
 
@@ -332,6 +337,7 @@ def query_requests_air_variant(original_query, normalized_query):
     return bool(
         re.search(r"\b(?:air|aerial|jump(?:ing)?)\b", text)
         or re.search(r"\bj\s*\.\s*", text)
+        or query_has_jump_motion_notation(text)
         or "(air" in text
         or "zanku" in text
         or "zankuu" in text
@@ -476,7 +482,8 @@ def _find_matching_rows_unfiltered(char_key, move_text, query):
 
 
 def find_matching_rows(char_key, move_text):
-    query = normalize_move_query(move_text, char_key=char_key)
+    air_command = extract_jump_motion_command(move_text)
+    query = normalize_move_query(air_command or move_text, char_key=char_key)
     base_query, strengths, embedded_notation = parse_strength_qualifier(query)
     candidates = [query, base_query] if embedded_notation else [base_query]
     for candidate in candidates:

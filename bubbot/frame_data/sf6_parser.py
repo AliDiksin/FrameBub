@@ -37,6 +37,7 @@ from bubbot.frame_data.sf6_special_prompt_rules import (
     should_skip_special_prompt_base,
 )
 from bubbot.utils.character_lookup import find_fuzzy_aliases_in_text
+from bubbot.utils.notation_match_utils import query_has_jump_motion_notation
 from bubbot.utils.text_utils import normalize_query_terms
 
 
@@ -175,6 +176,7 @@ def find_moves_in_text(deps, text):
         or re.search(r"\b(?:neutral|n)\s+j(?:ump)?\s*\.?\s*[lmh][pk]\b", text_lower)
         or re.search(r"\bjump\s+[lmh][pk]\b", text_lower)
     )
+    air_special_move_query = query_has_jump_motion_notation(text_lower)
     directional_normal_move_query = query_has_directional_normal_notation(text_lower)
     grounded_normal_move_query = query_has_grounded_normal_notation(text_lower)
     startup_alias_query = bool(
@@ -314,6 +316,7 @@ def find_moves_in_text(deps, text):
         or gif_query
         or air_throw_move_query
         or jump_normal_move_query
+        or air_special_move_query
         or directional_normal_move_query
         or grounded_normal_move_query
         or charge_button_query
@@ -654,7 +657,10 @@ def find_moves_in_text(deps, text):
             re.search(r"\b(lp|mp|hp|lk|mk|hk|light|medium|heavy|l|m|h)\b", text_lower)
         )
         filter_state = create_character_filter_state()
-        query_requests_air_context = bool(re.search(r"\b(?:air|aerial)\b", text_lower))
+        query_requests_air_context = bool(
+            re.search(r"\b(?:air|aerial)\b", text_lower)
+            or air_special_move_query
+        )
         air_fireball_context = bool(
             re.search(
                 r"\b(?:air|aerial)\s+fireball\b|\bair\s+hadoken\b",

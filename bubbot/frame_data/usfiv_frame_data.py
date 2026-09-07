@@ -13,7 +13,7 @@ from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.frame_match_utils import filter_rows_by_strength, match_rows_by_fuzzy_keys, normalized_query_words, parse_strength_qualifier, row_strengths
 from bubbot.utils.image_cache_utils import import_cache_module, merge_nested_url_cache
-from bubbot.utils.notation_match_utils import find_rows_by_notation_prefix, looks_like_notation_query
+from bubbot.utils.notation_match_utils import find_rows_by_notation_prefix, looks_like_notation_query, query_has_jump_motion_notation
 from bubbot.utils.row_utils import unique_rows
 from bubbot.utils.text_utils import compact_key, correct_alias_typos, normalize_query_terms, query_suffix_candidates, strip_noise_words, strip_query_terms
 
@@ -55,6 +55,7 @@ def query_has_usf4_notation(text):
         re.search(r"(?:^|\s)(?:cl|close|far|f|cr|crouch|j|jump)\s*\.?\s*[lmh][pk]\b", lowered)
         or re.search(r"(?:^|\s)(?:[1-9][0-9]{0,5}[lmh]?[pk]|[1-9]?[lmh]?[pk](?:\+[lmh]?[pk])+)(?:\s|$)", lowered)
         or re.search(r"\b(?:qcf|qcb|dp|rdp|hcf|hcb|360|720)\b", lowered)
+        or query_has_jump_motion_notation(lowered)
     )
 
 
@@ -296,6 +297,7 @@ def find_moves_in_text(text):
     image_query = bool(re.search(r"\b(?:gif|gifs|hitbox|hitboxes|image|images|picture|pictures)\b", lowered))
     frame_query = bool(re.search(r"\b(?:framedata|frame\s*data|frames?|data)\b", lowered))
     game_query = query_has_usf4_game_tag(lowered)
+    notation_query = query_has_usf4_notation(lowered)
     notes_query = bool(re.search(r"\bnotes?\b", lowered))
     char_matches = find_characters_in_text(lowered)
     matched_char_key = char_matches[0][0] if char_matches else None
@@ -303,8 +305,8 @@ def find_moves_in_text(text):
     if comparison:
         rows = comparison.get("rows", [])
         if comparison.get("needs_disambiguation"):
-            return _payload("options", rows, image_query, frame_query, game_query, notes_query, comparison.get("char_key"), True, True)
-        return _payload("gif" if image_query else "frame", rows, image_query, frame_query, game_query, notes_query, comparison.get("char_key") or matched_char_key, False, True)
+            return _payload("options", rows, image_query, frame_query, game_query, notes_query, comparison.get("char_key"), True, True, notation_query=notation_query)
+        return _payload("gif" if image_query else "frame", rows, image_query, frame_query, game_query, notes_query, comparison.get("char_key") or matched_char_key, False, True, notation_query=notation_query)
     for char_key, start, end, _alias in char_matches:
         move_text = (lowered[:start] + " " + lowered[end:]).strip()
         matches = []
@@ -313,13 +315,13 @@ def find_moves_in_text(text):
             if matches:
                 break
         if len(matches) > 1:
-            return _payload("options", matches, image_query, frame_query, game_query, notes_query, char_key, True, False)
+            return _payload("options", matches, image_query, frame_query, game_query, notes_query, char_key, True, False, notation_query=notation_query)
         if matches:
-            return _payload("gif" if image_query else "frame", matches, image_query, frame_query, game_query, notes_query, char_key, False, False)
-    return _payload("none", [], image_query, frame_query, game_query, notes_query, matched_char_key, False, is_comparison_query(lowered, char_matches), char_matches=char_matches)
+            return _payload("gif" if image_query else "frame", matches, image_query, frame_query, game_query, notes_query, char_key, False, False, notation_query=notation_query)
+    return _payload("none", [], image_query, frame_query, game_query, notes_query, matched_char_key, False, is_comparison_query(lowered, char_matches), char_matches=char_matches, notation_query=notation_query)
 
 
-def _payload(mode, rows, image_query, frame_query, game_query, notes_query, char_key, needs_disambiguation, wants_comparison, *, char_matches=None):
+def _payload(mode, rows, image_query, frame_query, game_query, notes_query, char_key, needs_disambiguation, wants_comparison, *, char_matches=None, notation_query=False):
     return {
         "mode": mode,
         "rows": rows,
@@ -332,8 +334,8 @@ def _payload(mode, rows, image_query, frame_query, game_query, notes_query, char
         "char_found": bool(char_matches) if char_matches is not None else bool(char_key),
         "char_key": char_key,
         "wants_comparison": wants_comparison,
-        "explicit_move_attempt": bool(char_key and (image_query or frame_query or game_query)),
-        "missing_scrolls_query": bool(char_key and not rows and (image_query or frame_query or game_query)),
+        "explicit_move_attempt": bool(char_key and (image_query or frame_query or game_query or notation_query)),
+        "missing_scrolls_query": bool(char_key and not rows and (image_query or frame_query or game_query or notation_query)),
     }
 
 
