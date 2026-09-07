@@ -7,7 +7,6 @@ import discord
 import pandas as pd
 
 from bubbot.data.tuco_aliases import TUCO_CHARACTER_ALIASES, TUCO_LOOKUP_WORDS, TUCO_MOVE_ALIASES
-from bubbot.runtime.config import FRAME_DATA_ERROR_CONTACT_TEXT
 from bubbot.utils.character_lookup import find_alias_positions_in_text, resolve_alias_key
 from bubbot.utils.comparison_utils import find_comparison_rows, is_comparison_query
 from bubbot.utils.discord_formatting import (
@@ -358,36 +357,6 @@ def build_frame_embed(row, show_notes=False):
     if image_url:
         embed.set_image(url=image_url)
     return embed
-
-
-class TUCOHitboxButton(discord.ui.Button):
-    def __init__(self, row, showing_hitbox=False):
-        self.frame_row = row
-        self.hitbox_links = get_hitbox_links(row)
-        self.original_image_url = get_move_image_url(row)
-        self.showing_hitbox = bool(showing_hitbox and self.hitbox_links)
-        super().__init__(
-            label="Hide Image" if self.showing_hitbox else "Show Hitbox",
-            style=discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary,
-            disabled=not self.hitbox_links,
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        if not self.hitbox_links:
-            await interaction.response.send_message(
-                f"I have 2XKO frame data for this move but no hitbox image link yet. "
-                f"{FRAME_DATA_ERROR_CONTACT_TEXT}",
-                ephemeral=True,
-            )
-            return
-        self.showing_hitbox = not self.showing_hitbox
-        self.label = "Hide Image" if self.showing_hitbox else "Show Hitbox"
-        self.style = discord.ButtonStyle.danger if self.showing_hitbox else discord.ButtonStyle.primary
-        embed = self.view.build_embed() if hasattr(self.view, "build_embed") else build_frame_embed(self.frame_row)
-        image_url = self.hitbox_links[0] if self.showing_hitbox else self.original_image_url
-        if image_url:
-            embed.set_image(url=image_url)
-        await interaction.response.edit_message(embed=embed, view=self.view)
 
 
 class TUCONotesButton(discord.ui.Button):

@@ -307,6 +307,7 @@ def find_matching_rows(char_key, move_text):
             dedupe_fn=unique_rows,
             name_fields=("moveName", "cmnName"),
             fuzzy_value_fields=("moveName", "numCmd", "cmnName"),
+            original_query=move_text,
         )
         matches = filter_rows_by_strength(matches, strengths)
         if air_command:
@@ -546,27 +547,6 @@ class SFVNotesButton(discord.ui.Button):
         self.label = "Hide Notes" if view.show_notes else "Show Notes"
         self.style = discord.ButtonStyle.danger if view.show_notes else discord.ButtonStyle.primary
         await interaction.response.edit_message(embed=view.build_embed(), view=view, attachments=view.initial_files())
-
-
-class SFVHitboxButton(discord.ui.Button):
-    def __init__(self, row):
-        super().__init__(label="Show Hitbox", style=discord.ButtonStyle.primary)
-        self.frame_row = row
-
-    async def callback(self, interaction):
-        links = get_hitbox_links(self.frame_row)
-        if not links:
-            image_url = get_move_image_url(self.frame_row)
-            if image_url:
-                await interaction.response.send_message(
-                    "No dedicated SFV hitbox image is cached for this move, so here is the SuperCombo move image.\n"
-                    f"{image_url}",
-                    ephemeral=True,
-                )
-                return
-            await interaction.response.send_message("No SFV image link is cached for this move yet.", ephemeral=True)
-            return
-        await interaction.response.send_message("\n".join(links), ephemeral=True)
 
 
 async def send_frame_response(message, rows):

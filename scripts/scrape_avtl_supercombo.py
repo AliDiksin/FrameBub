@@ -164,6 +164,9 @@ def parse_character(display_name: str, page_title: str, raw_text: str, main_note
             continue
         if not num_cmd:
             num_cmd = move_name
+        # Some air templates omit j in input even though their move ID includes it.
+        if cache_move_key(params.get("moveid", "")).startswith(cache_move_key(key) + "j" + cache_move_key(num_cmd)):
+            num_cmd = "j" + num_cmd
         section, subsection = section_context(raw_text, record.start)
         flow = params.get("flow", "")
         props = params.get("properties", "")
