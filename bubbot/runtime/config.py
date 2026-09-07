@@ -8,7 +8,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 FRAME_DATA_ERROR_CONTACT_TEXT = (
-    "If you think this is an error, use **Report Issue** on this message or contact yimbo3560 on Discord."
+    "If you think this is an error, use the **Report Issue** button on this message."
 )
 MISSING_HITBOX_GIF_TEXT = (
     "I have frame data for that move but no hitbox gif link yet. "

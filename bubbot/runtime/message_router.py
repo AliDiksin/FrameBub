@@ -37,6 +37,7 @@ import bubbot.frame_data.cotw_frame_data as cotw_module
 import bubbot.frame_data.third_strike_frame_data as third_strike_module
 import bubbot.frame_data.usfiv_frame_data as usfiv_module
 import bubbot.frame_data.mk1_frame_data as mk1_module
+import bubbot.frame_data.avtl_frame_data as avtl_module
 import bubbot.frame_data.combo_data as combo_data_module
 import bubbot.features.menu_system as menu_system
 from bubbot.features.fg_glossary import build_glossary_definition_embed, build_glossary_link_view, normalize_glossary_term
@@ -196,7 +197,7 @@ def _is_frame_data_embed(embed):
     if "input" in field_names and "startup" in field_names and {"on hit", "on block"} & field_names:
         return True
     title = str(getattr(embed, "title", "") or "").strip().lower()
-    if title.startswith(("ggst - ", "ggacr - ", "2xko - ", "bbcf - ", "cotw - ", "third strike - ", "ultra street fighter iv - ", "mk1 - ")):
+    if title.startswith(("ggst - ", "ggacr - ", "2xko - ", "bbcf - ", "cotw - ", "third strike - ", "ultra street fighter iv - ", "mk1 - ", "avtl - ")):
         return bool(field_names & {"startup", "input", "on hit", "on block"})
     return False
 
@@ -431,6 +432,12 @@ DISAMBIGUATION_GAME_CONFIGS = [
         "prefix": "mk1",
         "module": mk1_module,
         "prompt_re": re.compile(r"Multiple MK1 moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
+    },
+    {
+        "label": "AVTL",
+        "prefix": "avtl",
+        "module": avtl_module,
+        "prompt_re": re.compile(r"Multiple AVTL moves match (.+?)\. (?:Please specify one|Reply with the option number):"),
     },
 ]
 
@@ -735,6 +742,8 @@ def _game_key_for_frame_module(module):
         return "usf4"
     if module is mk1_module:
         return "mk1"
+    if module is avtl_module:
+        return "avtl"
     return "sf6"
 
 
@@ -962,6 +971,8 @@ def _cheap_explicit_frame_game_tags(content_lower):
         pass
     if re.search(r"\b(?:mk1|mortal\s+kombat\s+1|mortal\s+kombat\s+one|mortal\s+kombat)\b", text):
         tags.add("mk1")
+    if re.search(r"\b(?:avtl|avatar\s*legends|avatar)\b", text):
+        tags.add("avtl")
     return tags
 
 
@@ -969,7 +980,7 @@ def _selected_frame_parser_subset(content_lower, exact_matches):
     """Return parser keys to run, or None to run all (preserve fuzzy fallback).
 
     Order of exact_matches: sf6, ggst, sfv, tuco, bbcf, ggacr, cotw,
-    third_strike, usfiv, mk1. When any game is explicitly tagged, run only
+    third_strike, usfiv, mk1, avtl. When any game is explicitly tagged, run only
     tagged games. Otherwise when any game has an exact character match, run
     only those games; per routing policy exact matches outrank other games'
     fuzzy matches, so skipped parsers could not have claimed the route.
@@ -982,7 +993,7 @@ def _selected_frame_parser_subset(content_lower, exact_matches):
         if "ggst" in selected or "ggacr" in selected:
             selected.update({"ggst", "ggacr"})
         return selected
-    keys = ("sf6", "ggst", "sfv", "tuco", "bbcf", "ggacr", "cotw", "third_strike", "usfiv", "mk1")
+    keys = ("sf6", "ggst", "sfv", "tuco", "bbcf", "ggacr", "cotw", "third_strike", "usfiv", "mk1", "avtl")
     if exact_matches and any(exact_matches):
         return {key for key, matched in zip(keys, exact_matches) if matched}
     return None
@@ -1612,6 +1623,7 @@ async def on_ready():
             "bbcf_module": bbcf_module,
             "ggacr_module": ggacr_module,
             "cotw_module": cotw_module,
+            "avtl_module": avtl_module,
             "third_strike_module": third_strike_module,
             "usfiv_module": usfiv_module,
             "mk1_module": mk1_module,
@@ -1773,6 +1785,11 @@ async def _handle_message(message):
             usfiv_module.USFIV_CHARACTER_ALIASES,
             usfiv_module.USFIV_FRAME_DATA.keys(),
         )
+        avtl_char_key = resolve_character_from_aliases_in_text(
+            content_lower,
+            avtl_module.AVTL_CHARACTER_ALIASES,
+            avtl_module.AVTL_FRAME_DATA.keys(),
+        )
         explicit_ggacr_moves_query = ggacr_module.query_has_explicit_ggacr_tag(content_lower)
         explicit_ggst_moves_query = bool(
             re.search(r"\b(?:ggst|strive|guilty\s+gear|guilty)\b", content_lower)
@@ -1784,6 +1801,10 @@ async def _handle_message(message):
         explicit_cotw_moves_query = bool(re.search(r"\b(?:cotw|city\s+of\s+the\s+wolves|fatal\s+fury)\b", content_lower))
         explicit_third_strike_moves_query = bool(re.search(r"\b(?:3s|third\s*strike|street\s*fighter\s*(?:3|iii)|sf3|sfiii)\b", content_lower))
         explicit_usfiv_moves_query = usfiv_module.query_has_usf4_game_tag(content_lower)
+        explicit_avtl_moves_query = avtl_module.query_has_avtl_game_tag(content_lower)
+        if explicit_avtl_moves_query and avtl_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "avtl", avtl_char_key, owner_id=message.author.id)
+            return
         if explicit_usfiv_moves_query and usfiv_char_key:
             await menu_system.send_character_moves_menu(message.channel, "usf4", usfiv_char_key, owner_id=message.author.id)
             return
@@ -1828,6 +1849,9 @@ async def _handle_message(message):
             return
         if cotw_char_key:
             await menu_system.send_character_moves_menu(message.channel, "cotw", cotw_char_key, owner_id=message.author.id)
+            return
+        if avtl_char_key:
+            await menu_system.send_character_moves_menu(message.channel, "avtl", avtl_char_key, owner_id=message.author.id)
             return
         if third_strike_char_key:
             await menu_system.send_character_moves_menu(message.channel, "third_strike", third_strike_char_key, owner_id=message.author.id)
@@ -2070,6 +2094,7 @@ async def _handle_message(message):
         third_strike_exact_character_query,
         usfiv_exact_character_query,
         mk1_exact_character_query,
+        avtl_exact_character_query,
     ) = _preferred_character_game_matches(
         content_lower,
         (
@@ -2083,6 +2108,7 @@ async def _handle_message(message):
             (third_strike_module.THIRD_STRIKE_CHARACTER_ALIASES, third_strike_module.THIRD_STRIKE_FRAME_DATA.keys()),
             (usfiv_module.USFIV_CHARACTER_ALIASES, usfiv_module.USFIV_FRAME_DATA.keys()),
             (mk1_module.MK1_CHARACTER_ALIASES, mk1_module.MK1_FRAME_DATA.keys()),
+            (avtl_module.AVTL_CHARACTER_ALIASES, avtl_module.AVTL_FRAME_DATA.keys()),
         ),
     )
     explicit_ggacr_query = ggacr_module.query_has_explicit_ggacr_tag(content_lower)
@@ -2136,6 +2162,7 @@ async def _handle_message(message):
         third_strike_exact_character_query,
         usfiv_exact_character_query,
         mk1_exact_character_query,
+        avtl_exact_character_query,
     )
     selected_parsers = _selected_frame_parser_subset(content_lower, exact_match_tuple)
 
@@ -2155,6 +2182,7 @@ async def _handle_message(message):
     third_strike_payload = _run_frame_parser("third_strike", lambda: third_strike_module.find_moves_in_text(content_lower))
     usfiv_payload = _run_frame_parser("usfiv", lambda: usfiv_module.find_moves_in_text(content_lower))
     mk1_payload = _run_frame_parser("mk1", lambda: mk1_module.find_moves_in_text(content_lower))
+    avtl_payload = _run_frame_parser("avtl", lambda: avtl_module.find_moves_in_text(content_lower))
     game_payloads = (
         ggacr_payload,
         ggst_payload,
@@ -2165,6 +2193,7 @@ async def _handle_message(message):
         third_strike_payload,
         usfiv_payload,
         mk1_payload,
+        avtl_payload,
     )
     explicit_sf6_query = bool(re.search(r"\b(?:sf6|street\s*fighter\s*6)\b", content_lower))
     media_query = has_explicit_gif_lookup_intent(content_lower)
@@ -2491,6 +2520,49 @@ async def _handle_message(message):
         await _reply_and_log_response(message, MISSING_SCROLLS_TEXT, "missing_scrolls")
         return
 
+    avtl_rows = avtl_payload.get("rows", [])
+    avtl_lookup_intent = bool(
+        avtl_payload.get("frame_query")
+        or avtl_payload.get("gif_query")
+        or media_query
+        or avtl_payload.get("game_query")
+        or avtl_payload.get("notes_query")
+        or requested_property_key
+    )
+    avtl_route_allowed = bool(
+        avtl_payload.get("game_query")
+        or (
+            not has_explicit_game_conflict(avtl_payload)
+            and (
+                (
+                    avtl_exact_character_query
+                    and avtl_module.query_has_avtl_notation(content_lower)
+                )
+                or (
+                    avtl_exact_character_query
+                    and avtl_rows
+                    and not sf6_exact_character_query
+                    and not ggst_exact_character_query
+                    and not tuco_exact_character_query
+                    and not bbcf_exact_character_query
+                    and not cotw_exact_character_query
+                )
+            )
+        )
+    )
+    if frame_command_is_addressed and avtl_route_allowed and avtl_lookup_intent and avtl_rows:
+        if avtl_payload.get("needs_disambiguation"):
+            await message.reply(avtl_payload.get("data", "Please specify which AVTL move you mean."))
+        else:
+            await _send_cross_game_lookup_response(message, avtl_module, avtl_rows, avtl_payload, content_lower)
+        return
+    elif frame_command_is_addressed and avtl_route_allowed and avtl_lookup_intent and avtl_payload.get("needs_disambiguation"):
+        await message.reply(avtl_payload.get("data", "Please specify which AVTL move you mean."))
+        return
+    elif frame_command_is_addressed and avtl_route_allowed and avtl_lookup_intent and avtl_payload.get("missing_scrolls_query"):
+        await _reply_and_log_response(message, MISSING_SCROLLS_TEXT, "missing_scrolls")
+        return
+
     third_strike_rows = third_strike_payload.get("rows", [])
     third_strike_lookup_intent = bool(
         third_strike_payload.get("frame_query")
@@ -2520,6 +2592,7 @@ async def _handle_message(message):
                     and not bbcf_exact_character_query
                     and not cotw_exact_character_query
                     and not mk1_exact_character_query
+                    and not avtl_exact_character_query
                     and not bbcf_module.query_has_bbcf_notation(content_lower)
                 )
             )
@@ -2568,6 +2641,7 @@ async def _handle_message(message):
                     and not bbcf_exact_character_query
                     and not cotw_exact_character_query
                     and not third_strike_exact_character_query
+                    and not avtl_exact_character_query
                 )
             )
         )
@@ -2687,6 +2761,19 @@ async def _handle_message(message):
             await message.reply(cotw_payload.get("data", "Please specify which COTW move you mean."))
         else:
             _record_frame_data_ids(await cotw_module.send_frame_response(message, cotw_rows))
+        return
+
+    if (
+        frame_command_is_addressed
+        and avtl_route_allowed
+        and not avtl_lookup_intent
+        and allow_implied_frame_routing
+        and (avtl_rows or avtl_payload.get("needs_disambiguation"))
+    ):
+        if avtl_payload.get("needs_disambiguation"):
+            await message.reply(avtl_payload.get("data", "Please specify which AVTL move you mean."))
+        else:
+            _record_frame_data_ids(await avtl_module.send_frame_response(message, avtl_rows))
         return
 
     if (
@@ -3364,6 +3451,7 @@ register_slash_commands(
         "bbcf_module": bbcf_module,
         "ggacr_module": ggacr_module,
         "cotw_module": cotw_module,
+            "avtl_module": avtl_module,
         "third_strike_module": third_strike_module,
         "usfiv_module": usfiv_module,
         "mk1_module": mk1_module,

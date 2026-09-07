@@ -13,7 +13,7 @@ FUZZY_CHARACTER_STOP_WORDS = NOISE_WORDS | {
     "move", "moves", "notes", "overhead", "picture", "proration", "punch", "punish",
     "quiz", "range", "recovery", "risc", "route", "routes", "stance", "startup",
     "street", "stun", "super", "throw", "total",
-    "sf5", "sf6", "sfv", "ggst", "ggacr", "bbcf", "cotw", "mk1", "tuco",
+    "sf5", "sf6", "sfv", "ggst", "ggacr", "bbcf", "cotw", "mk1", "tuco", "avtl",
 }
 
 

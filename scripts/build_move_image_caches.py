@@ -5,6 +5,7 @@ Regenerates remote image, hitbox, and notes URL dicts for supported games.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -60,12 +61,8 @@ def write_python_cache(path: Path, variable_name: str, data: dict) -> None:
 
 
 def sf6_page_title(character_label: str) -> str:
-    page_overrides = {
-        "C.Viper": "C._Viper",
-        "E.Honda": "E._Honda",
-        "M.Bison": "M._Bison",
-    }
-    return f"Street_Fighter_6/{page_overrides.get(character_label, character_label.replace(' ', '_'))}"
+    # Wiki page names keep dotted abbreviations as-is ("C.Viper", not "C._Viper").
+    return f"Street_Fighter_6/{character_label.replace(' ', '_')}"
 
 
 def fetch_sf6_page_images(character_label: str, sleep_seconds: float) -> list[str]:

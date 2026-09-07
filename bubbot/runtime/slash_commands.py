@@ -209,6 +209,7 @@ def register_slash_commands(tree, deps):
     third_strike_module = deps["third_strike_module"]
     usfiv_module = deps["usfiv_module"]
     mk1_module = deps["mk1_module"]
+    avtl_module = deps["avtl_module"]
     combo_data_module = deps["combo_data_module"]
     menu_system = deps["menu_system"]
     buenavista_extension = deps.get("buenavista_extension")
@@ -263,6 +264,9 @@ def register_slash_commands(tree, deps):
 
     def usfiv_character_choice_values():
         return sorted(display for _char_key, display in character_choices({key: rows for key, rows in usfiv_module.USFIV_FRAME_DATA.items() if rows}))
+
+    def avtl_character_choice_values():
+        return sorted(display for _char_key, display in character_choices({key: rows for key, rows in avtl_module.AVTL_FRAME_DATA.items() if rows}))
 
     def mk1_character_choice_values():
         return sorted(
@@ -360,6 +364,12 @@ def register_slash_commands(tree, deps):
         if not char_key:
             return []
         return [label for _row, label in move_choices(usfiv_module.USFIV_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "version", "moveType")) if label]
+
+    def avtl_move_choice_values(char_name):
+        char_key = avtl_module.resolve_character_key(char_name)
+        if not char_key:
+            return []
+        return [label for _row, label in move_choices(avtl_module.AVTL_FRAME_DATA.get(char_key, []), label_fn=move_choice_label, key_fields=("moveName", "numCmd", "moveType")) if label]
 
     def mk1_move_choice_values(char_name):
         char_key = mk1_module.resolve_character_key(char_name)
@@ -536,6 +546,10 @@ def register_slash_commands(tree, deps):
         query = f"usf4 {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
         await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=usfiv_module.find_moves_in_text, embed_fn=usfiv_module.build_frame_embed, game="usf4", game_label="USF4", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
 
+    async def send_avtl_slash_frame(interaction, char_name, move_name):
+        query = f"avtl {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
+        await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=avtl_module.find_moves_in_text, embed_fn=avtl_module.build_frame_embed, game="avtl", game_label="AVTL", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
+
     async def send_mk1_slash_frame(interaction, char_name, move_name):
         query = f"mk1 {char_name} {strip_autocomplete_label(move_name)} framedata".strip().lower()
         await send_slash_frame_result(interaction, char_name=char_name, move_name=move_name, query=query, parse_fn=mk1_module.find_moves_in_text, embed_fn=mk1_module.build_frame_embed, game="mk1", game_label="MK1", disambiguation_predicate=lambda payload: payload.get("needs_disambiguation"))
@@ -632,6 +646,11 @@ def register_slash_commands(tree, deps):
     @discord.app_commands.describe(char_name="The character or kameo name", move_name="The move name or input")
     async def mk1(interaction: discord.Interaction, char_name: str, move_name: str):
         return await send_mk1_slash_frame(interaction, char_name, move_name)
+
+    @tree.command(name="avtl")
+    @discord.app_commands.describe(char_name="The character name", move_name="The move name or input")
+    async def avtl(interaction: discord.Interaction, char_name: str, move_name: str):
+        return await send_avtl_slash_frame(interaction, char_name, move_name)
 
     @tree.command(name="mk1-combos")
     @discord.app_commands.describe(
@@ -791,6 +810,16 @@ def register_slash_commands(tree, deps):
         if not interaction.namespace.char_name:
             return slash_choices([])
         return slash_choices(autocomplete_values(current, mk1_move_choice_values(interaction.namespace.char_name)))
+
+    @avtl.autocomplete("char_name")
+    async def avtl_char_autocomplete(interaction: discord.Interaction, current: str):
+        return slash_choices(autocomplete_values(current, avtl_character_choice_values()))
+
+    @avtl.autocomplete("move_name")
+    async def avtl_move_autocomplete(interaction: discord.Interaction, current: str):
+        if not interaction.namespace.char_name:
+            return slash_choices([])
+        return slash_choices(autocomplete_values(current, avtl_move_choice_values(interaction.namespace.char_name)))
 
     @mk1_combos.autocomplete("char_name")
     async def mk1_combo_char_autocomplete(interaction: discord.Interaction, current: str):

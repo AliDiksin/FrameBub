@@ -75,6 +75,7 @@ FRAME_DATA_SOURCE_KEYS: dict[str, str] = {
     "cotw": "dreamcancel",
     "bbcf": "dustloop",
     "third_strike": "supercombo",
+    "avtl": "supercombo",
 }
 
 ADDITIONAL_FRAME_DATA_SOURCE_KEYS: dict[str, tuple[str, ...]] = {
