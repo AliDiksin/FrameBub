@@ -50,6 +50,9 @@ GGST_CHARACTER_ALIASES = {
     "ram": "ramlethal",
     "ramlethal": "ramlethal",
     "ramlethal valentine": "ramlethal",
+    "robo-ky": "robo-ky",
+    "robo ky": "robo-ky",
+    "roboky": "robo-ky",
     "sin": "sin",
     "sin kiske": "sin",
     "slayer": "slayer",
@@ -169,6 +172,10 @@ GOLDLEWIS_SECURITY_STATE_SHEETS = {
 }
 
 GGST_CHARACTER_STATE_SHEETS = {
+    "robo-ky": {
+        "Robo-KyL2": ("level_2", "Level 2"),
+        "Robo-KyL3": ("level_3", "Level 3"),
+    },
     "bedman": {
         "BedmanInstall": ("install", "Error 6E"),
     },
