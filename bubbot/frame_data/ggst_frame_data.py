@@ -309,6 +309,21 @@ def extract_goldlewis_security_state(query):
     return state_key, cleaned
 
 
+def extract_roboky_level_state(query):
+    text = str(query or "").lower()
+    state_key = None
+
+    if re.search(r"\b(?:heat\s*)?(?:level|lvl|lv)\s*3\b", text):
+        state_key = "level_3"
+    elif re.search(r"\b(?:heat\s*)?(?:level|lvl|lv)\s*2\b", text):
+        state_key = "level_2"
+
+    cleaned = text
+    cleaned = re.sub(r"\b(?:heat\s*)?(?:level|lvl|lv)\s*[23]\b", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return state_key, cleaned
+
+
 def extract_ky_dragon_install_state(query):
     text = str(query or "").lower()
     state_key = "dragon_install" if re.search(r"\b(?:dragon\s*install|di)\b", text) else None
@@ -718,6 +733,8 @@ def find_comparison_matching_rows(char_key, move_text):
     query_text = str(move_text or "")
     if char_key == "nagoriyuki":
         state_key, query_text = extract_nagoriyuki_blood_state(query_text)
+    elif char_key == "robo-ky":
+        state_key, query_text = extract_roboky_level_state(query_text)
     elif char_key == "goldlewis":
         state_key, query_text = extract_goldlewis_security_state(query_text)
     elif char_key == "ky":
@@ -804,6 +821,8 @@ def find_moves_in_text(text):
         state_key = None
         if char_key == "nagoriyuki":
             state_key, move_text = extract_nagoriyuki_blood_state(move_text)
+        elif char_key == "robo-ky":
+            state_key, move_text = extract_roboky_level_state(move_text)
         elif char_key == "goldlewis":
             state_key, move_text = extract_goldlewis_security_state(move_text)
         elif char_key == "ky":

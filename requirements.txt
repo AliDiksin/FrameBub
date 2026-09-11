@@ -9,5 +9,6 @@ openwakeword>=0.6.0,<0.7; platform_system != "Windows"
 onnxruntime>=1.16.0; platform_system != "Windows"
 pandas
 odfpy
+openpyxl
 beautifulsoup4
 Pillow
