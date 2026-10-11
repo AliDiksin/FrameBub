@@ -154,7 +154,7 @@ def correct_alias_typos(text, *alias_maps, min_word_len=4, cutoff=0.8, ambiguity
 
 
 QUERY_TERM_ALIASES = (
-    ("framedata", ("frame data", "framedata")),
+    ("framedata", ("frame data", "framedata", "description", "desc")),
     ("gif", ("gif", "gifs", "hit box", "hit boxes", "hitbox", "hitboxes", "image", "images", "picture", "pictures")),
     ("notes", ("note", "notes")),
     ("startup", ("start up", "startup", "how fast", "how quick", "speed of")),
@@ -212,6 +212,10 @@ _QUERY_TERM_TYPO_WORDS = {
         or (word.endswith("es") and word[:-2] in _QUERY_TERM_TYPO_WORDS)
     )
 }
+# Plain-English synonyms for "frame data" stay exact-only: fuzzy matching would
+# rewrite unrelated vocabulary such as "deception".
+_QUERY_TERM_EXACT_ONLY_WORDS = {"description", "desc"}
+_QUERY_TERM_TYPO_WORDS -= _QUERY_TERM_EXACT_ONLY_WORDS
 _QUERY_TERM_TYPO_ALIASES = {word: word for word in _QUERY_TERM_TYPO_WORDS}
 _STRIPPABLE_QUERY_TERMS = sorted({canonical for canonical, _aliases in QUERY_TERM_ALIASES}, key=len, reverse=True)
 _QUERY_TERM_PATTERN = re.compile(

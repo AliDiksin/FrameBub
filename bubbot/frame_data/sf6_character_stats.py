@@ -221,6 +221,7 @@ def parse_stats_intent(
         and not gif_query
         and (not explicit_move_attempt or stats_focused)
         and (not wants_frame_data or stats_focused)
+        and not (move_results_found and stat_keys is None)
     )
     return StatsIntent(True, tuple(mentioned_chars), stat_keys, stats_only)
 

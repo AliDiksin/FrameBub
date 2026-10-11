@@ -63,6 +63,9 @@ def find_moves_in_text(deps, text):
     """Extract character/move mentions and return context payload with mode."""
     found_data = []
     text_lower = normalize_query_terms(strip_discord_mentions(text).lower())
+    # Shared typo normalization rewrites "stats" to "start"; SF6 has no bare
+    # "start" move wording, so restore it for the stats-aware matching below.
+    text_lower = re.sub(r"\bstart\b", "stats", text_lower)
     charge_button_query = query_has_charge_button_notation(text_lower)
     text_lower = normalize_charge_button_notation(text_lower)
     text_lower = normalize_charge_up_motion_notation(text_lower)
@@ -270,7 +273,7 @@ def find_moves_in_text(deps, text):
         "versus",
     ]
     punish_keywords = ["punish", "punishable", "can i punish", "is it punishable"]
-    target_combo_query = bool(re.search(r"\b(tc|target\s+combo|targetcombo)\b", text_lower))
+    target_combo_query = bool(re.search(r"\b(?:tc|target\s+combo|targetcombo|[1-9][0-9]*[a-z]{1,3}\s*(?:,|~|>|->)\s*(?:[1-9][0-9]*[a-z]{1,3}|[a-z]{1,3}))\b", text_lower))
     special_grab_query = bool(re.search(r"\b(command\s+grab|spd|piledriver|typhoon)\b", text_lower))
     super_level_query = bool(
         re.search(
@@ -472,7 +475,7 @@ def find_moves_in_text(deps, text):
 
         def row_matches_query_move_terms(row):
             ignored_tokens = {
-                "framedata", "frame", "frames", "data", "gif", "gifs", "hitbox", "hitboxes",
+                "framedata", "frame", "frames", "data", "stats", "stat", "gif", "gifs", "hitbox", "hitboxes",
                 "light", "medium", "heavy", "l", "m", "h",
                 "lp", "mp", "hp", "lk", "mk", "hk", "pp", "kk",
                 "od", "ex", "charged", "hold", "held",
@@ -1023,7 +1026,7 @@ def find_moves_in_text(deps, text):
         for pattern, token in charge_patterns:
             if re.search(pattern, text_lower) and token not in extra_inputs:
                 extra_inputs.append(token)
-        combo_text = text_lower.replace("->", ">")
+        combo_text = text_lower.replace("->", ">").replace("~", ">")
         tc_selected_combos = set()
         tc_base_tokens = set(re.findall(r"\b[1-9][0-9]*[a-z]{1,3}\b", text_lower))
         tc_pair_candidates = set()
@@ -1296,6 +1299,14 @@ def find_moves_in_text(deps, text):
                 normalized_char = normalize_char_name(char)
                 if normalized_char:
                     char_tokens.add(normalized_char)
+                    # A character may be named by an alias ("gief" for Zangief); only
+                    # strip aliases the user actually typed so move words survive.
+                    for alias, canonical in CHARACTER_ALIASES.items():
+                        if normalize_char_name(canonical) != normalized_char:
+                            continue
+                        alias_tokens = re.findall(r"[a-z0-9]+", alias.lower())
+                        if alias_tokens and tokens_in_text(alias_tokens):
+                            char_tokens.update(alias_tokens)
             residual_tokens = [
                 tok for tok in text_tokens
                 if tok not in move_query_stop_tokens and tok not in char_tokens
@@ -1692,7 +1703,7 @@ def find_moves_in_text(deps, text):
                     filtered_results.append(row)
                 results = filtered_results
 
-    if query_has_explicit_strength and len(mentioned_chars) == 1 and not wants_comparison:
+    if query_has_explicit_strength and len(mentioned_chars) == 1 and not wants_comparison and not target_combo_query:
         resolved_row = resolved_query_rows.get(mentioned_chars[0])
         if (
             resolved_row

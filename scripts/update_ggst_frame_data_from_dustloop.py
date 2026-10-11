@@ -376,7 +376,8 @@ def new_target_row_from_source(
 
 def rebuild_move_sheet(
     df: pd.DataFrame, source_rows: list[pd.Series], sheet_name: str
-) -> tuple[pd.DataFrame, int, int]:
+) -> tuple[pd.DataFrame, int, list[str]]:
+    """Rebuild a sheet from Dustloop rows; workbook rows Dustloop no longer lists are preserved in place."""
     existing_by_key: dict[str, list[int]] = defaultdict(list)
     state = sheet_state(sheet_name)
     for row_index, row in df.iterrows():
@@ -386,6 +387,7 @@ def rebuild_move_sheet(
 
     used_existing: set[int] = set()
     records: list[dict[str, Any]] = []
+    record_by_old_position: dict[int, dict[str, Any]] = {}
     matched = 0
     for source_row in source_rows:
         source_keys = []
@@ -406,8 +408,26 @@ def rebuild_move_sheet(
         if existing_position is not None:
             used_existing.add(existing_position)
             matched += 1
-        records.append(new_target_row_from_source(source_row, list(df.columns), sheet_name, existing_row))
-    return pd.DataFrame(records, columns=df.columns), matched, len(df) - len(used_existing)
+        record = new_target_row_from_source(source_row, list(df.columns), sheet_name, existing_row)
+        records.append(record)
+        if existing_position is not None:
+            record_by_old_position[existing_position] = record
+
+    # A rescrape must never drop moves (for example I-No's K Leap/S Leap, which Dustloop's
+    # Data page currently omits), so unmatched workbook rows stay, right after the nearest
+    # preceding row that was matched.
+    preserved: list[str] = []
+    anchor: dict[str, Any] | None = None
+    for old_position, old_row in df.iterrows():
+        if old_position in record_by_old_position:
+            anchor = record_by_old_position[old_position]
+            continue
+        kept = {column: old_row.get(column, "") for column in df.columns}
+        insert_at = 0 if anchor is None else next(i for i, r in enumerate(records) if r is anchor) + 1
+        records.insert(insert_at, kept)
+        anchor = kept
+        preserved.append(f"{blank_to_empty(old_row.get('numCmd'))} ({blank_to_empty(old_row.get('moveName'))})")
+    return pd.DataFrame(records, columns=df.columns), matched, preserved
 
 
 def main() -> None:
@@ -418,6 +438,7 @@ def main() -> None:
     target_book = pd.ExcelFile(TARGET, engine="odf")
     output_sheets: dict[str, pd.DataFrame] = {}
     report_rows: list[dict[str, Any]] = []
+    preserved_moves: list[str] = []
 
     for sheet_name in target_book.sheet_names:
         df = pd.read_excel(target_book, sheet_name=sheet_name, engine="odf")
@@ -427,7 +448,8 @@ def main() -> None:
             source_rows = source_rows_for_sheet(source_moves, character, sheet_name)
             if not source_rows:
                 raise RuntimeError(f"No live source rows map to {sheet_name}")
-            updated, matched, removed = rebuild_move_sheet(df, source_rows, sheet_name)
+            updated, matched, preserved = rebuild_move_sheet(df, source_rows, sheet_name)
+            preserved_moves.extend(f"{sheet_name}: {move}" for move in preserved)
             output_sheets[sheet_name] = updated
             report_rows.append(
                 {
@@ -435,7 +457,7 @@ def main() -> None:
                     "old_rows": len(df),
                     "new_rows": len(updated),
                     "metadata_matches": matched,
-                    "removed_old_rows": removed,
+                    "preserved_old_rows": len(preserved),
                 }
             )
         else:
@@ -443,7 +465,7 @@ def main() -> None:
 
     target_sheet_names = list(target_book.sheet_names)
     target_book.close()
-    generated_rows = sum(row["new_rows"] for row in report_rows)
+    generated_rows = sum(row["new_rows"] - row["preserved_old_rows"] for row in report_rows)
     if generated_rows != len(source_moves):
         raise RuntimeError(f"Mapped {generated_rows} workbook rows from {len(source_moves)} live source rows")
 
@@ -469,7 +491,9 @@ def main() -> None:
     print(f"Backup retained at {BACKUP}")
     print(f"Updated {TARGET} atomically from {len(source_moves)} live Dustloop move templates")
     print(f"Metadata matches: {int(report['metadata_matches'].sum())}")
-    print(f"Removed stale/duplicate rows: {int(report['removed_old_rows'].sum())}")
+    print(f"Preserved workbook rows missing from Dustloop: {len(preserved_moves)}")
+    for move in preserved_moves:
+        print(f"  kept {move}")
     print("Largest count changes:")
     report["delta"] = report["new_rows"] - report["old_rows"]
     print(report.reindex(report["delta"].abs().sort_values(ascending=False).index).head(10).to_string(index=False))

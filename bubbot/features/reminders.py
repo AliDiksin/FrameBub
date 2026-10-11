@@ -1,4 +1,4 @@
-"""Natural-language reminders: timezone parsing, pending follow-ups, and background fire loop."""
+"""Natural-language reminders with durable schedules and session-lifetime edit controls."""
 
 import asyncio
 import datetime
@@ -8,11 +8,12 @@ from datetime import date
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+import discord
+
 from bubbot.features import reminder_store
 
 # Timezone aliases and parsing regex
 REMINDER_POLL_SECONDS = int(os.getenv("REMINDER_POLL_SECONDS", "10"))
-REMINDER_PENDING_TTL_SECONDS = int(os.getenv("REMINDER_PENDING_TTL_SECONDS", "600"))
 REMINDER_RETRY_SECONDS = max(1, int(os.getenv("REMINDER_RETRY_SECONDS", "300")))
 TZ_ALIASES = {
     "utc": "UTC",
@@ -30,25 +31,14 @@ TZ_ALIASES = {
     "bst": "Europe/London",
     "ist": "Asia/Kolkata",
 }
-TZ_ABBREV_PATTERN = "|".join(
-    sorted((re.escape(key) for key in TZ_ALIASES.keys()), key=len, reverse=True)
+MONTHS = {name: number for number, name in enumerate(
+    "january february march april may june july august september october november december".split(), 1
+)}
+DATE_PATTERN = (
+    rf"(?:today|tomorrow|\d{{4}}-\d{{2}}-\d{{2}}|(?:(?:{'|'.join(MONTHS)})\s+\d{{1,2}}"
+    rf"|\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{'|'.join(MONTHS)}))(?:,?\s+\d{{4}})?)"
 )
-if TZ_ABBREV_PATTERN:
-    tz_pattern = (
-        rf"(?:utc(?:[+-]\d{{1,2}}(?::?\d{{2}})?)?"
-        rf"|gmt(?:[+-]\d{{1,2}}(?::?\d{{2}})?)?"
-        rf"|[A-Za-z]+/[A-Za-z_]+"
-        rf"|{TZ_ABBREV_PATTERN}"
-        rf"|[+-]\d{{1,2}}(?::?\d{{2}})?)"
-    )
-else:
-    tz_pattern = (
-        r"(?:utc(?:[+-]\d{1,2}(?::?\d{2})?)?"
-        r"|gmt(?:[+-]\d{1,2}(?::?\d{2})?)?"
-        r"|[A-Za-z]+/[A-Za-z_]+"
-        r"|[+-]\d{1,2}(?::?\d{2})?)"
-    )
-TZ_REGEX = re.compile(rf"(?<!\w){tz_pattern}(?!\w)", re.IGNORECASE)
+TIME_PATTERN = r"\d{1,2}(?::\d{2})?\s*(?:am|pm)?"
 
 
 def message_directly_mentions_user(user, message):
@@ -60,7 +50,7 @@ def message_directly_mentions_user(user, message):
     return user_id in (getattr(message, "raw_mentions", []) or [])
 
 
-# ReminderManager: parse requests, hold pending tz, poll and fire
+# ReminderManager: parse requests, persist, poll and fire
 class ReminderManager:
     def __init__(self, client, truncate_message_func, build_reminder_ack_text, build_reminder_fire_text):
         self.client = client
@@ -68,7 +58,7 @@ class ReminderManager:
         self.build_reminder_ack_text = build_reminder_ack_text
         self.build_reminder_fire_text = build_reminder_fire_text
         self.reminders = []
-        self.pending_reminders = {}
+        self._delivering = set()
         self._lock = asyncio.Lock()
         self._loaded = False
 
@@ -127,83 +117,87 @@ class ReminderManager:
         return targets
 
     def parse_reminder_request(self, text, allow_missing_tz=False):
-        text = text.strip()
-        if not text:
-            return None, None, None, None, "I couldn't parse that. Try: 'remind me to <task> tomorrow at 2:30pm GMT'.", None
-
-        time_match = re.search(r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", text, re.IGNORECASE)
-        if not time_match:
-            return None, None, None, None, "I couldn't parse the time. Use: 'at 2:30pm' or 'at 14:30'.", None
-
-        hour = int(time_match.group(1))
-        minute = int(time_match.group(2) or 0)
-        ampm = (time_match.group(3) or "").lower()
-        if ampm:
-            if hour == 12:
-                hour = 0
-            if ampm == "pm":
-                hour += 12
-        if hour > 23 or minute > 59:
-            return None, None, None, None, "Time is invalid. Use formats like 2:30pm or 14:30.", None
-
-        rel_match = re.search(r"\b(today|tomorrow)\b", text, re.IGNORECASE)
-        rel = rel_match.group(1).lower() if rel_match else None
-        date_match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", text)
-        date_str = date_match.group(1) if date_match else None
-
-        task = ""
-        after_time = text[time_match.end():]
-        to_after_time = re.search(r"\bto\s+(.+)$", after_time, re.IGNORECASE)
-        if to_after_time:
-            task = to_after_time.group(1).strip()
-        if not task:
-            task = re.sub(r"^\s*remind(?:\s+me)?\s+(?:to\s+)?", "", text, flags=re.IGNORECASE).strip()
-            task = re.sub(r"\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b.*$", "", task, flags=re.IGNORECASE).strip()
-        task = re.sub(r"\b(?:today|tomorrow)\b\s*$", "", task, flags=re.IGNORECASE).strip(" ,.-")
-        task = re.sub(r"\b\d{4}-\d{2}-\d{2}\b\s*$", "", task).strip(" ,.-")
-        if not task:
-            return None, None, None, None, "I couldn't find the task. Try: 'remind me to <task> at 2:30pm GMT'.", None
-
-        tz_match = TZ_REGEX.search(text)
-        if not tz_match:
-            if allow_missing_tz:
-                pending = {
-                    "task": task,
-                    "hour": hour,
-                    "minute": minute,
-                    "rel": rel,
-                    "date_str": date_str,
-                }
-                return None, None, None, None, None, pending
-            return None, None, None, None, "Please include a timezone (e.g., GMT, UTC+2, America/New_York).", None
-        tz_str = tz_match.group(0)
-        tzinfo, tz_label = self.parse_timezone(tz_str)
-        if not tzinfo:
-            return None, None, None, None, "Unknown timezone. Use GMT/UTC, UTC+2, or IANA like America/New_York.", None
-
-        now_tz = datetime.datetime.now(tzinfo)
-        if date_str:
-            reminder_date = date.fromisoformat(date_str)
-        elif rel == "tomorrow":
-            reminder_date = (now_tz + datetime.timedelta(days=1)).date()
-        else:
-            reminder_date = now_tz.date()
-
-        reminder_dt = datetime.datetime(
-            reminder_date.year,
-            reminder_date.month,
-            reminder_date.day,
-            hour,
-            minute,
-            tzinfo=tzinfo,
-        )
-        if reminder_dt < now_tz:
-            if not date_str and rel is None:
-                reminder_dt = reminder_dt + datetime.timedelta(days=1)
-            else:
-                return None, None, None, None, "That time has already passed. Please choose a future time.", None
-
-        return task, reminder_dt, reminder_dt.astimezone(datetime.timezone.utc), tz_label, None, None
+        # Keep the six-value interface; the legacy pending slot is always None.
+        body = re.sub(r"^\s*remind(?:\s+me)?(?:\s+to)?(?:\s+|$)", "", text.strip(), flags=re.I)
+        start = re.search(rf"\b(?:{DATE_PATTERN}|at\b|on\b|(?<![\w:+-])\d{{1,2}}(?::\d{{2}}(?:\s*(?:am|pm))?|\s*(?:am|pm))\b)", body, re.I)
+        task, schedule = (body[:start.start()], body[start.start():]) if start else (body, "")
+        after = re.search(r"\s+to\s+(.+)$", schedule, re.I)
+        if after:
+            task, schedule = after.group(1), schedule[:after.start()]
+        schedule = re.sub(r"^on\s+", "", schedule, flags=re.I)
+        task = re.sub(r"\s+on\s*$", "", task).strip(" ,.-")
+        try:
+            if not task:
+                raise ValueError("I couldn't find the task. Try: 'remind me to practice on september 16'.")
+            date_match = re.search(rf"\b(?:on\s+)?({DATE_PATTERN})\b", schedule, re.I)
+            date_text = date_match.group(1).lower() if date_match else ""
+            if date_match:
+                schedule = schedule[:date_match.start()] + schedule[date_match.end():]
+            time_match = re.search(r"(?<![\w:+-])(?:at\s+|(?=\d{1,2}(?::\d{2}(?:\s*(?:am|pm))?|\s*(?:am|pm))\b))(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", schedule, re.I)
+            hour, minute = 0, 0
+            if time_match:
+                hour, minute = int(time_match[1]), int(time_match[2] or 0)
+                ampm = (time_match[3] or "").lower()
+                if minute > 59 or (ampm and not 1 <= hour <= 12) or (not ampm and hour > 23):
+                    raise ValueError("Time is invalid. Use formats like 2:30pm or 14:30.")
+                if ampm:
+                    hour = hour % 12 + (12 if ampm == "pm" else 0)
+                schedule = schedule[:time_match.start()] + schedule[time_match.end():]
+            elif re.search(r"\bat\b", schedule, re.I):
+                raise ValueError("Time is invalid. Use formats like 2:30pm or 14:30.")
+            # Parse the entire remaining zone, never a valid prefix of an invalid zone.
+            tzinfo, tz_label = self.parse_timezone(schedule.strip(" ,.") or "UTC")
+            if tzinfo is None:
+                raise ValueError("Unknown timezone or schedule. Use UTC, UTC+2, or an IANA zone like America/New_York.")
+            now = datetime.datetime.now(tzinfo)
+            yearless = False
+            try:
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_text):
+                    day = date.fromisoformat(date_text)
+                elif date_text in ("", "today", "tomorrow"):
+                    day = now.date() + datetime.timedelta(days=date_text == "tomorrow")
+                else:
+                    parts = date_text.replace(",", "").split()
+                    if parts[0][0].isdigit():
+                        parts = [part for part in parts if part != "of"]
+                        parts[:2] = [parts[1], re.sub(r"(?:st|nd|rd|th)$", "", parts[0])]
+                    month, day_number = MONTHS[parts[0]], int(parts[1])
+                    yearless = len(parts) == 2
+                    # Leap-day requests without a year advance to the next leap year.
+                    date(2000, month, day_number)
+                    year = int(parts[2]) if not yearless else now.year
+                    while True:
+                        try:
+                            day = date(year, month, day_number)
+                        except ValueError:
+                            if not yearless or year >= 9999:
+                                raise
+                            year += 1
+                            continue
+                        if not yearless or datetime.datetime.combine(day, datetime.time(hour, minute)) > now.replace(tzinfo=None):
+                            break
+                        year += 1
+                local = datetime.datetime.combine(day, datetime.time(hour, minute))
+                if not date_text and local <= now.replace(tzinfo=None):
+                    local += datetime.timedelta(days=1)
+            except (ValueError, OverflowError):
+                raise ValueError("That date is invalid. Use a real date such as september 16, 2027 or 2027-09-16.") from None
+            # A UTC round trip rejects spring gaps; two distinct instants identify fall folds.
+            candidates = set()
+            for fold in (0, 1):
+                utc = local.replace(tzinfo=tzinfo, fold=fold).astimezone(datetime.timezone.utc)
+                if utc.astimezone(tzinfo).replace(tzinfo=None) == local:
+                    candidates.add(utc)
+            if not candidates:
+                raise ValueError("That local time does not exist because of daylight saving time. Choose another time.")
+            if len(candidates) > 1:
+                raise ValueError("That local time is ambiguous because of daylight saving time. Specify a UTC offset, such as UTC-04:00 or UTC-05:00.")
+            reminder_utc = candidates.pop()
+            if reminder_utc <= now.astimezone(datetime.timezone.utc):
+                raise ValueError("That time has already passed. Please choose a future time.")
+            return task, reminder_utc.astimezone(tzinfo), reminder_utc, tz_label, None, None
+        except (ValueError, OverflowError) as error:
+            return None, None, None, None, str(error), None
 
     async def load(self):
         if self._loaded:
@@ -218,9 +212,16 @@ class ReminderManager:
             return len(self.reminders)
 
     async def _persist_locked(self):
-        await asyncio.to_thread(reminder_store.save_records, list(self.reminders))
+        write = asyncio.create_task(asyncio.to_thread(reminder_store.save_records, list(self.reminders)))
+        try:
+            await asyncio.shield(write)
+        except asyncio.CancelledError:
+            # Do not release the lock while the disk writer still uses these records.
+            await write
+            raise
 
     async def add_reminder(self, *, user_id, channel_id, task, when_utc, notify_user_ids):
+        await self.load()
         when_utc = when_utc.replace(tzinfo=datetime.timezone.utc) if when_utc.tzinfo is None else when_utc
         target_ids = notify_user_ids or [user_id]
         record = {
@@ -243,6 +244,28 @@ class ReminderManager:
                 print(f"[reminders] save failed: {error}", flush=True)
                 return None
         return record
+
+    async def edit_reminder(self, reminder_id, user_id, when_utc):
+        async with self._lock:
+            record = next((item for item in self.reminders if item["id"] == reminder_id), None)
+            if record is None:
+                return "This reminder has already been delivered or is no longer available."
+            if record["user_id"] != user_id:
+                return "Only the person who created this reminder can edit it."
+            if reminder_id in self._delivering:
+                return "This reminder is being delivered and can no longer be edited."
+            if when_utc <= datetime.datetime.now(datetime.timezone.utc):
+                return "That time has already passed. Please choose a future time."
+            previous = dict(record)
+            record.update(when_utc=when_utc, attempts=0, next_attempt_utc=None)
+            try:
+                await self._persist_locked()
+            except Exception as error:
+                record.clear()
+                record.update(previous)
+                print(f"[reminders] edit save failed: {error}", flush=True)
+                return "I couldn't save that change. Your previous reminder is unchanged."
+        return None
 
     async def remove_reminder(self, reminder_id):
         async with self._lock:
@@ -321,129 +344,37 @@ class ReminderManager:
                 if item["when_utc"] <= now_utc and (item.get("next_attempt_utc") is None or item["next_attempt_utc"] <= now_utc)
             ]
             for reminder in due:
-                if await self._deliver(reminder):
-                    if not await self.remove_reminder(reminder["id"]):
-                        print(f"[reminders] delivered reminder retained after persistence failure id={reminder['id']}", flush=True)
-                elif not await self.mark_delivery_failed(reminder["id"]):
-                    print(f"[reminders] failed reminder retry state was not persisted id={reminder['id']}", flush=True)
+                # Recheck under the edit lock: a due-list entry may have been rescheduled.
+                async with self._lock:
+                    if (reminder not in self.reminders or reminder["id"] in self._delivering
+                            or reminder["when_utc"] > now_utc
+                            or (reminder.get("next_attempt_utc") is not None and reminder["next_attempt_utc"] > now_utc)):
+                        continue
+                    self._delivering.add(reminder["id"])
+                try:
+                    if await self._deliver(dict(reminder)):
+                        if not await self.remove_reminder(reminder["id"]):
+                            print(f"[reminders] delivered reminder retained after persistence failure id={reminder['id']}", flush=True)
+                    elif not await self.mark_delivery_failed(reminder["id"]):
+                        print(f"[reminders] failed reminder retry state was not persisted id={reminder['id']}", flush=True)
+                finally:
+                    self._delivering.discard(reminder["id"])
             await asyncio.sleep(REMINDER_POLL_SECONDS)
 
-    # Discord message path: new reminder, pending timezone reply, or ignore
+    # Discord message path: new reminder or ignore.
     async def handle_message(self, message, content_no_mentions, content_lower):
-        pending_key = (message.author.id, message.channel.id)
-        if pending_key in self.pending_reminders:
-            pending = self.pending_reminders[pending_key]
-            now_utc = datetime.datetime.now(datetime.timezone.utc)
-            if (now_utc - pending["created_at"]).total_seconds() > REMINDER_PENDING_TTL_SECONDS:
-                del self.pending_reminders[pending_key]
-                print(
-                    "Pending reminder expired: user_id="
-                    f"{message.author.id} channel_id={message.channel.id}",
-                    flush=True,
-                )
-            else:
-                if self.is_reminder_request_text(content_lower):
-                    del self.pending_reminders[pending_key]
-                else:
-                    tz_match = TZ_REGEX.search(content_no_mentions)
-                    if tz_match:
-                        tz_str = tz_match.group(0)
-                        tzinfo, tz_label = self.parse_timezone(tz_str)
-                        if not tzinfo:
-                            await message.reply("Unknown timezone. Use GMT/UTC, UTC+2, or IANA like America/New_York.")
-                            return True
-                        now_tz = datetime.datetime.now(tzinfo)
-                        if pending["date_str"]:
-                            reminder_date = date.fromisoformat(pending["date_str"])
-                        elif pending["rel"] == "tomorrow":
-                            reminder_date = (now_tz + datetime.timedelta(days=1)).date()
-                        else:
-                            reminder_date = now_tz.date()
-                        reminder_dt = datetime.datetime(
-                            reminder_date.year,
-                            reminder_date.month,
-                            reminder_date.day,
-                            pending["hour"],
-                            pending["minute"],
-                            tzinfo=tzinfo,
-                        )
-                        if reminder_dt < now_tz and pending["rel"] is None and pending["date_str"] is None:
-                            reminder_dt = reminder_dt + datetime.timedelta(days=1)
-                        elif reminder_dt < now_tz:
-                            await message.reply("That time has already passed. Please choose a future time.")
-                            return True
-                        reminder_utc = reminder_dt.astimezone(datetime.timezone.utc)
-                        notify_user_ids = self.get_reminder_target_user_ids(
-                            message,
-                            existing_ids=pending.get("notify_user_ids"),
-                        )
-                        saved = await self.add_reminder(
-                            user_id=message.author.id,
-                            channel_id=message.channel.id,
-                            task=pending["task"],
-                            when_utc=reminder_utc,
-                            notify_user_ids=notify_user_ids,
-                        )
-                        if saved is None:
-                            await message.reply("I couldn't save that reminder. Please try again.")
-                            return True
-                        print(
-                            "Pending reminder scheduled: user_id="
-                            f"{message.author.id} channel_id={message.channel.id} "
-                            f"when_utc={reminder_utc.isoformat()} tz={tz_label} targets={notify_user_ids}",
-                            flush=True,
-                        )
-                        del self.pending_reminders[pending_key]
-                        reply_text = await self.build_reminder_ack_text(
-                            pending["task"],
-                            reminder_dt,
-                            tz_label,
-                            message.guild,
-                            self.truncate_message,
-                        )
-                        await message.reply(reply_text)
-                        return True
-
         if message_directly_mentions_user(self.client.user, message) and self.is_reminder_request_text(content_lower):
-            notify_user_ids = self.get_reminder_target_user_ids(message)
-            task, reminder_dt, reminder_utc, tz_label, error, pending = self.parse_reminder_request(
-                content_no_mentions,
-                allow_missing_tz=True,
-            )
-            if pending:
-                self.pending_reminders[pending_key] = {
-                    **pending,
-                    "notify_user_ids": notify_user_ids,
-                    "created_at": datetime.datetime.now(datetime.timezone.utc),
-                }
-                print(
-                    "Pending reminder created: user_id="
-                    f"{message.author.id} channel_id={message.channel.id} "
-                    f"task={pending['task']} time={pending['hour']:02d}:{pending['minute']:02d} "
-                    f"rel={pending['rel']} date={pending['date_str']} targets={notify_user_ids}",
-                    flush=True,
-                )
-                await message.reply("Please include a timezone (e.g., GMT, UTC+2, America/New_York).")
-                return True
+            task, reminder_dt, reminder_utc, tz_label, error, _ = self.parse_reminder_request(content_no_mentions)
             if error:
                 await message.reply(error)
                 return True
             saved = await self.add_reminder(
-                user_id=message.author.id,
-                channel_id=message.channel.id,
-                task=task,
-                when_utc=reminder_utc,
-                notify_user_ids=notify_user_ids,
+                user_id=message.author.id, channel_id=message.channel.id, task=task,
+                when_utc=reminder_utc, notify_user_ids=self.get_reminder_target_user_ids(message),
             )
             if saved is None:
                 await message.reply("I couldn't save that reminder. Please try again.")
                 return True
-            print(
-                "Reminder scheduled: user_id="
-                f"{message.author.id} channel_id={message.channel.id} "
-                f"when_utc={reminder_utc.isoformat()} tz={tz_label} targets={notify_user_ids}",
-                flush=True,
-            )
             reply_text = await self.build_reminder_ack_text(
                 task,
                 reminder_dt,
@@ -451,10 +382,82 @@ class ReminderManager:
                 message.guild,
                 self.truncate_message,
             )
-            await message.reply(reply_text)
+            await message.reply(reply_text, view=ReminderEditView(self, saved, tz_label))
             return True
 
         return False
+
+
+class ReminderEditView(discord.ui.View):
+    def __init__(self, manager, record, tz_label):
+        super().__init__(timeout=None)
+        self.manager = manager
+        self.record = record
+        self.tz_label = tz_label
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.record["user_id"]:
+            await interaction.response.send_message("Only the person who created this reminder can edit it.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Edit reminder", style=discord.ButtonStyle.secondary)
+    async def edit(self, interaction, button):
+        if self.record not in self.manager.reminders or self.record["id"] in self.manager._delivering:
+            await interaction.response.send_message("This reminder is being delivered or is no longer available.", ephemeral=True)
+            return
+        await interaction.response.send_modal(ReminderEditModal(self))
+
+
+class ReminderEditModal(discord.ui.Modal, title="Edit reminder"):
+    date_input = discord.ui.TextInput(label="Date", placeholder="september 16, 2027 / 2027-09-16 / tomorrow", max_length=40)
+    time_input = discord.ui.TextInput(label="Time (blank = midnight)", required=False, max_length=20)
+    timezone_input = discord.ui.TextInput(label="Timezone (blank = UTC)", required=False, max_length=80)
+
+    def __init__(self, view):
+        super().__init__()
+        self.reminder_view = view
+        tzinfo, _ = view.manager.parse_timezone(view.tz_label)
+        local = view.record["when_utc"].astimezone(tzinfo)
+        self.date_input.default = local.date().isoformat()
+        self.time_input.default = local.strftime("%H:%M")
+        self.timezone_input.default = view.tz_label
+
+    async def on_submit(self, interaction):
+        view = self.reminder_view
+        if not await view.interaction_check(interaction):
+            return
+        date_text, time_text, zone = (str(field).strip() for field in (self.date_input, self.time_input, self.timezone_input))
+        if not re.fullmatch(DATE_PATTERN, date_text, re.I):
+            await interaction.response.send_message("Date is invalid. Use september 16, 2027, 2027-09-16, today, or tomorrow.", ephemeral=True)
+            return
+        if time_text and not re.fullmatch(TIME_PATTERN, time_text, re.I):
+            await interaction.response.send_message("Time is invalid. Use 2:30pm or 14:30.", ephemeral=True)
+            return
+        if view.manager.parse_timezone(zone or "UTC")[0] is None:
+            await interaction.response.send_message("Unknown timezone. Use UTC, UTC+2, or America/New_York.", ephemeral=True)
+            return
+        _, local, utc, label, error, _ = view.manager.parse_reminder_request(
+            f"remind me to task {date_text} at {time_text or '00:00'} {zone or 'UTC'}"
+        )
+        if error:
+            await interaction.response.send_message(error, ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True)
+        error = await view.manager.edit_reminder(view.record["id"], interaction.user.id, utc)
+        if error:
+            await interaction.followup.send(error, ephemeral=True)
+            return
+        view.tz_label = label
+        confirmation = f"Reminder rescheduled for {local:%Y-%m-%d %H:%M} {label} (<t:{int(utc.timestamp())}:F>)."
+        # The durable edit is complete even if Discord cannot update the old message.
+        try:
+            task = view.manager.truncate_message(view.record["task"], 140)
+            await interaction.message.edit(content=f"{task}\n{confirmation}", view=view,
+                                           allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            confirmation += " I couldn't update the original confirmation message."
+        await interaction.followup.send(confirmation, ephemeral=True)
 
 
 async def datetime_async_sleep(seconds):
